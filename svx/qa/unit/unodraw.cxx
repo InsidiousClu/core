@@ -11,7 +11,6 @@
 
 #include <com/sun/star/drawing/GraphicExportFilter.hpp>
 #include <com/sun/star/drawing/XDrawPageSupplier.hpp>
-#include <com/sun/star/frame/Desktop.hpp>
 #include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/awt/XControlModel.hpp>
@@ -23,8 +22,7 @@
 
 #include <comphelper/processfactory.hxx>
 #include <comphelper/propertysequence.hxx>
-#include <test/bootstrapfixture.hxx>
-#include <unotest/macros_test.hxx>
+#include <test/unoapixml_test.hxx>
 #include <unotools/tempfile.hxx>
 #include <svx/unopage.hxx>
 #include <vcl/virdev.hxx>
@@ -32,7 +30,6 @@
 #include <drawinglayer/tools/primitive2dxmldump.hxx>
 #include <svx/sdr/contact/viewcontact.hxx>
 #include <svx/sdr/contact/viewobjectcontact.hxx>
-#include <test/xmltesttools.hxx>
 #include <unotools/streamwrap.hxx>
 #include <unotools/mediadescriptor.hxx>
 #include <vcl/filter/PngImageReader.hxx>
@@ -43,39 +40,20 @@ using namespace ::com::sun::star;
 
 namespace
 {
-constexpr OUStringLiteral DATA_DIRECTORY = u"/svx/qa/unit/data/";
-
 /// Tests for svx/source/unodraw/ code.
-class UnodrawTest : public test::BootstrapFixture, public unotest::MacrosTest, public XmlTestTools
+class UnodrawTest : public UnoApiXmlTest
 {
-protected:
-    uno::Reference<lang::XComponent> mxComponent;
-
 public:
-    void setUp() override;
-    void tearDown() override;
+    UnodrawTest()
+        : UnoApiXmlTest("svx/qa/unit/data/")
+    {
+    }
 };
-
-void UnodrawTest::setUp()
-{
-    test::BootstrapFixture::setUp();
-
-    mxDesktop.set(frame::Desktop::create(mxComponentContext));
-}
-
-void UnodrawTest::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    test::BootstrapFixture::tearDown();
-}
 
 CPPUNIT_TEST_FIXTURE(UnodrawTest, testWriterGraphicExport)
 {
     // Load a document with a Writer picture in it.
-    OUString aURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "unodraw-writer-image.odt";
-    mxComponent = loadFromDesktop(aURL);
+    loadFromURL(u"unodraw-writer-image.odt");
     uno::Reference<drawing::XDrawPageSupplier> xDrawPageSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XDrawPage> xDrawPage = xDrawPageSupplier->getDrawPage();
     uno::Reference<lang::XComponent> xShape(xDrawPage->getByIndex(0), uno::UNO_QUERY);
@@ -87,17 +65,15 @@ CPPUNIT_TEST_FIXTURE(UnodrawTest, testWriterGraphicExport)
     // picture.
     xExportFilter->setSourceDocument(xShape);
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
     uno::Sequence<beans::PropertyValue> aProperties(
-        comphelper::InitPropertySequence({ { "URL", uno::Any(aTempFile.GetURL()) },
+        comphelper::InitPropertySequence({ { "URL", uno::Any(maTempFile.GetURL()) },
                                            { "MediaType", uno::Any(OUString("image/jpeg")) } }));
     CPPUNIT_ASSERT(xExportFilter->filter(aProperties));
 }
 
 CPPUNIT_TEST_FIXTURE(UnodrawTest, testTdf93998)
 {
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY) + "tdf93998.odp");
+    loadFromURL(u"tdf93998.odp");
     uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
     CPPUNIT_ASSERT(xDrawPagesSupplier.is());
 

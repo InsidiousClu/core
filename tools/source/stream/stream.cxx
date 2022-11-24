@@ -26,12 +26,12 @@
 #include <memory>
 
 #include <string.h>
-#include <stdio.h>
 
 #include <o3tl/safeint.hxx>
 #include <osl/endian.h>
 #include <osl/diagnose.h>
 #include <rtl/strbuf.hxx>
+#include <rtl/string.hxx>
 #include <rtl/ustrbuf.hxx>
 #include <sal/log.hxx>
 #include <tools/long.hxx>
@@ -361,14 +361,19 @@ void SvStream::SetError( ErrCode nErrorCode )
 
 void SvStream::SetEndian( SvStreamEndian nNewFormat )
 {
-    m_nEndian = nNewFormat;
-    m_isSwap = false;
 #ifdef OSL_BIGENDIAN
-    if (m_nEndian == SvStreamEndian::LITTLE)
-        m_isSwap = true;
+    m_isSwap = nNewFormat == SvStreamEndian::LITTLE;
 #else
-    if (m_nEndian == SvStreamEndian::BIG)
-        m_isSwap = true;
+    m_isSwap = nNewFormat == SvStreamEndian::BIG;
+#endif
+}
+
+SvStreamEndian SvStream::GetEndian() const
+{
+#ifdef OSL_BIGENDIAN
+    return m_isSwap ? SvStreamEndian::LITTLE : SvStreamEndian::BIG;
+#else
+    return m_isSwap ? SvStreamEndian::BIG : SvStreamEndian::LITTLE;
 #endif
 }
 
@@ -712,10 +717,11 @@ bool SvStream::WriteUniOrByteChar( sal_Unicode ch, rtl_TextEncoding eDestCharSet
 
 void SvStream::StartWritingUnicodeText()
 {
+    m_isSwap = false; // Switch to no endian swapping
     // BOM, Byte Order Mark, U+FEFF, see
     // http://www.unicode.org/faq/utf_bom.html#BOM
     // Upon read: 0xfeff(-257) => no swap; 0xfffe(-2) => swap
-    writeNumberWithoutSwap(sal_uInt16(0xfeff)); // write native format
+    WriteUInt16(0xfeff);
 }
 
 void SvStream::StartReadingUnicodeText( rtl_TextEncoding eReadBomCharSet )
@@ -1355,17 +1361,15 @@ void SvStream::RefreshBuffer()
 
 SvStream& SvStream::WriteInt32AsString(sal_Int32 nInt32)
 {
-    char buffer[12];
-    std::size_t nLen = sprintf(buffer, "%" SAL_PRIdINT32, nInt32);
-    WriteBytes(buffer, nLen);
+    auto const buffer = OString::number(nInt32);
+    WriteBytes(buffer.getStr(), buffer.length);
     return *this;
 }
 
 SvStream& SvStream::WriteUInt32AsString(sal_uInt32 nUInt32)
 {
-    char buffer[11];
-    std::size_t nLen = sprintf(buffer, "%" SAL_PRIuUINT32, nUInt32);
-    WriteBytes(buffer, nLen);
+    auto const buffer = OString::number(nUInt32);
+    WriteBytes(buffer.getStr(), buffer.length);
     return *this;
 }
 

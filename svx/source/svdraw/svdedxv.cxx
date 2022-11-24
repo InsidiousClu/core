@@ -45,8 +45,11 @@
 #include <vcl/weld.hxx>
 #include <vcl/window.hxx>
 #include <comphelper/lok.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
 #include <drawinglayer/processor2d/baseprocessor2d.hxx>
+#include <drawinglayer/primitive2d/maskprimitive2d.hxx>
 #include <drawinglayer/processor2d/processor2dtools.hxx>
+#include <drawinglayer/primitive2d/PolyPolygonColorPrimitive2D.hxx>
 #include <editeng/outliner.hxx>
 #include <sal/log.hxx>
 #include <sdr/overlay/overlaytools.hxx>
@@ -388,6 +391,9 @@ void SdrObjEditView::ModelHasChanged()
 
 namespace
 {
+class TextEditFrameOverlayObject;
+class TextEditHighContrastOverlaySelection;
+
 /**
         Helper class to visualize the content of an active EditView as an
         OverlayObject. These objects work with Primitives and are handled
@@ -405,7 +411,9 @@ class TextEditOverlayObject : public sdr::overlay::OverlayObject
 {
 protected:
     /// local access to associated sdr::overlay::OverlaySelection
-    std::unique_ptr<sdr::overlay::OverlaySelection> mxOverlaySelection;
+    std::unique_ptr<sdr::overlay::OverlaySelection> mxOverlayTransparentSelection;
+    std::unique_ptr<TextEditHighContrastOverlaySelection> mxOverlayHighContrastSelection;
+    std::unique_ptr<TextEditFrameOverlayObject> mxOverlayFrame;
 
     /// local definition depends on active OutlinerView
     OutlinerView& mrOutlinerView;
@@ -418,23 +426,17 @@ protected:
     drawinglayer::primitive2d::Primitive2DContainer maTextPrimitives;
     drawinglayer::primitive2d::Primitive2DContainer maLastTextPrimitives;
 
-    /// bitfield
-    bool mbVisualizeSurroundingFrame : 1;
-
     // geometry creation for OverlayObject, can use local *Last* values
     virtual drawinglayer::primitive2d::Primitive2DContainer
     createOverlayObjectPrimitive2DSequence() override;
 
 public:
-    TextEditOverlayObject(const Color& rColor, OutlinerView& rOutlinerView,
-                          bool bVisualizeSurroundingFrame);
+    TextEditOverlayObject(const Color& rColor, OutlinerView& rOutlinerView);
     virtual ~TextEditOverlayObject() override;
 
-    // data read access
-    const sdr::overlay::OverlaySelection* getOverlaySelection() const
-    {
-        return mxOverlaySelection.get();
-    }
+    sdr::overlay::OverlayObject* getOverlaySelection();
+    sdr::overlay::OverlayObject* getOverlayFrame();
+
     const OutlinerView& getOutlinerView() const { return mrOutlinerView; }
 
     /// override to check conditions for last createOverlayObjectPrimitive2DSequence
@@ -445,24 +447,122 @@ public:
     // callback that triggers detecting if something *has* changed
     void checkDataChange(const basegfx::B2DRange& rMinTextEditArea);
     void checkSelectionChange();
+
+    const basegfx::B2DRange& getRange() const { return maRange; }
+    const drawinglayer::primitive2d::Primitive2DContainer& getTextPrimitives() const
+    {
+        return maTextPrimitives;
+    }
 };
+
+class TextEditFrameOverlayObject : public sdr::overlay::OverlayObject
+{
+private:
+    const TextEditOverlayObject& mrTextEditOverlayObject;
+
+    // geometry creation for OverlayObject, can use local *Last* values
+    virtual drawinglayer::primitive2d::Primitive2DContainer
+    createOverlayObjectPrimitive2DSequence() override;
+
+public:
+    TextEditFrameOverlayObject(const TextEditOverlayObject& rTextEditOverlayObject);
+    using sdr::overlay::OverlayObject::objectChange;
+    virtual ~TextEditFrameOverlayObject() override;
+};
+
+class TextEditHighContrastOverlaySelection : public sdr::overlay::OverlayObject
+{
+private:
+    const TextEditOverlayObject& mrTextEditOverlayObject;
+    std::vector<basegfx::B2DRange> maRanges;
+
+    // geometry creation for OverlayObject, can use local *Last* values
+    virtual drawinglayer::primitive2d::Primitive2DContainer
+    createOverlayObjectPrimitive2DSequence() override;
+
+public:
+    TextEditHighContrastOverlaySelection(const TextEditOverlayObject& rTextEditOverlayObject);
+    void setRanges(std::vector<basegfx::B2DRange>&& rNew);
+    virtual ~TextEditHighContrastOverlaySelection() override;
+};
+
+TextEditHighContrastOverlaySelection::TextEditHighContrastOverlaySelection(
+    const TextEditOverlayObject& rTextEditOverlayObject)
+    : OverlayObject(rTextEditOverlayObject.getBaseColor())
+    , mrTextEditOverlayObject(rTextEditOverlayObject)
+{
+    allowAntiAliase(rTextEditOverlayObject.allowsAntiAliase());
+    // use selection colors in HighContrast mode
+    mbHighContrastSelection = true;
+}
+
+void TextEditHighContrastOverlaySelection::setRanges(std::vector<basegfx::B2DRange>&& rNew)
+{
+    if (rNew != maRanges)
+    {
+        maRanges = std::move(rNew);
+        objectChange();
+    }
+}
+
+drawinglayer::primitive2d::Primitive2DContainer
+TextEditHighContrastOverlaySelection::createOverlayObjectPrimitive2DSequence()
+{
+    drawinglayer::primitive2d::Primitive2DContainer aRetval;
+
+    size_t nCount = maRanges.size();
+
+    if (nCount)
+    {
+        basegfx::B2DPolyPolygon aClipPolyPolygon;
+
+        basegfx::BColor aRGBColor(getBaseColor().getBColor());
+
+        for (size_t a = 0; a < nCount; ++a)
+            aClipPolyPolygon.append(basegfx::utils::createPolygonFromRect(maRanges[a]));
+
+        // This is used in high contrast mode, we will render the selection
+        // with the bg forced to the selection Highlight color and the fg color
+        // forced to the HighlightText color
+        aRetval.append(drawinglayer::primitive2d::Primitive2DReference(
+            new drawinglayer::primitive2d::PolyPolygonColorPrimitive2D(
+                basegfx::B2DPolyPolygon(
+                    basegfx::utils::createPolygonFromRect(aClipPolyPolygon.getB2DRange())),
+                aRGBColor)));
+        aRetval.append(mrTextEditOverlayObject.getTextPrimitives());
+        aRetval.append(drawinglayer::primitive2d::Primitive2DReference(
+            new drawinglayer::primitive2d::MaskPrimitive2D(aClipPolyPolygon, std::move(aRetval))));
+    }
+
+    return aRetval;
+}
+
+TextEditHighContrastOverlaySelection::~TextEditHighContrastOverlaySelection()
+{
+    if (getOverlayManager())
+    {
+        getOverlayManager()->remove(*this);
+    }
+}
+
+sdr::overlay::OverlayObject* TextEditOverlayObject::getOverlaySelection()
+{
+    if (mxOverlayTransparentSelection)
+        return mxOverlayTransparentSelection.get();
+    return mxOverlayHighContrastSelection.get();
+}
+
+sdr::overlay::OverlayObject* TextEditOverlayObject::getOverlayFrame()
+{
+    if (!mxOverlayFrame)
+        mxOverlayFrame.reset(new TextEditFrameOverlayObject(*this));
+    return mxOverlayFrame.get();
+}
 
 drawinglayer::primitive2d::Primitive2DContainer
 TextEditOverlayObject::createOverlayObjectPrimitive2DSequence()
 {
     drawinglayer::primitive2d::Primitive2DContainer aRetval;
-
-    /// outer frame visualization
-    if (mbVisualizeSurroundingFrame)
-    {
-        const double fTransparence(SvtOptionsDrawinglayer::GetTransparentSelectionPercent() * 0.01);
-        const sal_uInt16 nPixSiz(getOutlinerView().GetInvalidateMore() - 1);
-
-        aRetval.push_back(new drawinglayer::primitive2d::OverlayRectanglePrimitive(
-            maRange, getBaseColor().getBColor(), fTransparence, std::max(6, nPixSiz - 2), // grow
-            0.0, // shrink
-            0.0));
-    }
 
     // add buffered TextPrimitives
     aRetval.append(maTextPrimitives);
@@ -470,26 +570,68 @@ TextEditOverlayObject::createOverlayObjectPrimitive2DSequence()
     return aRetval;
 }
 
-TextEditOverlayObject::TextEditOverlayObject(const Color& rColor, OutlinerView& rOutlinerView,
-                                             bool bVisualizeSurroundingFrame)
+drawinglayer::primitive2d::Primitive2DContainer
+TextEditFrameOverlayObject::createOverlayObjectPrimitive2DSequence()
+{
+    drawinglayer::primitive2d::Primitive2DContainer aRetval;
+
+    /// outer frame visualization
+    const double fTransparence(SvtOptionsDrawinglayer::GetTransparentSelectionPercent() * 0.01);
+    const sal_uInt16 nPixSiz(mrTextEditOverlayObject.getOutlinerView().GetInvalidateMore() - 1);
+
+    aRetval.push_back(new drawinglayer::primitive2d::OverlayRectanglePrimitive(
+        mrTextEditOverlayObject.getRange(), getBaseColor().getBColor(), fTransparence,
+        std::max(6, nPixSiz - 2), // grow
+        0.0, // shrink
+        0.0));
+
+    return aRetval;
+}
+
+TextEditOverlayObject::TextEditOverlayObject(const Color& rColor, OutlinerView& rOutlinerView)
     : OverlayObject(rColor)
     , mrOutlinerView(rOutlinerView)
-    , mbVisualizeSurroundingFrame(bVisualizeSurroundingFrame)
 {
     // no AA for TextEdit overlay
     allowAntiAliase(false);
 
     // create local OverlaySelection - this is an integral part of EditText
     // visualization
-    std::vector<basegfx::B2DRange> aEmptySelection{};
-    mxOverlaySelection.reset(new sdr::overlay::OverlaySelection(
-        sdr::overlay::OverlayType::Transparent, rColor, std::move(aEmptySelection), true));
+    if (Application::GetSettings().GetStyleSettings().GetHighContrastMode())
+    {
+        mxOverlayHighContrastSelection.reset(new TextEditHighContrastOverlaySelection(*this));
+    }
+    else
+    {
+        std::vector<basegfx::B2DRange> aEmptySelection{};
+        mxOverlayTransparentSelection.reset(new sdr::overlay::OverlaySelection(
+            sdr::overlay::OverlayType::Transparent, rColor, std::move(aEmptySelection), true));
+    }
 }
 
 TextEditOverlayObject::~TextEditOverlayObject()
 {
-    mxOverlaySelection.reset();
+    mxOverlayTransparentSelection.reset();
+    mxOverlayHighContrastSelection.reset();
 
+    if (getOverlayManager())
+    {
+        getOverlayManager()->remove(*this);
+    }
+}
+
+TextEditFrameOverlayObject::TextEditFrameOverlayObject(
+    const TextEditOverlayObject& rTextEditOverlayObject)
+    : OverlayObject(rTextEditOverlayObject.getBaseColor())
+    , mrTextEditOverlayObject(rTextEditOverlayObject)
+{
+    allowAntiAliase(rTextEditOverlayObject.allowsAntiAliase());
+    // use selection colors in HighContrast mode
+    mbHighContrastSelection = true;
+}
+
+TextEditFrameOverlayObject::~TextEditFrameOverlayObject()
+{
     if (getOverlayManager())
     {
         getOverlayManager()->remove(*this);
@@ -580,6 +722,9 @@ void TextEditOverlayObject::checkDataChange(const basegfx::B2DRange& rMinTextEdi
         // refresh this object's visualization
         objectChange();
 
+        if (mxOverlayFrame)
+            mxOverlayFrame->objectChange();
+
         // on data change, always do a SelectionChange, too
         // since the selection is an integral part of text visualization
         checkSelectionChange();
@@ -608,7 +753,10 @@ void TextEditOverlayObject::checkSelectionChange()
             aRect.Right() + aLogicPixel.Width(), aRect.Bottom() + aLogicPixel.Height());
     }
 
-    mxOverlaySelection->setRanges(std::move(aLogicRanges));
+    if (mxOverlayTransparentSelection)
+        mxOverlayTransparentSelection->setRanges(std::move(aLogicRanges));
+    else
+        mxOverlayHighContrastSelection->setRanges(std::move(aLogicRanges));
 }
 } // end of anonymous namespace
 
@@ -1084,7 +1232,7 @@ bool SdrObjEditView::SdrBeginTextEdit(SdrObject* pObj_, SdrPageView* pPV, vcl::W
     // FIXME this encourages all sorts of bad habits and should be removed
     SdrEndTextEdit();
 
-    SdrTextObj* pObj = dynamic_cast<SdrTextObj*>(pObj_);
+    SdrTextObj* pObj = DynCastSdrTextObj(pObj_);
     if (!pObj)
         return false; // currently only possible with text objects
 
@@ -1237,7 +1385,9 @@ bool SdrObjEditView::SdrBeginTextEdit(SdrObject* pObj_, SdrPageView* pPV, vcl::W
 
                 const Color aHilightColor(SvtOptionsDrawinglayer::getHilightColor());
                 const SdrTextObj* pText = GetTextEditObject();
-                const bool bVisualizeSurroundingFrame(pText != nullptr);
+                // show for cases like tdf#94223 but not for table cells like tdf#151311
+                const bool bVisualizeSurroundingFrame(
+                    pText && pText->GetObjIdentifier() != SdrObjKind::Table);
                 SdrPageView* pPageView = GetSdrPageView();
 
                 if (pPageView)
@@ -1254,12 +1404,12 @@ bool SdrObjEditView::SdrBeginTextEdit(SdrObject* pObj_, SdrPageView* pPV, vcl::W
                             {
                                 std::unique_ptr<TextEditOverlayObject> pNewTextEditOverlayObject(
                                     new TextEditOverlayObject(aHilightColor,
-                                                              *mpTextEditOutlinerView,
-                                                              bVisualizeSurroundingFrame));
+                                                              *mpTextEditOutlinerView));
 
                                 xManager->add(*pNewTextEditOverlayObject);
-                                xManager->add(const_cast<sdr::overlay::OverlaySelection&>(
-                                    *pNewTextEditOverlayObject->getOverlaySelection()));
+                                if (bVisualizeSurroundingFrame)
+                                    xManager->add(*pNewTextEditOverlayObject->getOverlayFrame());
+                                xManager->add(*pNewTextEditOverlayObject->getOverlaySelection());
 
                                 maTEOverlayGroup.append(std::move(pNewTextEditOverlayObject));
                             }
@@ -2333,37 +2483,37 @@ void SdrObjEditView::SetStyleSheet(SfxStyleSheet* pStyleSheet, bool bDontRemoveH
     SdrGlueEditView::SetStyleSheet(pStyleSheet, bDontRemoveHardAttr);
 }
 
-void SdrObjEditView::AddWindowToPaintView(OutputDevice* pNewWin, vcl::Window* pWindow)
+void SdrObjEditView::AddDeviceToPaintView(OutputDevice& rNewDev, vcl::Window* pWindow)
 {
-    SdrGlueEditView::AddWindowToPaintView(pNewWin, pWindow);
+    SdrGlueEditView::AddDeviceToPaintView(rNewDev, pWindow);
 
     if (mxWeakTextEditObj.get() && !mbTextEditOnlyOneView
-        && pNewWin->GetOutDevType() == OUTDEV_WINDOW)
+        && rNewDev.GetOutDevType() == OUTDEV_WINDOW)
     {
-        OutlinerView* pOutlView = ImpMakeOutlinerView(pNewWin->GetOwnerWindow(), nullptr);
+        OutlinerView* pOutlView = ImpMakeOutlinerView(rNewDev.GetOwnerWindow(), nullptr);
         mpTextEditOutliner->InsertView(pOutlView);
     }
 }
 
-void SdrObjEditView::DeleteWindowFromPaintView(OutputDevice* pOldWin)
+void SdrObjEditView::DeleteDeviceFromPaintView(OutputDevice& rOldDev)
 {
-    SdrGlueEditView::DeleteWindowFromPaintView(pOldWin);
+    SdrGlueEditView::DeleteDeviceFromPaintView(rOldDev);
 
     if (mxWeakTextEditObj.get() && !mbTextEditOnlyOneView
-        && pOldWin->GetOutDevType() == OUTDEV_WINDOW)
+        && rOldDev.GetOutDevType() == OUTDEV_WINDOW)
     {
         for (size_t i = mpTextEditOutliner->GetViewCount(); i > 0;)
         {
             i--;
             OutlinerView* pOLV = mpTextEditOutliner->GetView(i);
-            if (pOLV && pOLV->GetWindow() == pOldWin->GetOwnerWindow())
+            if (pOLV && pOLV->GetWindow() == rOldDev.GetOwnerWindow())
             {
                 mpTextEditOutliner->RemoveView(i);
             }
         }
     }
 
-    lcl_RemoveTextEditOutlinerViews(this, GetSdrPageView(), pOldWin);
+    lcl_RemoveTextEditOutlinerViews(this, GetSdrPageView(), &rOldDev);
 }
 
 bool SdrObjEditView::IsTextEditInSelectionMode() const
@@ -2614,8 +2764,6 @@ bool SdrObjEditView::SupportsFormatPaintbrush(SdrInventor nObjectInventor,
         case SdrObjKind::PathFill:
         case SdrObjKind::FreehandLine:
         case SdrObjKind::FreehandFill:
-        case SdrObjKind::SplineLine:
-        case SdrObjKind::SplineFill:
         case SdrObjKind::Text:
         case SdrObjKind::TitleText:
         case SdrObjKind::OutlineText:
@@ -2813,7 +2961,7 @@ void SdrObjEditView::ApplyFormatPaintBrush(SfxItemSet& rFormatSet, bool bNoChara
         }
 
         // now apply character and paragraph formatting to text, if the shape has any
-        SdrTextObj* pTextObj = dynamic_cast<SdrTextObj*>(pObj);
+        SdrTextObj* pTextObj = DynCastSdrTextObj(pObj);
         if (pTextObj)
         {
             sal_Int32 nText = pTextObj->getTextCount();

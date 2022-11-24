@@ -67,7 +67,6 @@ public:
     int                   GetFontFaceIndex() const  { return mnFaceNum; }
     int                   GetFontFaceVariation() const  { return mnFaceVariation; }
     sal_IntPtr            GetFontId() const         { return mnFontId; }
-    bool                  IsSymbolFont() const      { return maDevFontAttributes.IsSymbolFont(); }
     const FontAttributes& GetFontAttributes() const { return maDevFontAttributes; }
 
     void                  AnnounceFont( vcl::font::PhysicalFontCollection* );
@@ -100,6 +99,8 @@ public:
 
     virtual hb_face_t* GetHbFace() const override;
     virtual hb_blob_t* GetHbTable(hb_tag_t nTag) const override;
+
+    const std::vector<hb_variation_t>& GetVariations(const LogicalFontInstance&) const override;
 };
 
 class SAL_DLLPUBLIC_RTTI FreetypeFontInstance final : public LogicalFontInstance
@@ -108,7 +109,6 @@ class SAL_DLLPUBLIC_RTTI FreetypeFontInstance final : public LogicalFontInstance
 
     std::unique_ptr<FreetypeFont> mxFreetypeFont;
 
-    virtual void ImplInitHbFont(hb_font_t*) override;
     virtual bool ImplGetGlyphBoundRect(sal_GlyphId, tools::Rectangle&, bool) const override;
 
     explicit FreetypeFontInstance(const vcl::font::PhysicalFontFace& rPFF, const vcl::font::FontSelectPattern& rFSP);

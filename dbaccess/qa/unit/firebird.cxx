@@ -15,6 +15,7 @@
 #include <com/sun/star/sdbc/XResultSet.hpp>
 #include <com/sun/star/sdbc/XRow.hpp>
 #include <com/sun/star/sdbc/XStatement.hpp>
+#include <com/sun/star/util/XCloseable.hpp>
 
 using namespace ::com::sun::star;
 using namespace ::com::sun::star::sdb;
@@ -42,13 +43,14 @@ public:
  */
 void FirebirdTest::testEmptyDBConnection()
 {
-    auto const tmp = createTempCopy(u"firebird_empty.odb");
+    createTempCopy(u"firebird_empty.odb");
     uno::Reference< XOfficeDatabaseDocument > xDocument =
-        getDocumentForUrl(tmp.GetURL());
+        getDocumentForUrl(maTempFile.GetURL());
 
     getConnectionForDocument(xDocument);
 
-    closeDocument(uno::Reference<lang::XComponent>(xDocument, uno::UNO_QUERY));
+    css::uno::Reference<util::XCloseable> xCloseable(mxComponent, css::uno::UNO_QUERY_THROW);
+    xCloseable->close(false);
 }
 
 /**
@@ -57,8 +59,8 @@ void FirebirdTest::testEmptyDBConnection()
  */
 void FirebirdTest::testIntegerDatabase()
 {
-    uno::Reference< XOfficeDatabaseDocument > xDocument =
-        getDocumentForFileName(u"firebird_integer_ods12.odb");
+    loadFromURL(u"firebird_integer_ods12.odb");
+    uno::Reference< XOfficeDatabaseDocument > xDocument(mxComponent, UNO_QUERY_THROW);
 
     uno::Reference< XConnection > xConnection =
         getConnectionForDocument(xDocument);
@@ -89,12 +91,14 @@ void FirebirdTest::testIntegerDatabase()
 
     CPPUNIT_ASSERT(!xResultSet->next()); // Should only be one row
 
-    closeDocument(uno::Reference<lang::XComponent>(xDocument, uno::UNO_QUERY));
+    css::uno::Reference<util::XCloseable> xCloseable(mxComponent, css::uno::UNO_QUERY_THROW);
+    xCloseable->close(false);
 }
 
 void FirebirdTest::testTdf132924()
 {
-    uno::Reference<XOfficeDatabaseDocument> xDocument = getDocumentForFileName(u"tdf132924.odb");
+    loadFromURL(u"tdf132924.odb");
+    uno::Reference< XOfficeDatabaseDocument > xDocument(mxComponent, UNO_QUERY_THROW);
     uno::Reference<XConnection> xConnection = getConnectionForDocument(xDocument);
 
     uno::Reference<XStatement> xStatement = xConnection->createStatement();
@@ -115,7 +119,8 @@ void FirebirdTest::testTdf132924()
     CPPUNIT_ASSERT_EQUAL(sal_Int16(1), xRow->getShort(xColumnLocate->findColumn("TestId")));
     CPPUNIT_ASSERT_EQUAL(OUString("TestName"), xRow->getString(xColumnLocate->findColumn("TestName")));
 
-    closeDocument(uno::Reference<lang::XComponent>(xDocument, uno::UNO_QUERY));
+    css::uno::Reference<util::XCloseable> xCloseable(mxComponent, css::uno::UNO_QUERY_THROW);
+    xCloseable->close(false);
 }
 
 CPPUNIT_TEST_SUITE_REGISTRATION(FirebirdTest);

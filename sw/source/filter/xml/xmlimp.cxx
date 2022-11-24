@@ -337,6 +337,9 @@ SwXMLImport::~SwXMLImport() noexcept
         ClearShapeImport();
     }
     FinitItemImport();
+    // Call cleanup() here because the destruction of some stuff like XMLRedlineImportHelper will cast
+    // to cast their mrImport to SwXMLImport and that is illegal after this destructor is done.
+    cleanup();
 }
 
 void SwXMLImport::setTextInsertMode(
@@ -532,7 +535,7 @@ void SwXMLImport::startDocument()
         }
         if( pCursorSh )
         {
-            const uno::Reference<text::XTextRange> xInsertTextRange(
+            const rtl::Reference<SwXTextRange> xInsertTextRange(
                 SwXTextRange::CreateXTextRange(
                     *pDoc, *pCursorSh->GetCursor()->GetPoint(), nullptr ) );
             setTextInsertMode( xInsertTextRange );
@@ -676,7 +679,7 @@ void SwXMLImport::endDocument()
                 {
                     const sal_Int32 nCntPos =
                             pPaM->GetBound().GetContentIndex();
-                    pPaM->GetBound().nContent.Assign( pTextNode,
+                    pPaM->GetBound().SetContent(
                             pTextNode->GetText().getLength() + nCntPos );
                 }
                 if( m_oSttNdIdx->GetIndex()+1 ==
@@ -684,7 +687,7 @@ void SwXMLImport::endDocument()
                 {
                     const sal_Int32 nCntPos =
                             pPaM->GetBound( false ).GetContentIndex();
-                    pPaM->GetBound( false ).nContent.Assign( pTextNode,
+                    pPaM->GetBound( false ).SetContent(
                             pTextNode->GetText().getLength() + nCntPos );
                 }
 #endif
@@ -731,9 +734,12 @@ void SwXMLImport::endDocument()
                     if( pCNd && pCNd->StartOfSectionIndex()+2 <
                         pCNd->EndOfSectionIndex() )
                     {
-                        pPaM->GetBound().nContent.Assign( nullptr, 0 );
-                        pPaM->GetBound(false).nContent.Assign( nullptr, 0 );
-                        pDoc->GetNodes().Delete( pPaM->GetPoint()->GetNode() );
+                        SwNode& rDelNode = pPaM->GetPoint()->GetNode();
+                        // move so we don't have a dangling SwContentIndex to the deleted node
+                        pPaM->GetPoint()->Adjust(SwNodeOffset(+1));
+                        if (pPaM->HasMark())
+                            pPaM->GetMark()->Adjust(SwNodeOffset(+1));
+                        pDoc->GetNodes().Delete( rDelNode );
                     }
                 }
             }
@@ -768,9 +774,11 @@ void SwXMLImport::endDocument()
                 }
                 else if (pCurrNd->GetText().isEmpty())
                 {
-                    pPos->nContent.Assign( nullptr, 0 );
                     pPaM->SetMark(); pPaM->DeleteMark();
-                    pDoc->GetNodes().Delete( pPos->GetNode() );
+                    SwNode& rDelNode = pPos->GetNode();
+                    // move so we don't have a dangling SwContentIndex to the deleted node
+                    pPaM->GetPoint()->Adjust(SwNodeOffset(+1));
+                    pDoc->GetNodes().Delete( rDelNode );
                     pPaM->Move( fnMoveBackward );
                 }
             }
@@ -823,7 +831,7 @@ void SwXMLImport::endDocument()
     // tdf#150753: pDoc may be null e.g. when the package lacks content.xml;
     // we should not forget to tidy up here, including unlocking draw model
     if (!pDoc)
-        pDoc = SwImport::GetDocFromXMLImport(*this);
+        pDoc = getDoc();
     assert(pDoc);
     // SJ: #i49801# -> now permitting repaints
     if (getImportFlags() == SvXMLImportFlags::ALL)
@@ -1625,16 +1633,6 @@ void SwXMLImport::initialize(
             }
         }
     }
-}
-
-SwDoc* SwImport::GetDocFromXMLImport( SvXMLImport const & rImport )
-{
-    auto pTextDoc = comphelper::getFromUnoTunnel<SwXTextDocument>(rImport.GetModel());
-    assert( pTextDoc );
-    assert( pTextDoc->GetDocShell() );
-    SwDoc* pDoc = pTextDoc->GetDocShell()->GetDoc();
-    OSL_ENSURE( pDoc, "Where is my document?" );
-    return pDoc;
 }
 
 void SwXMLImport::initXForms()

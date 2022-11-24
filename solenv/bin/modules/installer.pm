@@ -18,6 +18,9 @@
 
 package installer;
 
+use strict;
+use warnings;
+
 use base 'Exporter';
 
 use Cwd;
@@ -536,7 +539,7 @@ sub run {
         # Resolving include paths (language dependent)
         ################################################
 
-        $includepatharrayref_lang = installer::ziplist::replace_languages_in_paths($includepatharrayref, \@setuplanguagesarray);
+        my $includepatharrayref_lang = installer::ziplist::replace_languages_in_paths($includepatharrayref, \@setuplanguagesarray);
 
         if ( $installer::globals::refresh_includepaths ) { installer::worker::collect_all_files_from_includepaths($includepatharrayref_lang); }
 
@@ -650,8 +653,8 @@ sub run {
         # It will be possible, that in the setup script only those directories have to be defined,
         # that have a CREATE flag. All other directories are created, if they contain at least one file.
 
-        my ($directoriesforepmarrayref, $alldirectoryhash) = installer::scriptitems::collect_directories_from_filesarray($filesinproductlanguageresolvedarrayref, $unixlinksinproductlanguageresolvedarrayref);
-        ($directoriesforepmarrayref, $alldirectoryhash) = installer::scriptitems::collect_directories_with_create_flag_from_directoryarray($dirsinproductlanguageresolvedarrayref, $alldirectoryhash);
+        my $alldirectoryhash = installer::scriptitems::collect_directories_from_filesarray($filesinproductlanguageresolvedarrayref, $unixlinksinproductlanguageresolvedarrayref);
+        my $directoriesforepmarrayref = installer::scriptitems::collect_directories_with_create_flag_from_directoryarray($dirsinproductlanguageresolvedarrayref, $alldirectoryhash);
 
         #########################################################
         # language dependent scpactions part
@@ -714,7 +717,7 @@ sub run {
             # ancient (not MSP) "patch" thing, I think.
             if ( $installer::globals::patch_user_dir )
             {
-                installer::scriptitems::replace_userdir_variable($profileitemsinproductlanguageresolvedarrayref);
+                installer::scriptitems::replace_userdir_variable($profileitemsinproductlanguageresolvedarrayref, $allvariableshashref);
             }
 
             installer::scriptitems::get_Destination_Directory_For_Item_From_Directorylist($profilesinproductlanguageresolvedarrayref, $dirsinproductarrayref);
@@ -802,8 +805,8 @@ sub run {
             @{$folderitemsinproductlanguageresolvedarrayref} = (); # no folderitems in languagepacks
 
             # Collecting the directories again, to include only the language specific directories
-            ($directoriesforepmarrayref, $alldirectoryhash) = installer::scriptitems::collect_directories_from_filesarray($filesinproductlanguageresolvedarrayref, $unixlinksinproductlanguageresolvedarrayref);
-            ($directoriesforepmarrayref, $alldirectoryhash) = installer::scriptitems::collect_directories_with_create_flag_from_directoryarray($dirsinproductlanguageresolvedarrayref, $alldirectoryhash);
+            $alldirectoryhash = installer::scriptitems::collect_directories_from_filesarray($filesinproductlanguageresolvedarrayref, $unixlinksinproductlanguageresolvedarrayref);
+            $directoriesforepmarrayref = installer::scriptitems::collect_directories_with_create_flag_from_directoryarray($dirsinproductlanguageresolvedarrayref, $alldirectoryhash);
             @$directoriesforepmarrayref = sort { $a->{"HostName"} cmp $b->{"HostName"} } @$directoriesforepmarrayref;
 
             if ( $installer::globals::iswindowsbuild )
@@ -823,8 +826,8 @@ sub run {
             @{$folderitemsinproductlanguageresolvedarrayref} = (); # no folderitems in helppacks
 
             # Collecting the directories again, to include only the language specific directories
-            ($directoriesforepmarrayref, $alldirectoryhash) = installer::scriptitems::collect_directories_from_filesarray($filesinproductlanguageresolvedarrayref, $unixlinksinproductlanguageresolvedarrayref);
-            ($directoriesforepmarrayref, $alldirectoryhash) = installer::scriptitems::collect_directories_with_create_flag_from_directoryarray($dirsinproductlanguageresolvedarrayref, $alldirectoryhash);
+            $alldirectoryhash = installer::scriptitems::collect_directories_from_filesarray($filesinproductlanguageresolvedarrayref, $unixlinksinproductlanguageresolvedarrayref);
+            $directoriesforepmarrayref = installer::scriptitems::collect_directories_with_create_flag_from_directoryarray($dirsinproductlanguageresolvedarrayref, $alldirectoryhash);
             @$directoriesforepmarrayref = sort { $a->{"HostName"} cmp $b->{"HostName"} } @$directoriesforepmarrayref;
 
             if ( $installer::globals::iswindowsbuild )
@@ -1023,7 +1026,7 @@ sub run {
 
                 if ( ! ( $#{$filesinpackage} > -1 ))
                 {
-                    $infoline = "\n\nNo file in package: $packagename \-\> Skipping\n\n";
+                    my $infoline = "\n\nNo file in package: $packagename \-\> Skipping\n\n";
                     push(@installer::globals::logfileinfo, $infoline);
                     next;   # next package, end of loop !
                 }
@@ -1379,7 +1382,7 @@ sub run {
                 installer::windows::assembly::add_assembly_condition_into_component_table($filesinproductlanguageresolvedarrayref, $newidtdir);
             }
 
-            $infoline = "\n";
+            my $infoline = "\n";
             push(@installer::globals::logfileinfo, $infoline);
 
             # Localizing the language dependent idt files
@@ -1535,7 +1538,7 @@ sub run {
 
                     # validating the database   # ToDo
 
-                    installer::windows::msiglobal::write_summary_into_msi_database($msifilename, $onelanguage, $languagefile, $allvariableshashref);
+                    installer::windows::msiglobal::write_summary_into_msi_database($msifilename, $onelanguage, $allvariableshashref);
 
                     # copy msi database into installation directory
 

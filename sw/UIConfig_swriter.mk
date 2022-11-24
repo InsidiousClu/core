@@ -132,6 +132,7 @@ $(eval $(call gb_UIConfig_add_uifiles,modules/swriter,\
 	sw/uiconfig/swriter/ui/combobox \
 	sw/uiconfig/swriter/ui/comboboxfragment \
 	sw/uiconfig/swriter/ui/conditionpage \
+	sw/uiconfig/swriter/ui/contentcontrolaliasbutton \
 	sw/uiconfig/swriter/ui/contentcontrolcalendar \
 	sw/uiconfig/swriter/ui/contentcontroldlg \
 	sw/uiconfig/swriter/ui/contentcontroldropdown \
@@ -188,6 +189,7 @@ $(eval $(call gb_UIConfig_add_uifiles,modules/swriter,\
 	sw/uiconfig/swriter/ui/insertautotextdialog \
 	sw/uiconfig/swriter/ui/insertbookmark \
 	sw/uiconfig/swriter/ui/insertbreak \
+	sw/uiconfig/swriter/ui/translationdialog \
 	sw/uiconfig/swriter/ui/insertcaption \
 	sw/uiconfig/swriter/ui/insertdbcolumnsdialog \
 	sw/uiconfig/swriter/ui/insertfootnote \
@@ -206,6 +208,7 @@ $(eval $(call gb_UIConfig_add_uifiles,modules/swriter,\
 	sw/uiconfig/swriter/ui/newuserindexdialog \
 	sw/uiconfig/swriter/ui/numparapage \
 	sw/uiconfig/swriter/ui/numberingnamedialog \
+	sw/uiconfig/swriter/ui/numberinput \
 	sw/uiconfig/swriter/ui/objectdialog \
 	sw/uiconfig/swriter/ui/optcomparison \
 	sw/uiconfig/swriter/ui/optcompatpage \

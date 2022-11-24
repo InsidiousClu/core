@@ -64,6 +64,7 @@
 #include <textcontentcontrol.hxx>
 #include <dropdowncontentcontrolbutton.hxx>
 #include <datecontentcontrolbutton.hxx>
+#include <FrameControlsManager.hxx>
 
 // Here static members are defined. They will get changed on alteration of the
 // MapMode. This is done so that on ShowCursor the same size does not have to be
@@ -634,7 +635,9 @@ void SwSelPaintRects::HighlightContentControl()
 {
     std::vector<basegfx::B2DRange> aContentControlRanges;
     std::vector<OString> aLOKRectangles;
+    SwRect aFirstPortionPaintArea;
     SwRect aLastPortionPaintArea;
+    bool bRTL = false;
     std::shared_ptr<SwContentControl> pContentControl;
 
     if (m_bShowContentControlOverlay)
@@ -677,12 +680,23 @@ void SwSelPaintRects::HighlightContentControl()
 
             if (!pRects->empty())
             {
+                aFirstPortionPaintArea = (*pRects)[0];
                 aLastPortionPaintArea = (*pRects)[pRects->size() - 1];
             }
             pContentControl = pCurContentControlAtCursor->GetContentControl().GetContentControl();
+
+            // The layout knows if the text node is RTL (either set directly, or inherited from the
+            // environment).
+            SwIterator<SwTextFrame, SwTextNode, sw::IteratorMode::UnwrapMulti> aFrames(*pTextNode);
+            SwTextFrame* pFrame = aFrames.First();
+            if (pFrame)
+            {
+                bRTL = pFrame->IsRightToLeft();
+            }
         }
     }
 
+    auto pWrtShell = dynamic_cast<const SwWrtShell*>(GetShell());
     if (!aContentControlRanges.empty())
     {
         if (comphelper::LibreOfficeKit::isActive())
@@ -692,7 +706,7 @@ void SwSelPaintRects::HighlightContentControl()
             aJson.put("action", "show");
             aJson.put("rectangles", aPayload);
 
-            if (pContentControl && pContentControl->HasListItems())
+            if (pContentControl && (pContentControl->GetComboBox() || pContentControl->GetDropDown()))
             {
                 tools::ScopedJsonWriterArray aItems = aJson.startArray("items");
                 for (const auto& rItem : pContentControl->GetListItems())
@@ -704,6 +718,11 @@ void SwSelPaintRects::HighlightContentControl()
             if (pContentControl && pContentControl->GetDate())
             {
                 aJson.put("date", "true");
+            }
+
+            if (pContentControl && !pContentControl->GetAlias().isEmpty())
+            {
+                aJson.put("alias", pContentControl->GetAlias());
             }
 
             std::unique_ptr<char, o3tl::free_delete> pJson(aJson.extractData());
@@ -732,9 +751,8 @@ void SwSelPaintRects::HighlightContentControl()
             }
         }
 
-        if (pContentControl && pContentControl->HasListItems())
+        if (pContentControl && (pContentControl->GetComboBox() || pContentControl->GetDropDown()))
         {
-            auto pWrtShell = dynamic_cast<const SwWrtShell*>(GetShell());
             if (pWrtShell)
             {
                 auto& rEditWin = const_cast<SwEditWin&>(pWrtShell->GetView().GetEditWin());
@@ -748,13 +766,20 @@ void SwSelPaintRects::HighlightContentControl()
                     m_pContentControlButton = VclPtr<SwDropDownContentControlButton>::Create(
                         &rEditWin, pContentControl);
                 }
-                m_pContentControlButton->CalcPosAndSize(aLastPortionPaintArea);
+                m_pContentControlButton->SetRTL(bRTL);
+                if (bRTL)
+                {
+                    m_pContentControlButton->CalcPosAndSize(aFirstPortionPaintArea);
+                }
+                else
+                {
+                    m_pContentControlButton->CalcPosAndSize(aLastPortionPaintArea);
+                }
                 m_pContentControlButton->Show();
             }
         }
         if (pContentControl && pContentControl->GetDate())
         {
-            auto pWrtShell = dynamic_cast<const SwWrtShell*>(GetShell());
             if (pWrtShell)
             {
                 auto& rEditWin = const_cast<SwEditWin&>(pWrtShell->GetView().GetEditWin());
@@ -772,6 +797,21 @@ void SwSelPaintRects::HighlightContentControl()
                 m_pContentControlButton->Show();
             }
         }
+
+        if (pWrtShell)
+        {
+            auto& rEditWin = const_cast<SwEditWin&>(pWrtShell->GetView().GetEditWin());
+            SwFrameControlsManager& rMngr = rEditWin.GetFrameControlsManager();
+            if (pContentControl && !pContentControl->GetAlias().isEmpty())
+            {
+                Point aTopLeftPixel = rEditWin.LogicToPixel(aFirstPortionPaintArea.TopLeft());
+                rMngr.SetContentControlAliasButton(pContentControl.get(), aTopLeftPixel);
+            }
+            else
+            {
+                rMngr.HideControls(FrameControlType::ContentControl);
+            }
+        }
     }
     else
     {
@@ -787,6 +827,13 @@ void SwSelPaintRects::HighlightContentControl()
         if (m_pContentControlButton)
         {
             m_pContentControlButton.disposeAndClear();
+        }
+
+        if (pWrtShell)
+        {
+            auto& rEditWin = const_cast<SwEditWin&>(pWrtShell->GetView().GetEditWin());
+            SwFrameControlsManager& rMngr = rEditWin.GetFrameControlsManager();
+            rMngr.HideControls(FrameControlType::ContentControl);
         }
     }
 }
@@ -1020,6 +1067,33 @@ void SwShellCursor::SaveTableBoxContent( const SwPosition* pPos )
 
 bool SwShellCursor::UpDown( bool bUp, sal_uInt16 nCnt )
 {
+    // tdf#124603 trigger pending spell checking of the node
+    if ( nCnt == 1 )
+    {
+        SwTextNode* pNode = GetPoint()->GetNode().GetTextNode();
+        if( pNode && sw::WrongState::PENDING == pNode->GetWrongDirty() )
+        {
+            SwWrtShell* pShell = pNode->GetDoc().GetDocShell()->GetWrtShell();
+            if ( pShell && !pShell->IsSelection() && !pShell->IsSelFrameMode() )
+            {
+                const SwViewOption* pVOpt = pShell->GetViewOptions();
+                if ( pVOpt && pVOpt->IsOnlineSpell() )
+                {
+                    const bool bOldViewLock = pShell->IsViewLocked();
+                    pShell->LockView( true );
+
+                    SwTextFrame* pFrame(
+                        static_cast<SwTextFrame*>(pNode->getLayoutFrame(GetShell()->GetLayout())));
+                    SwRect aRepaint(pFrame->AutoSpell_(*pNode, 0));
+                    if (aRepaint.HasArea())
+                        pShell->InvalidateWindows(aRepaint);
+
+                    pShell->LockView( bOldViewLock );
+                }
+            }
+        }
+    }
+
     return SwCursor::UpDown( bUp, nCnt,
                             &GetPtPos(), GetShell()->GetUpDownX(),
                             *GetShell()->GetLayout());

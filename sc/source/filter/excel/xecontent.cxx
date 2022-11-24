@@ -462,7 +462,7 @@ XclExpHyperlink::XclExpHyperlink( const XclExpRoot& rRoot, const SvxURLField& rU
         mnFlags |= EXC_HLINK_MARK;
 
         OUString location = XclXmlUtils::ToOUString(*mxTextMark);
-        if (!location.isEmpty() && msTarget.endsWith(OUStringConcatenation("#" + location)))
+        if (!location.isEmpty() && msTarget.endsWith(Concat2View("#" + location)))
             msTarget = msTarget.copy(0, msTarget.getLength() - location.getLength() - 1);
     }
 
@@ -1776,7 +1776,8 @@ XclExpDV::XclExpDV( const XclExpRoot& rRoot, sal_uInt32 nScHandle ) :
                             sFormulaBuf.append( aToken );
                             if (nStringIx<0)
                                 break;
-                            mxString1->Append(u"\0");
+                            sal_Unicode cUnicodeChar = 0;
+                            mxString1->Append( std::u16string_view(&cUnicodeChar, 1) );
                             sFormulaBuf.append( ',' );
                             sListBuf.append( ',' );
                         }

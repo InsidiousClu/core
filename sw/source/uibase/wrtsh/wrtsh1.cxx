@@ -1059,12 +1059,17 @@ void SwWrtShell::InsertContentControl(SwContentControlType eType)
             break;
         }
         case SwContentControlType::COMBO_BOX:
-        {
-            pContentControl->SetComboBox(true);
-            [[fallthrough]];
-        }
         case SwContentControlType::DROP_DOWN_LIST:
         {
+            if (eType == SwContentControlType::COMBO_BOX)
+            {
+                pContentControl->SetComboBox(true);
+            }
+            else if (eType == SwContentControlType::DROP_DOWN_LIST)
+            {
+                pContentControl->SetDropDown(true);
+            }
+
             pContentControl->SetShowingPlaceHolder(true);
             if (!HasSelection())
             {
@@ -2358,7 +2363,55 @@ bool SwWrtShell::IsOutlineContentVisible(const size_t nPos)
     return true;
 }
 
-void SwWrtShell::MakeOutlineContentVisible(const size_t nPos, bool bMakeVisible)
+void SwWrtShell::MakeOutlineLevelsVisible(const int nLevel)
+{
+    MakeAllOutlineContentTemporarilyVisible a(GetDoc());
+
+    m_rView.SetMaxOutlineLevelShown(nLevel);
+
+    bool bDocChanged = false;
+
+    const SwOutlineNodes& rOutlineNodes = GetNodes().GetOutLineNds();
+
+    // Make all missing frames.
+    for (SwOutlineNodes::size_type nPos = 0; nPos < rOutlineNodes.size(); ++nPos)
+    {
+        SwNode* pNode = rOutlineNodes[nPos];
+        if (!pNode->GetTextNode()->getLayoutFrame(GetLayout()))
+        {
+            SwNodeIndex aIdx(*pNode, +1);
+            // Make the outline paragraph frame
+            MakeFrames(GetDoc(), *pNode, aIdx.GetNode());
+            // Make the outline content visible but don't set the outline visible attribute and
+            // don't make outline content made visible not visible that have outline visible
+            // attribute false. Visibility will be taken care of when
+            // MakeAllOutlineContentTemporarilyVisible goes out of scope.
+            MakeOutlineContentVisible(nPos, true, false);
+            bDocChanged = true;
+        }
+    }
+    // Remove outline paragraph frame and outline content frames above given level.
+    for (SwOutlineNodes::size_type nPos = 0; nPos < rOutlineNodes.size(); ++nPos)
+    {
+        SwNode* pNode = rOutlineNodes[nPos];
+        auto nOutlineLevel = pNode->GetTextNode()->GetAttrOutlineLevel();
+        if (nOutlineLevel > nLevel)
+        {
+            // Remove the outline content but don't set the outline visible attribute. Visibility
+            // will be taken care of when MakeAllOutlineContentTemporarilyVisible goes out of scope.
+            MakeOutlineContentVisible(nPos, false, false);
+            // Remove the outline paragraph frame.
+            pNode->GetTextNode()->DelFrames(GetLayout());
+            bDocChanged = true;
+        }
+    }
+
+    // Broadcast DocChanged if document layout has changed so the Navigator will be updated.
+    if (bDocChanged)
+        GetDoc()->GetDocShell()->Broadcast(SfxHint(SfxHintId::DocChanged));
+}
+
+void SwWrtShell::MakeOutlineContentVisible(const size_t nPos, bool bMakeVisible, bool bSetAttrOutlineVisibility)
 {
     const SwNodes& rNodes = GetNodes();
     const SwOutlineNodes& rOutlineNodes = rNodes.GetOutLineNds();
@@ -2374,9 +2427,11 @@ void SwWrtShell::MakeOutlineContentVisible(const size_t nPos, bool bMakeVisible)
     {
         // get the last outline node to include (iPos)
         int nLevel = pSttNd->GetTextNode()->GetAttrOutlineLevel();
+        int nMaxOutlineLevelShown = m_rView.GetMaxOutlineLevelShown();
         SwOutlineNodes::size_type iPos = nPos;
         while (++iPos < rOutlineNodes.size() &&
-               rOutlineNodes[iPos]->GetTextNode()->GetAttrOutlineLevel() > nLevel);
+               rOutlineNodes[iPos]->GetTextNode()->GetAttrOutlineLevel() > nLevel &&
+               rOutlineNodes[iPos]->GetTextNode()->GetAttrOutlineLevel() <= nMaxOutlineLevelShown);
 
         // get the correct end node
         // the outline node may be in frames, headers, footers special section of doc model
@@ -2443,31 +2498,34 @@ void SwWrtShell::MakeOutlineContentVisible(const size_t nPos, bool bMakeVisible)
         aIdx.Assign(*pSttNd, +1);
         MakeFrames(GetDoc(), aIdx.GetNode(), *pEndNd);
 
-        pSttNd->GetTextNode()->SetAttrOutlineContentVisible(true);
-
-        // make outline content made visible that have outline visible attribute false not visible
-        while (aIdx != *pEndNd)
+        if (bSetAttrOutlineVisibility)
         {
-            SwNode* pNd = &aIdx.GetNode();
-            if (pNd->IsTextNode() && pNd->GetTextNode()->IsOutline())
+            pSttNd->GetTextNode()->SetAttrOutlineContentVisible(true);
+
+            // make outline content made visible that have outline visible attribute false not visible
+            while (aIdx != *pEndNd)
             {
-                SwTextNode* pTextNd = pNd->GetTextNode();
-                bool bOutlineContentVisibleAttr = true;
-                pTextNd->GetAttrOutlineContentVisible(bOutlineContentVisibleAttr);
-                if (!bOutlineContentVisibleAttr)
+                SwNode* pNd = &aIdx.GetNode();
+                if (pNd->IsTextNode() && pNd->GetTextNode()->IsOutline())
                 {
-                    SwOutlineNodes::size_type iPos;
-                    if (rOutlineNodes.Seek_Entry(pTextNd, &iPos))
+                    SwTextNode* pTextNd = pNd->GetTextNode();
+                    bool bOutlineContentVisibleAttr = true;
+                    pTextNd->GetAttrOutlineContentVisible(bOutlineContentVisibleAttr);
+                    if (!bOutlineContentVisibleAttr)
                     {
-                        if (pTextNd->getLayoutFrame(nullptr))
-                            MakeOutlineContentVisible(iPos, false);
+                        SwOutlineNodes::size_type iPos;
+                        if (rOutlineNodes.Seek_Entry(pTextNd, &iPos))
+                        {
+                            if (pTextNd->getLayoutFrame(nullptr))
+                                MakeOutlineContentVisible(iPos, false);
+                        }
                     }
                 }
+                aIdx++;
             }
-            aIdx++;
         }
     }
-    else
+    else if (bSetAttrOutlineVisibility)
         pSttNd->GetTextNode()->SetAttrOutlineContentVisible(false);
 }
 
@@ -2491,30 +2549,6 @@ void SwWrtShell::InvalidateOutlineContentVisibility()
 
 void SwWrtShell::MakeAllFoldedOutlineContentVisible(bool bMakeVisible)
 {
-    // deselect any drawing or frame and leave editing mode
-    SdrView* pSdrView = GetDrawView();
-    if (pSdrView && pSdrView->IsTextEdit() )
-    {
-        bool bLockView = IsViewLocked();
-        LockView(true);
-        EndTextEdit();
-        LockView(bLockView);
-    }
-
-    if (IsSelFrameMode() || IsObjSelected())
-    {
-        UnSelectFrame();
-        LeaveSelFrameMode();
-        GetView().LeaveDrawCreate();
-        EnterStdMode();
-        DrawSelChanged();
-        GetView().StopShellTimer();
-    }
-    else
-        EnterStdMode();
-
-    SwOutlineNodes::size_type nPos = GetOutlinePos();
-
     if (bMakeVisible)
     {
         // make all content visible
@@ -2548,17 +2582,43 @@ void SwWrtShell::MakeAllFoldedOutlineContentVisible(bool bMakeVisible)
     }
     else
     {
+        if (SdrView* pSdrView = GetDrawView(); pSdrView && pSdrView->IsTextEdit() )
+        {
+            bool bLockView = IsViewLocked();
+            LockView(true);
+            EndTextEdit();
+            LockView(bLockView);
+        }
+        if (IsSelFrameMode() || IsObjSelected())
+        {
+            UnSelectFrame();
+            LeaveSelFrameMode();
+            GetView().LeaveDrawCreate();
+            EnterStdMode();
+        }
+
+        // Get current frame in which the cursor is positioned for use in placing the cursor.
+        const SwFrame* pCurrFrame = GetCurrFrame(false);
+
+        SwOutlineNodes::size_type nPos = GetOutlinePos();
+
         StartAction();
         InvalidateOutlineContentVisibility();
         EndAction();
 
-        // If needed, find visible outline node to place cursor.
-        if (nPos != SwOutlineNodes::npos && !IsOutlineContentVisible(nPos))
+        // If needed, find visible outline node frame to place cursor.
+        if (!pCurrFrame || !pCurrFrame->isFrameAreaDefinitionValid() || pCurrFrame->IsInDtor() ||
+                (nPos != SwOutlineNodes::npos &&
+                 !GetNodes().GetOutLineNds()[nPos]->GetTextNode()->getLayoutFrame(nullptr)))
         {
-            while (nPos != SwOutlineNodes::npos && !GetNodes().GetOutLineNds()[nPos]->GetTextNode()->getLayoutFrame(nullptr))
+            while (nPos != SwOutlineNodes::npos &&
+                   !GetNodes().GetOutLineNds()[nPos]->GetTextNode()->getLayoutFrame(nullptr))
                 --nPos;
             if (nPos != SwOutlineNodes::npos)
+            {
+                EnterStdMode();
                 GotoOutline(nPos);
+            }
         }
     }
     GetView().GetDocShell()->Broadcast(SfxHint(SfxHintId::DocChanged));
@@ -2569,6 +2629,59 @@ bool SwWrtShell::GetAttrOutlineContentVisible(const size_t nPos)
     bool bVisibleAttr = true;
     GetNodes().GetOutLineNds()[nPos]->GetTextNode()->GetAttrOutlineContentVisible(bVisibleAttr);
     return bVisibleAttr;
+}
+
+bool SwWrtShell::HasFoldedOutlineContentSelected()
+{
+    for(const SwPaM& rPaM : GetCursor()->GetRingContainer())
+    {
+        SwPaM aPaM(*rPaM.GetMark(), *rPaM.GetPoint());
+        aPaM.Normalize();
+        SwNodeIndex aPointIdx(aPaM.GetPoint()->GetNode());
+        SwNodeIndex aMarkIdx(aPaM.GetMark()->GetNode());
+        if (aPointIdx == aMarkIdx)
+            continue;
+        // Return true if any nodes in PaM are folded outline content nodes.
+        SwOutlineNodes::size_type nPos;
+        for (SwNodeIndex aIdx = aPointIdx; aIdx <= aMarkIdx; aIdx++)
+        {
+            if (GetDoc()->GetNodes().GetOutLineNds().Seek_Entry(&(aIdx.GetNode()), &nPos) &&
+                    !GetAttrOutlineContentVisible(nPos))
+                return true;
+        }
+    }
+    return false;
+}
+
+void SwWrtShell::InfoReadOnlyDialog(bool bAsync)
+{
+    if (bAsync)
+    {
+        auto xInfo = std::make_shared<weld::MessageDialogController>(
+                    GetView().GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui", "InfoReadonlyDialog");
+        if (GetViewOptions()->IsShowOutlineContentVisibilityButton() &&
+                HasFoldedOutlineContentSelected())
+        {
+            xInfo->set_primary_text(SwResId(STR_INFORODLG_FOLDED_PRIMARY));
+            xInfo->set_secondary_text(SwResId(STR_INFORODLG_FOLDED_SECONDARY));
+        }
+        weld::DialogController::runAsync(xInfo, [](int) {});
+    }
+    else
+    {
+        std::unique_ptr<weld::Builder>
+                xBuilder(Application::CreateBuilder(GetView().GetFrameWeld(),
+                                                    "modules/swriter/ui/inforeadonlydialog.ui"));
+        std::unique_ptr<weld::MessageDialog>
+                xInfo(xBuilder->weld_message_dialog("InfoReadonlyDialog"));
+        if (GetViewOptions()->IsShowOutlineContentVisibilityButton() &&
+                HasFoldedOutlineContentSelected())
+        {
+            xInfo->set_primary_text(SwResId(STR_INFORODLG_FOLDED_PRIMARY));
+            xInfo->set_secondary_text(SwResId(STR_INFORODLG_FOLDED_SECONDARY));
+        }
+        xInfo->run();
+    }
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -206,6 +206,10 @@ void StringView::handleCXXConstructExpr(CXXConstructExpr const* expr)
                        .Class("OUStringLiteral")
                        .Namespace("rtl")
                        .GlobalNamespace()
+                || tc.RvalueReference()
+                       .Struct("StringNumberBase")
+                       .Namespace("rtl")
+                       .GlobalNamespace()
                 || tc.RvalueReference().Struct("OStringNumber").Namespace("rtl").GlobalNamespace()
                 || tc.RvalueReference().Struct("OUStringNumber").Namespace("rtl").GlobalNamespace()
                 || tc.ClassOrStruct("basic_string_view").StdNamespace())
@@ -213,8 +217,7 @@ void StringView::handleCXXConstructExpr(CXXConstructExpr const* expr)
                 argType = expr->getArg(0)->IgnoreImplicit()->getType();
                 break;
             }
-            if (tc.RvalueReference().Struct("OStringConcat").Namespace("rtl").GlobalNamespace()
-                || tc.RvalueReference().Struct("OUStringConcat").Namespace("rtl").GlobalNamespace())
+            if (tc.RvalueReference().Struct("StringConcat").Namespace("rtl").GlobalNamespace())
             {
                 argType = expr->getArg(0)->IgnoreImplicit()->getType();
                 extra = ViaConcatenation;
@@ -264,7 +267,7 @@ void StringView::handleCXXConstructExpr(CXXConstructExpr const* expr)
            "instead of an %0%select{| constructed from a %2}1, pass a"
            " '%select{std::string_view|std::u16string_view}3'"
            "%select{| (or an '%select{rtl::OStringChar|rtl::OUStringChar}3')|"
-           " via '%select{rtl::OStringConcatenation|rtl::OUStringConcatenation}3'}4",
+           " via 'rtl::Concat2View'}4",
            expr->getExprLoc())
         << expr->getType() << (argType.isNull() ? 0 : 1) << argType
         << (loplugin::TypeCheck(expr->getType()).Class("OString").Namespace("rtl").GlobalNamespace()

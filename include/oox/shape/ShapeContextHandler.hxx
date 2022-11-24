@@ -21,6 +21,7 @@
 #include <memory>
 #include <stack>
 #include <cppuhelper/implbase.hxx>
+#include <oox/drawingml/color.hxx>
 #include <oox/drawingml/graphicshapecontext.hxx>
 #include <oox/core/fragmenthandler2.hxx>
 #include <oox/core/xmlfilterbase.hxx>
@@ -95,6 +96,7 @@ public:
     void pushStartToken( sal_Int32 _starttoken );
 
     void setPosition(const css::awt::Point& rPosition);
+    void setSize(const css::awt::Size& rSize);
 
     const bool& getFullWPGSupport() { return m_bFullWPGSUpport; }
     void setFullWPGSupport(bool bUse) { m_bFullWPGSUpport = bUse; }
@@ -118,6 +120,7 @@ private:
     std::stack<sal_uInt32> mnStartTokenStack;
 
     css::awt::Point maPosition;
+    css::awt::Size maSize;  // from cx and cy, in EMU
     bool m_bFullWPGSUpport; // Is this DrawingML shape supposed to be processed as WPG?
 
     drawingml::ShapePtr mpShape;
@@ -149,8 +152,10 @@ private:
     css::uno::Reference<XFastContextHandler> const & getWpsContext(sal_Int32 nStartElement, sal_Int32 nElement);
     css::uno::Reference<XFastContextHandler> const & getWpgContext(sal_Int32 nElement);
     css::uno::Reference<XFastContextHandler> getContextHandler(sal_Int32 nElement = 0);
-};
 
+    void applyFontRefColor(const oox::drawingml::ShapePtr& pShape,
+                           const oox::drawingml::Color& rFontRefColor);
+};
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

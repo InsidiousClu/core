@@ -412,6 +412,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
     vcl/source/app/svmain \
     vcl/source/app/timer \
     vcl/source/app/unohelp2 \
+    vcl/source/app/htmltransferable \
     vcl/source/app/unohelp \
     vcl/source/app/vclevent \
     vcl/source/app/watchdog \
@@ -451,6 +452,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
     vcl/source/filter/ipict/ipict \
     vcl/source/filter/ipsd/ipsd \
     vcl/source/filter/ipict/shape \
+    vcl/source/filter/ipdf/pdfcompat \
     vcl/source/filter/ipdf/pdfread \
     vcl/source/filter/ipdf/pdfdocument \
     vcl/source/filter/iras/iras \
@@ -567,6 +569,12 @@ vcl_headless_freetype_code=\
     vcl/unx/generic/print/text_gfx \
     vcl/unx/generic/printer/jobdata \
     vcl/unx/generic/printer/ppdparser \
+
+ifeq ($(SYSTEM_LIBFIXMATH),TRUE)
+$(eval $(call gb_Library_add_libs,vcl,\
+        -llibfixmath \
+))
+endif
 
 ifeq ($(USING_X11),TRUE)
 $(eval $(call gb_Library_add_exception_objects,vcl,\

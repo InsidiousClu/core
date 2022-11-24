@@ -737,6 +737,12 @@ bool PDFPage::emit(sal_Int32 nParentObject )
             aLine.append( ((i+1)%15) ? " " : "\n" );
         }
         aLine.append( "]\n" );
+        if (m_pWriter->m_aContext.Version != PDFWriter::PDFVersion::PDF_A_1
+            && PDFWriter::PDFVersion::PDF_1_5 <= m_pWriter->m_aContext.Version)
+        {
+            // ISO 14289-1:2014, Clause: 7.18.3
+            aLine.append( "/Tabs(S)\n" );
+        }
     }
     if( !m_aMCIDParents.empty() )
     {
@@ -1815,6 +1821,7 @@ const char* PDFWriterImpl::getAttributeTag( PDFWriter::StructAttribute eAttr )
         aAttributeStrings[ PDFWriter::ListNumbering ]       = "ListNumbering";
         aAttributeStrings[ PDFWriter::RowSpan ]             = "RowSpan";
         aAttributeStrings[ PDFWriter::ColSpan ]             = "ColSpan";
+        aAttributeStrings[ PDFWriter::Scope ]               = "Scope";
         aAttributeStrings[ PDFWriter::LinkAnnotation ]      = "LinkAnnotation";
     }
 
@@ -1851,6 +1858,9 @@ const char* PDFWriterImpl::getAttributeValueTag( PDFWriter::StructAttributeValue
         aValueStrings[ PDFWriter::Underline ]               = "Underline";
         aValueStrings[ PDFWriter::Overline ]                = "Overline";
         aValueStrings[ PDFWriter::LineThrough ]             = "LineThrough";
+        aValueStrings[ PDFWriter::Row ]                     = "Row";
+        aValueStrings[ PDFWriter::Column ]                  = "Column";
+        aValueStrings[ PDFWriter::Both ]                    = "Both";
         aValueStrings[ PDFWriter::Disc ]                    = "Disc";
         aValueStrings[ PDFWriter::Circle ]                  = "Circle";
         aValueStrings[ PDFWriter::Square ]                  = "Square";
@@ -1901,8 +1911,11 @@ OString PDFWriterImpl::emitStructureAttributes( PDFStructureElement& i_rEle )
         if( attribute.first == PDFWriter::ListNumbering )
             appendStructureAttributeLine( attribute.first, attribute.second, aList, true );
         else if( attribute.first == PDFWriter::RowSpan ||
-                 attribute.first == PDFWriter::ColSpan )
+                 attribute.first == PDFWriter::ColSpan ||
+                 attribute.first == PDFWriter::Scope)
+        {
             appendStructureAttributeLine( attribute.first, attribute.second, aTable, false );
+        }
         else if( attribute.first == PDFWriter::LinkAnnotation )
         {
             sal_Int32 nLink = attribute.second.nValue;
@@ -2318,7 +2331,7 @@ namespace
 int XUnits(int nUPEM, int n) { return (n * 1000) / nUPEM; }
 }
 
-std::map< sal_Int32, sal_Int32 > PDFWriterImpl::emitSystemFont( const vcl::font::PhysicalFontFace* pFont, EmbedFont const & rEmbed )
+std::map< sal_Int32, sal_Int32 > PDFWriterImpl::emitSystemFont( const vcl::font::PhysicalFontFace* pFace, EmbedFont const & rEmbed )
 {
     std::map< sal_Int32, sal_Int32 > aRet;
 
@@ -2331,11 +2344,11 @@ std::map< sal_Int32, sal_Int32 > PDFWriterImpl::emitSystemFont( const vcl::font:
     aInfo.m_nDescent = 200;
     aInfo.m_nCapHeight = 1000;
     aInfo.m_aFontBBox = tools::Rectangle( Point( -200, -200 ), Size( 1700, 1700 ) );
-    aInfo.m_aPSName = pFont->GetFamilyName();
+    aInfo.m_aPSName = pFace->GetFamilyName();
 
     sal_Int32 pWidths[256] = { 0 };
     const LogicalFontInstance* pFontInstance = rEmbed.m_pFontInstance;
-    auto nUPEM = pFont->UnitsPerEm();
+    auto nUPEM = pFace->UnitsPerEm();
     for( sal_Ucs c = 32; c < 256; c++ )
     {
         sal_GlyphId nGlyph = pFontInstance->GetGlyphIndex(c);
@@ -2346,10 +2359,10 @@ std::map< sal_Int32, sal_Int32 > PDFWriterImpl::emitSystemFont( const vcl::font:
     sal_GlyphId aGlyphIds[] = { 0 };
     sal_uInt8 pEncoding[] = { 0 };
     std::vector<sal_uInt8> aBuffer;
-    pFont->CreateFontSubset(aBuffer, aGlyphIds, pEncoding, 1, aInfo);
+    pFace->CreateFontSubset(aBuffer, aGlyphIds, pEncoding, 1, aInfo);
 
     // write font descriptor
-    sal_Int32 nFontDescriptor = emitFontDescriptor( pFont, aInfo, 0, 0 );
+    sal_Int32 nFontDescriptor = emitFontDescriptor( pFace, aInfo, 0, 0 );
     if( nFontDescriptor )
     {
         // write font object
@@ -2363,7 +2376,7 @@ std::map< sal_Int32, sal_Int32 > PDFWriterImpl::emitSystemFont( const vcl::font:
             aLine.append( "/BaseFont/" );
             appendName( aInfo.m_aPSName, aLine );
             aLine.append( "\n" );
-            if( !pFont->IsSymbolFont() )
+            if (!pFace->IsMicrosoftSymbolEncoded())
                 aLine.append( "/Encoding/WinAnsiEncoding\n" );
             aLine.append( "/FirstChar 32 /LastChar 255\n"
                           "/Widths[" );
@@ -2433,7 +2446,7 @@ bool PDFWriterImpl::emitType3Font(const vcl::font::PhysicalFontFace* pFace,
     if (g_bDebugDisableCompression)
         emitComment("PDFWriterImpl::emitType3Font");
 
-    const auto& aPalette = pFace->GetColorPalette(0);
+    const auto& rColorPalettes = pFace->GetColorPalettes();
 
     FontSubsetInfo aSubsetInfo;
     sal_GlyphId pTempGlyphIds[] = { 0 };
@@ -2574,7 +2587,8 @@ bool PDFWriterImpl::emitType3Font(const vcl::font::PhysicalFontFace* pFace,
                 // 0xFFFF is a special value means foreground color.
                 if (rLayer.m_nColorIndex != 0xFFFF)
                 {
-                    auto aColor(aPalette[rLayer.m_nColorIndex]);
+                    auto& rPalette = rColorPalettes[0];
+                    auto aColor(rPalette[rLayer.m_nColorIndex]);
                     appendNonStrokingColor(aColor, aContents);
                     aContents.append(" ");
                     if (aColor.GetAlpha() != 0xFF
@@ -2629,6 +2643,18 @@ bool PDFWriterImpl::emitType3Font(const vcl::font::PhysicalFontFace* pFace,
                 aContents.append("/Im");
                 aContents.append(nObject);
                 aContents.append(" Do Q\n");
+            }
+
+            const auto& rOutline = rGlyph.getOutline();
+            if (rOutline.count())
+            {
+                // XXX I have no idea why this transformation matrix is needed.
+                aContents.append("q 10 0 0 10 0 ");
+                appendDouble(m_aPages.back().getHeight() * -10, aContents, 3);
+                aContents.append(" cm\n");
+                m_aPages.back().appendPolyPolygon(rOutline, aContents);
+                aContents.append("f\n");
+                aContents.append("Q\n");
             }
 
             aLine.setLength(0);
@@ -2870,20 +2896,20 @@ sal_Int32 PDFWriterImpl::createToUnicodeCMap( sal_uInt8 const * pEncoding,
     return nStream;
 }
 
-sal_Int32 PDFWriterImpl::emitFontDescriptor( const vcl::font::PhysicalFontFace* pFont, FontSubsetInfo const & rInfo, sal_Int32 nSubsetID, sal_Int32 nFontStream )
+sal_Int32 PDFWriterImpl::emitFontDescriptor( const vcl::font::PhysicalFontFace* pFace, FontSubsetInfo const & rInfo, sal_Int32 nSubsetID, sal_Int32 nFontStream )
 {
     OStringBuffer aLine( 1024 );
     // get font flags, see PDF reference 1.4 p. 358
     // possibly characters outside Adobe standard encoding
     // so set Symbolic flag
     sal_Int32 nFontFlags = (1<<2);
-    if( pFont->GetItalic() == ITALIC_NORMAL || pFont->GetItalic() == ITALIC_OBLIQUE )
+    if( pFace->GetItalic() == ITALIC_NORMAL || pFace->GetItalic() == ITALIC_OBLIQUE )
         nFontFlags |= (1 << 6);
-    if( pFont->GetPitch() == PITCH_FIXED )
+    if( pFace->GetPitch() == PITCH_FIXED )
         nFontFlags |= 1;
-    if( pFont->GetFamilyType() == FAMILY_SCRIPT )
+    if( pFace->GetFamilyType() == FAMILY_SCRIPT )
         nFontFlags |= (1 << 3);
-    else if( pFont->GetFamilyType() == FAMILY_ROMAN )
+    else if( pFace->GetFamilyType() == FAMILY_ROMAN )
         nFontFlags |= (1 << 1);
 
     sal_Int32 nFontDescriptor = createObject();
@@ -2907,7 +2933,7 @@ sal_Int32 PDFWriterImpl::emitFontDescriptor( const vcl::font::PhysicalFontFace* 
     aLine.append( ' ' );
     aLine.append( static_cast<sal_Int32>(rInfo.m_aFontBBox.Bottom()+1) );
     aLine.append( "]/ItalicAngle " );
-    if( pFont->GetItalic() == ITALIC_OBLIQUE || pFont->GetItalic() == ITALIC_NORMAL )
+    if( pFace->GetItalic() == ITALIC_OBLIQUE || pFace->GetItalic() == ITALIC_NORMAL )
         aLine.append( "-30" );
     else
         aLine.append( "0" );
@@ -3520,6 +3546,9 @@ bool PDFWriterImpl::emitLinkAnnotations()
         aLine.append( ' ' );
         appendFixedInt( rLink.m_aRect.Bottom(), aLine );
         aLine.append( "]" );
+        // ISO 14289-1:2014, Clause: 7.18.5
+        aLine.append("/Contents");
+        appendUnicodeTextStringEncrypt(rLink.m_AltText, rLink.m_nObject, aLine);
         if( rLink.m_nDest >= 0 )
         {
             aLine.append( "/Dest" );
@@ -4167,7 +4196,7 @@ void PDFWriterImpl::createDefaultCheckBoxAppearance( PDFWidget& rBox, const PDFW
     Push();
     SetFont( Font( OUString( "OpenSymbol" ), aFont.GetFontSize() ) );
     const LogicalFontInstance* pFontInstance = GetFontInstance();
-    const vcl::font::PhysicalFontFace* pDevFont = pFontInstance->GetFontFace();
+    const vcl::font::PhysicalFontFace* pFace = pFontInstance->GetFontFace();
     Pop();
 
     // make sure OpenSymbol is embedded, and includes our checkmark
@@ -4177,7 +4206,7 @@ void PDFWriterImpl::createDefaultCheckBoxAppearance( PDFWidget& rBox, const PDFW
 
     sal_uInt8 nMappedGlyph;
     sal_Int32 nMappedFontObject;
-    registerGlyph(nGlyphId, pDevFont, { cMark }, nGlyphWidth, nMappedGlyph, nMappedFontObject, pDevFont->IsColorFont());
+    registerGlyph(nGlyphId, pFace, pFontInstance, { cMark }, nGlyphWidth, nMappedGlyph, nMappedFontObject);
 
     appendNonStrokingColor( replaceColor( rWidget.TextColor, rSettings.GetRadioCheckTextColor() ), aDA );
     aDA.append( ' ' );
@@ -6057,31 +6086,31 @@ sal_Int32 PDFWriterImpl::getSystemFont( const vcl::Font& i_rFont )
     SetFont( i_rFont );
 
     const LogicalFontInstance* pFontInstance = GetFontInstance();
-    const vcl::font::PhysicalFontFace* pDevFont = pFontInstance->GetFontFace();
+    const vcl::font::PhysicalFontFace* pFace = pFontInstance->GetFontFace();
     sal_Int32 nFontID = 0;
-    auto it = m_aSystemFonts.find( pDevFont );
+    auto it = m_aSystemFonts.find( pFace );
     if( it != m_aSystemFonts.end() )
         nFontID = it->second.m_nNormalFontID;
     else
     {
         nFontID = m_nNextFID++;
-        m_aSystemFonts[ pDevFont ] = EmbedFont();
-        m_aSystemFonts[ pDevFont ].m_pFontInstance = const_cast<LogicalFontInstance*>(pFontInstance);
-        m_aSystemFonts[ pDevFont ].m_nNormalFontID = nFontID;
+        m_aSystemFonts[ pFace ] = EmbedFont();
+        m_aSystemFonts[ pFace ].m_pFontInstance = const_cast<LogicalFontInstance*>(pFontInstance);
+        m_aSystemFonts[ pFace ].m_nNormalFontID = nFontID;
     }
 
     Pop();
     return nFontID;
 }
 
-void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
-                                  const vcl::font::PhysicalFontFace* pFont,
+void PDFWriterImpl::registerSimpleGlyph(const sal_GlyphId nFontGlyphId,
+                                  const vcl::font::PhysicalFontFace* pFace,
                                   const std::vector<sal_Ucs>& rCodeUnits,
                                   sal_Int32 nGlyphWidth,
                                   sal_uInt8& nMappedGlyph,
                                   sal_Int32& nMappedFontObject)
 {
-    FontSubset& rSubset = m_aSubsets[ pFont ];
+    FontSubset& rSubset = m_aSubsets[ pFace ];
     // search for font specific glyphID
     auto it = rSubset.m_aMapping.find( nFontGlyphId );
     if( it != rSubset.m_aMapping.end() )
@@ -6107,7 +6136,7 @@ void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
         // add new glyph to emitted font subset
         GlyphEmit& rNewGlyphEmit = rSubset.m_aSubsets.back().m_aMapping[ nFontGlyphId ];
         rNewGlyphEmit.setGlyphId( nNewId );
-        rNewGlyphEmit.setGlyphWidth(XUnits(pFont->UnitsPerEm(), nGlyphWidth));
+        rNewGlyphEmit.setGlyphWidth(XUnits(pFace->UnitsPerEm(), nGlyphWidth));
         for (const auto nCode : rCodeUnits)
             rNewGlyphEmit.addCode(nCode);
 
@@ -6120,17 +6149,18 @@ void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
 
 void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
                                   const vcl::font::PhysicalFontFace* pFace,
+                                  const LogicalFontInstance* pFont,
                                   const std::vector<sal_Ucs>& rCodeUnits, sal_Int32 nGlyphWidth,
-                                  sal_uInt8& nMappedGlyph, sal_Int32& nMappedFontObject,
-                                  bool bColor)
+                                  sal_uInt8& nMappedGlyph, sal_Int32& nMappedFontObject)
 {
-    if (bColor)
+    auto bVariations = !pFace->GetVariations(*pFont).empty();
+    if (pFace->IsColorFont() || bVariations)
     {
         // Font has colors, check if this glyph has color layers or bitmap.
         tools::Rectangle aRect;
         auto aLayers = pFace->GetGlyphColorLayers(nFontGlyphId);
         auto aBitmap = pFace->GetGlyphColorBitmap(nFontGlyphId, aRect);
-        if (!aLayers.empty() || !aBitmap.empty())
+        if (!aLayers.empty() || !aBitmap.empty() || bVariations)
         {
             auto& rSubset = m_aType3Fonts[pFace];
             auto it = rSubset.m_aMapping.find(nFontGlyphId);
@@ -6169,8 +6199,8 @@ void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
                     {
                         sal_uInt8 nLayerGlyph;
                         sal_Int32 nLayerFontID;
-                        registerGlyph(aLayer.nGlyphIndex, pFace, rCodeUnits, nGlyphWidth,
-                                      nLayerGlyph, nLayerFontID);
+                        registerSimpleGlyph(aLayer.nGlyphIndex, pFace, rCodeUnits, nGlyphWidth,
+                                            nLayerGlyph, nLayerFontID);
 
                         rNewGlyphEmit.addColorLayer(
                             { nLayerFontID, nLayerGlyph, aLayer.nColorIndex });
@@ -6178,6 +6208,12 @@ void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
                 }
                 else if (!aBitmap.empty())
                     rNewGlyphEmit.setColorBitmap(aBitmap, aRect);
+                else if (bVariations)
+                {
+                    basegfx::B2DPolyPolygon aOutline;
+                    if (pFont->GetGlyphOutlineUntransformed(nFontGlyphId, aOutline))
+                        rNewGlyphEmit.setOutline(aOutline);
+                }
 
                 // add new glyph to font mapping
                 Glyph& rNewGlyph = rSubset.m_aMapping[nFontGlyphId];
@@ -6189,7 +6225,8 @@ void PDFWriterImpl::registerGlyph(const sal_GlyphId nFontGlyphId,
     }
 
     // If we reach here then the glyph has no color layers.
-    registerGlyph(nFontGlyphId, pFace, rCodeUnits, nGlyphWidth, nMappedGlyph, nMappedFontObject);
+    registerSimpleGlyph(nFontGlyphId, pFace, rCodeUnits, nGlyphWidth, nMappedGlyph,
+                        nMappedFontObject);
 }
 
 void PDFWriterImpl::drawRelief( SalLayout& rLayout, const OUString& rText, bool bTextLines )
@@ -6482,14 +6519,8 @@ void PDFWriterImpl::drawLayout( SalLayout& rLayout, const OUString& rText, bool 
     }
 
     // perform artificial italics if necessary
-    if( ( m_aCurrentPDFState.m_aFont.GetItalic() == ITALIC_NORMAL ||
-          m_aCurrentPDFState.m_aFont.GetItalic() == ITALIC_OBLIQUE ) &&
-        ( GetFontInstance()->GetFontFace()->GetItalic() != ITALIC_NORMAL &&
-           GetFontInstance()->GetFontFace()->GetItalic() != ITALIC_OBLIQUE )
-        )
-    {
-        fSkew = M_PI/12.0;
-    }
+    if (GetFontInstance()->NeedsArtificialItalic())
+        fSkew = ARTIFICIAL_ITALIC_SKEW;
 
     // if the mapmode is distorted we need to adjust for that also
     if( m_aCurrentPDFState.m_aMapMode.GetScaleX() != m_aCurrentPDFState.m_aMapMode.GetScaleY() )
@@ -6512,8 +6543,7 @@ void PDFWriterImpl::drawLayout( SalLayout& rLayout, const OUString& rText, bool 
     bool bPop = false;
     bool bABold = false;
     // artificial bold necessary ?
-    if( GetFontInstance()->GetFontFace()->GetWeight() <= WEIGHT_MEDIUM &&
-        GetFontInstance()->GetFontSelectPattern().GetWeight() > WEIGHT_MEDIUM )
+    if (GetFontInstance()->NeedsArtificialBold())
     {
         aLine.append("q ");
         bPop = true;
@@ -6573,7 +6603,6 @@ void PDFWriterImpl::drawLayout( SalLayout& rLayout, const OUString& rText, bool 
     }
 
     FontMetric aRefDevFontMetric = GetFontMetric();
-    const vcl::font::PhysicalFontFace* pDevFont = GetFontInstance()->GetFontFace();
     const GlyphItem* pGlyph = nullptr;
     const LogicalFontInstance* pGlyphFont = nullptr;
 
@@ -6616,11 +6645,6 @@ void PDFWriterImpl::drawLayout( SalLayout& rLayout, const OUString& rText, bool 
         if (pGlyph->IsClusterStart())
             bUseActualText = true;
 
-        // Or part of a complex cluster, will be handled by the ActualText
-        // of its cluster start.
-        if (pGlyph->IsInCluster())
-            assert(aCodeUnits.empty());
-
         const auto nGlyphId = pGlyph->glyphId();
 
         // A glyph can't have more than one ToUnicode entry, use ActualText
@@ -6638,13 +6662,11 @@ void PDFWriterImpl::drawLayout( SalLayout& rLayout, const OUString& rText, bool 
             }
         }
 
-        assert(!aCodeUnits.empty() || bUseActualText || pGlyph->IsInCluster());
-
         auto nGlyphWidth = pGlyphFont->GetGlyphWidth(nGlyphId, pGlyph->IsVertical(), false);
 
         sal_uInt8 nMappedGlyph;
         sal_Int32 nMappedFontObject;
-        registerGlyph(nGlyphId, pFace, aCodeUnits, nGlyphWidth, nMappedGlyph, nMappedFontObject, pDevFont->IsColorFont());
+        registerGlyph(nGlyphId, pFace, pGlyphFont, aCodeUnits, nGlyphWidth, nMappedGlyph, nMappedFontObject);
 
         int nCharPos = -1;
         if (bUseActualText || pGlyph->IsInCluster())
@@ -10165,7 +10187,7 @@ void PDFWriterImpl::createNote( const tools::Rectangle& rRect, const PDFNote& rN
     m_aPages[nPageNr].m_aAnnotations.push_back(rNoteEntry.m_aPopUpAnnotation.m_nObject);
 }
 
-sal_Int32 PDFWriterImpl::createLink( const tools::Rectangle& rRect, sal_Int32 nPageNr )
+sal_Int32 PDFWriterImpl::createLink(const tools::Rectangle& rRect, sal_Int32 nPageNr, OUString const& rAltText)
 {
     if( nPageNr < 0 )
         nPageNr = m_nCurrentPage;
@@ -10175,7 +10197,7 @@ sal_Int32 PDFWriterImpl::createLink( const tools::Rectangle& rRect, sal_Int32 nP
 
     sal_Int32 nRet = m_aLinks.size();
 
-    m_aLinks.emplace_back( );
+    m_aLinks.emplace_back(rAltText);
     m_aLinks.back().m_nObject   = createObject();
     m_aLinks.back().m_nPage     = nPageNr;
     m_aLinks.back().m_aRect     = rRect;
@@ -10904,6 +10926,15 @@ bool PDFWriterImpl::setStructureAttribute( enum PDFWriter::StructAttribute eAttr
                         eType == PDFWriter::BibEntry    ||
                         eType == PDFWriter::Code        ||
                         eType == PDFWriter::Link )
+                    {
+                        bInsert = true;
+                    }
+                }
+                break;
+            case PDFWriter::Scope:
+                if (eVal == PDFWriter::Row || eVal == PDFWriter::Column || eVal == PDFWriter::Both)
+                {
+                    if (eType == PDFWriter::TableHeader)
                     {
                         bInsert = true;
                     }

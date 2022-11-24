@@ -961,7 +961,7 @@ LanguageTag::ImplPtr LanguageTag::registerImpl() const
                         // May have involved canonicalize(), so compare with
                         // pImpl->maBcp47 instead of maBcp47!
                         aBcp47 = LanguageTagImpl::convertToBcp47(
-                                MsLangId::Conversion::convertLanguageToLocale( pImpl->mnLangID ));
+                                MsLangId::Conversion::convertLanguageToLocale( pImpl->mnLangID, true));
                         bInsert = (aBcp47 == pImpl->maBcp47);
                     }
                 }
@@ -1352,7 +1352,7 @@ void LanguageTagImpl::convertLocaleToBcp47()
         // locale via LanguageTag::convertToBcp47(LanguageType) and
         // LanguageTag::convertToLocale(LanguageType) would instantiate another
         // LanguageTag.
-        maLocale = MsLangId::Conversion::convertLanguageToLocale( LANGUAGE_SYSTEM );
+        maLocale = MsLangId::Conversion::convertLanguageToLocale( LANGUAGE_SYSTEM, false);
     }
     if (maLocale.Language.isEmpty())
     {
@@ -1496,7 +1496,7 @@ void LanguageTagImpl::convertLangToLocale()
         mbInitializedLangID = true;
     }
     // Resolve system here! The original is remembered as mbSystemLocale.
-    maLocale = MsLangId::Conversion::convertLanguageToLocale( mnLangID );
+    maLocale = MsLangId::Conversion::convertLanguageToLocale( mnLangID, false);
     mbInitializedLocale = true;
 }
 
@@ -1532,7 +1532,7 @@ void LanguageTag::convertFromRtlLocale()
     if (maLocale.Variant.isEmpty())
         return;
 
-    OString aStr = OUStringToOString(maLocale.Language, RTL_TEXTENCODING_UTF8) + "_" + OUStringToOString(OUStringConcatenation(maLocale.Country + maLocale.Variant),
+    OString aStr = OUStringToOString(maLocale.Language, RTL_TEXTENCODING_UTF8) + "_" + OUStringToOString(Concat2View(maLocale.Country + maLocale.Variant),
             RTL_TEXTENCODING_UTF8);
     /* FIXME: let liblangtag parse this entirely with
      * lt_tag_convert_from_locale() but that needs a patch to pass the

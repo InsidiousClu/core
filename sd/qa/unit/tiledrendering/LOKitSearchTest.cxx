@@ -7,13 +7,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "../sdmodeltestbase.hxx"
-
 #include "CallbackRecorder.hxx"
+#include <test/unoapi_test.hxx>
 
-#include <test/bootstrapfixture.hxx>
 #include <test/helper/transferable.hxx>
-#include <test/xmltesttools.hxx>
 
 #include <comphelper/dispatchcommand.hxx>
 #include <comphelper/processfactory.hxx>
@@ -25,6 +22,8 @@
 #include <ViewShell.hxx>
 #include <unomodel.hxx>
 
+#include <DrawDocShell.hxx>
+#include <drawdoc.hxx>
 #include <sdpage.hxx>
 #include <svx/svdograf.hxx>
 #include <vcl/filter/PDFiumLibrary.hxx>
@@ -33,13 +32,13 @@
 
 using namespace css;
 
-class LOKitSearchTest : public SdModelTestBase, public XmlTestTools
+class LOKitSearchTest : public UnoApiTest
 {
-private:
-    static constexpr OUStringLiteral DATA_DIRECTORY = u"/sd/qa/unit/tiledrendering/data/";
-
 public:
-    LOKitSearchTest() = default;
+    LOKitSearchTest()
+        : UnoApiTest("/sd/qa/unit/tiledrendering/data/")
+    {
+    }
 
     virtual void setUp() override;
     virtual void tearDown() override;
@@ -85,42 +84,37 @@ private:
                                   const uno::Sequence<beans::PropertyValue>& rArguments
                                   = uno::Sequence<beans::PropertyValue>());
 
-    uno::Reference<lang::XComponent> mxComponent;
     std::unique_ptr<CallbackRecorder> mpCallbackRecorder;
 };
 
 void LOKitSearchTest::setUp()
 {
-    test::BootstrapFixture::setUp();
+    UnoApiTest::setUp();
 
     // prevent showing warning message box
     setenv("OOX_NO_SMARTART_WARNING", "1", 1);
     comphelper::LibreOfficeKit::setActive(true);
 
-    mxDesktop.set(
-        css::frame::Desktop::create(comphelper::getComponentContext(getMultiServiceFactory())));
     mpCallbackRecorder = std::make_unique<CallbackRecorder>();
 }
 
 void LOKitSearchTest::tearDown()
 {
     if (mxComponent.is())
+    {
         mxComponent->dispose();
+        mxComponent.clear();
+    }
 
     comphelper::LibreOfficeKit::setActive(false);
 
-    test::BootstrapFixture::tearDown();
+    UnoApiTest::tearDown();
 }
 
 SdXImpressDocument*
 LOKitSearchTest::createDoc(const char* pName, const uno::Sequence<beans::PropertyValue>& rArguments)
 {
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY)
-                                  + OUString::createFromAscii(pName));
-
+    loadFromURL(OUString::createFromAscii(pName));
     SdXImpressDocument* pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     CPPUNIT_ASSERT(pImpressDocument);
     pImpressDocument->initializeForTiledRendering(rArguments);

@@ -1570,6 +1570,16 @@ bool SwTableLine::IsEmpty() const
     return true;
 }
 
+bool SwTable::IsEmpty() const
+{
+    for (size_t i = 0; i < m_aLines.size(); ++i)
+    {
+        if ( !m_aLines[i]->IsEmpty() )
+            return false;
+    }
+    return true;
+}
+
 bool SwTable::HasDeletedRow() const
 {
     const SwRedlineTable& aRedlineTable = GetFrameFormat()->GetDoc()->getIDocumentRedlineAccess().GetRedlineTable();
@@ -1626,7 +1636,7 @@ SwRedlineTable::size_type SwTableLine::UpdateTextChangesOnly(
         for (size_t nBoxIndex = 0; nBoxIndex < nBoxes && rRedlinePos < aRedlineTable.size(); ++nBoxIndex)
         {
             auto pBox = rBoxes[nBoxIndex];
-            if ( pBox->IsEmpty() )
+            if ( pBox->IsEmpty( /*bWithRemainingNestedTable =*/ false ) )
             {
                // no text content, check the next cells
                continue;
@@ -1672,7 +1682,10 @@ SwRedlineTable::size_type SwTableLine::UpdateTextChangesOnly(
                         {
                             // plain text between the delete redlines
                             if ( pPreviousDeleteRedline &&
-                                *pPreviousDeleteRedline->End() < *pRedline->Start() )
+                                *pPreviousDeleteRedline->End() < *pRedline->Start() &&
+                                // in the same section, i.e. not in a nested table
+                                pPreviousDeleteRedline->End()->nNode.GetNode().StartOfSectionNode() ==
+                                    pRedline->Start()->nNode.GetNode().StartOfSectionNode() )
                             {
                                 bPlainTextInLine = true;
                             }
@@ -1698,6 +1711,9 @@ SwRedlineTable::size_type SwTableLine::UpdateTextChangesOnly(
 
             // there is text content outside of redlines: not a deletion
             if ( !bInsertion && ( !bHasRedlineInBox || ( pPreviousDeleteRedline &&
+                 // in the same cell, i.e. not in a nested table
+                 pPreviousDeleteRedline->End()->nNode.GetNode().StartOfSectionNode() ==
+                      aCellEnd.GetNode().StartOfSectionNode()  &&
                  ( pPreviousDeleteRedline->End()->GetNode() < aCellEnd.GetNode() ||
                    pPreviousDeleteRedline->End()->GetContentIndex() <
                            aCellEnd.GetNode().GetContentNode()->Len() ) ) ) )
@@ -2051,16 +2067,31 @@ SwNodeOffset SwTableBox::GetSttIdx() const
     return m_pStartNode ? m_pStartNode->GetIndex() : SwNodeOffset(0);
 }
 
-bool SwTableBox::IsEmpty() const
+bool SwTableBox::IsEmpty( bool bWithRemainingNestedTable ) const
 {
     const SwStartNode *pSttNd = GetSttNd();
-    if( pSttNd &&
-        pSttNd->GetIndex() + 2 == pSttNd->EndOfSectionIndex() )
+
+    if ( !pSttNd )
+        return false;
+
+    const SwNode * pFirstNode = pSttNd->GetNodes()[pSttNd->GetIndex() + 1];
+
+    if ( pSttNd->GetIndex() + 2 == pSttNd->EndOfSectionIndex() )
     {
-        const SwContentNode *pCNd =
-            pSttNd->GetNodes()[pSttNd->GetIndex()+1]->GetContentNode();
-        if( pCNd && !pCNd->Len() )
+        // single empty node in the box
+        const SwContentNode *pCNd = pFirstNode->GetContentNode();
+        if ( pCNd && !pCNd->Len() )
             return true;
+    }
+    else if ( bWithRemainingNestedTable )
+    {
+        if ( const SwTableNode * pTableNode = pFirstNode->GetTableNode() )
+        {
+            // empty nested table in the box and
+            // no text content after it
+            if ( pTableNode->EndOfSectionIndex() + 2 == pSttNd->EndOfSectionIndex() )
+                return pTableNode->GetTable().IsEmpty();
+        }
     }
 
     return false;

@@ -372,7 +372,7 @@
       </node>
       <node oor:name=".uno:ViewTrackChanges" oor:op="replace">
         <prop oor:name="Label" oor:type="xs:string">
-          <value xml:lang="en-US">Show ~Tracked Changes</value>
+          <value xml:lang="en-US">Show Tracked ~Changes</value>
         </prop>
         <prop oor:name="TargetURL" oor:type="xs:string">
           <value>.uno:ShowTrackedChanges</value>
@@ -409,6 +409,14 @@
         </prop>
         <prop oor:name="TooltipLabel" oor:type="xs:string">
           <value xml:lang="en-US">Shows a button next to headings and subheadings to help with outline folding. Even without the button, you can do outline folding with the Navigator.</value>
+        </prop>
+        <prop oor:name="Properties" oor:type="xs:int">
+          <value>1</value>
+        </prop>
+      </node>
+      <node oor:name=".uno:OutlineLevelsShown" oor:op="replace">
+        <prop oor:name="Label" oor:type="xs:string">
+          <value xml:lang="en-US">Show Outline Content up to Level...</value>
         </prop>
         <prop oor:name="Properties" oor:type="xs:int">
           <value>1</value>
@@ -1344,6 +1352,14 @@
       <node oor:name=".uno:TitlePageDialog" oor:op="replace">
         <prop oor:name="Label" oor:type="xs:string">
           <value xml:lang="en-US">Title Page...</value>
+        </prop>
+        <prop oor:name="Properties" oor:type="xs:int">
+          <value>1</value>
+        </prop>
+      </node>
+      <node oor:name=".uno:Translate" oor:op="replace">
+        <prop oor:name="Label" oor:type="xs:string">
+          <value xml:lang="en-US">Translate...</value>
         </prop>
         <prop oor:name="Properties" oor:type="xs:int">
           <value>1</value>

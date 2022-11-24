@@ -136,6 +136,11 @@ void SdrObjUserCall::Changed(const SdrObject& /*rObj*/, SdrUserCallType /*eType*
 {
 }
 
+sal_Int32 SdrObjUserCall::GetPDFAnchorStructureElementId(SdrObject const&, OutputDevice const&)
+{
+    return -1;
+}
+
 SdrObjMacroHitRec::SdrObjMacroHitRec() :
     pVisiLayer(nullptr),
     pPageView(nullptr),
@@ -1107,7 +1112,7 @@ basegfx::B2DPolyPolygon SdrObject::TakeContour() const
 
     if(pClone)
     {
-        const SdrTextObj* pTextObj = dynamic_cast< const SdrTextObj* >(this);
+        const SdrTextObj* pTextObj = DynCastSdrTextObj(this);
 
         if(pTextObj)
         {
@@ -3094,18 +3099,20 @@ void SdrObject::MakeNameUnique()
 {
     if (GetName().isEmpty())
     {
-        if (const E3dScene* pE3dObj = dynamic_cast<const E3dScene*>(this))
+        OUString aName;
+        if (const E3dScene* pE3dObj = DynCastE3dScene(this))
         {
             SdrObjList* pObjList = pE3dObj->GetSubList();
             if (pObjList)
             {
                 SdrObject* pObj0 = pObjList->GetObj(0);
                 if (pObj0)
-                    SetName(pObj0->TakeObjNameSingul());
+                    aName = pObj0->TakeObjNameSingul();
             }
         }
         else
-            SetName(TakeObjNameSingul());
+            aName = TakeObjNameSingul();
+        SetName(aName + " 1");
     }
 
     std::unordered_set<OUString> aNameSet;
@@ -3143,8 +3150,6 @@ void SdrObject::MakeNameUnique(std::unordered_set<OUString>& rNameSet)
         while (nPos > 0 && rtl::isAsciiDigit(sName[--nPos]));
         sRootName = o3tl::trim(sName.subView(0, nPos + 1));
     }
-    else
-        sName += " 1";
 
     for (sal_uInt32 n = 1; rNameSet.find(sName) != rNameSet.end(); n++)
         sName = sRootName + " " + OUString::number(n);
@@ -3193,6 +3198,29 @@ void SdrObject::resetOutRectangle()
 void SdrObject::moveOutRectangle(sal_Int32 nXDelta, sal_Int32 nYDelta)
 {
     m_aOutRect.Move(nXDelta, nYDelta);
+}
+
+E3dScene* DynCastE3dScene(SdrObject* pObj)
+{
+    if( pObj && pObj->GetObjInventor() == SdrInventor::E3d && pObj->GetObjIdentifier() == SdrObjKind::E3D_Scene )
+        return static_cast<E3dScene*>(pObj);
+    return nullptr;
+}
+
+E3dObject* DynCastE3dObject(SdrObject* pObj)
+{
+    if( pObj && pObj->GetObjInventor() == SdrInventor::E3d )
+        return static_cast<E3dObject*>(pObj);
+    return nullptr;
+}
+
+SdrTextObj* DynCastSdrTextObj(SdrObject* pObj)
+{
+    // SdrTextObj has a lot of subclasses, with lots of SdrObjKind identifiers, so use a virtual method
+    // to be safer.
+    if( pObj && pObj->IsSdrTextObj() )
+        return static_cast<SdrTextObj*>(pObj);
+    return nullptr;
 }
 
 rtl::Reference<SdrObject> SdrObjFactory::CreateObjectFromFactory(SdrModel& rSdrModel, SdrInventor nInventor, SdrObjKind nObjIdentifier)

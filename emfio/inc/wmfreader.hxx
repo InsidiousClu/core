@@ -17,8 +17,7 @@
  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
  */
 
-#ifndef INCLUDED_EMFIO_INC_WMFREADER_HXX
-#define INCLUDED_EMFIO_INC_WMFREADER_HXX
+#pragma once
 
 #include "mtftools.hxx"
 #include <tools/stream.hxx>
@@ -33,6 +32,7 @@ namespace emfio
     private:
         sal_uInt16      mnUnitsPerInch;
         sal_uInt32      mnRecSize;
+        bool            mbPlaceable;
 
         // embedded EMF data
         std::optional<std::vector<sal_uInt8>> mpEMFStream;
@@ -75,7 +75,5 @@ namespace emfio
         void SetEnableEMFPlus(bool bEnableEMFPlus) { mbEnableEMFPlus = bEnableEMFPlus; }
     };
 }
-
-#endif
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -84,15 +84,8 @@ public:
     bool GetIncludeHidden() const { return m_bIncludeHidden; }
     void SetIncludeHidden( bool bVal ) { m_bIncludeHidden = bVal; }
 
-    void Reset()
-    {
-        m_sFont.clear();
-        m_eCRLF_Flag = GetSystemLineEnd();
-        m_eCharSet = ::osl_getThreadTextEncoding();
-        m_nLanguage = LANGUAGE_SYSTEM;
-        m_bIncludeBOM = true;
-        m_bIncludeHidden = true;
-    }
+    void Reset();
+
     // for the automatic conversion (mail/news/...)
     void ReadUserData( std::u16string_view );
     void WriteUserData( OUString& ) const;
@@ -328,7 +321,7 @@ public:
 
     sal_uInt16 GetCount() const;                        // Get count text modules.
     sal_uInt16 GetIndex( const OUString& ) const;       // Get index of short names.
-    sal_uInt16 GetLongIndex( const OUString& ) const;   // Get index of long names.
+    sal_uInt16 GetLongIndex( std::u16string_view ) const;   // Get index of long names.
     OUString GetShortName( sal_uInt16 ) const;          // Get short name for index.
     OUString GetLongName( sal_uInt16 ) const;           // Get long name for index.
 

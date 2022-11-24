@@ -188,6 +188,20 @@ public:
 
 };
 
+enum class IdleJobType
+{
+    ONLINE_SPELLING,
+    AUTOCOMPLETE_WORDS,
+    WORD_COUNT,
+    SMART_TAGS
+};
+
+enum class IdleJobArea
+{
+    ALL,
+    VISIBLE
+};
+
 class SwLayIdle
 {
     SwRootFrame *m_pRoot;
@@ -201,10 +215,10 @@ class SwLayIdle
     void ShowIdle( Color eName );
 #endif
 
-    enum IdleJobType{ ONLINE_SPELLING, AUTOCOMPLETE_WORDS, WORD_COUNT, SMART_TAGS };
     bool DoIdleJob_( const SwContentFrame*, IdleJobType );
-    bool DoIdleJob( IdleJobType, bool bVisAreaOnly );
+    bool DoIdleJob(IdleJobType eJobType, IdleJobArea eJobArea);
 
+    static bool isJobEnabled(IdleJobType eJob, const SwViewShell* pViewShell);
 public:
     SwLayIdle( SwRootFrame *pRt, SwViewShellImp *pImp );
     ~SwLayIdle();

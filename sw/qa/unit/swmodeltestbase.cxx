@@ -12,22 +12,14 @@
 #include <com/sun/star/container/XContentEnumerationAccess.hpp>
 #include <com/sun/star/document/XFilter.hpp>
 #include <com/sun/star/document/XImporter.hpp>
-#include <com/sun/star/frame/Desktop.hpp>
-#include <com/sun/star/packages/zip/ZipFileAccess.hpp>
 #include <com/sun/star/text/XPageCursor.hpp>
 #include <com/sun/star/text/XTextTable.hpp>
 #include <com/sun/star/text/XTextViewCursorSupplier.hpp>
 
-#include <comphelper/processfactory.hxx>
 #include <comphelper/propertyvalue.hxx>
-#include <comphelper/sequence.hxx>
-#include <officecfg/Office/Common.hxx>
 #include <rtl/ustrbuf.hxx>
-#include <sfx2/app.hxx>
-#include <unotools/mediadescriptor.hxx>
 #include <unotools/streamwrap.hxx>
 #include <unotools/ucbstreamhelper.hxx>
-#include <vcl/filter/PDFiumLibrary.hxx>
 
 #include <IDocumentLayoutAccess.hxx>
 #include <docsh.hxx>
@@ -55,52 +47,23 @@ void SwModelTestBase::paste(std::u16string_view aFilename,
 }
 
 SwModelTestBase::SwModelTestBase(const OUString& pTestDocumentPath, const char* pFilter)
-    : mpXmlBuffer(nullptr)
-    , mpTestDocumentPath(pTestDocumentPath)
+    : UnoApiXmlTest(pTestDocumentPath)
+    , mbExported(false)
+    , mpXmlBuffer(nullptr)
     , mpFilter(pFilter)
     , mnStartTime(0)
-    , mbExported(false)
-    , mbFontNameWYSIWYG(officecfg::Office::Common::Font::View::ShowFontBoxWYSIWYG::get())
 {
-    maTempFile.EnableKillingFile();
-}
-
-void SwModelTestBase::setUp()
-{
-    test::BootstrapFixture::setUp();
-    mxDesktop.set(
-        css::frame::Desktop::create(comphelper::getComponentContext(getMultiServiceFactory())));
-    SfxApplication::GetOrCreate();
-    std::shared_ptr<comphelper::ConfigurationChanges> xChanges(
-        comphelper::ConfigurationChanges::create());
-    officecfg::Office::Common::Font::View::ShowFontBoxWYSIWYG::set(false, xChanges);
-    xChanges->commit();
-}
-
-void SwModelTestBase::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-    std::shared_ptr<comphelper::ConfigurationChanges> xChanges(
-        comphelper::ConfigurationChanges::create());
-    officecfg::Office::Common::Font::View::ShowFontBoxWYSIWYG::set(mbFontNameWYSIWYG, xChanges);
-    xChanges->commit();
-    test::BootstrapFixture::tearDown();
 }
 
 void SwModelTestBase::executeImportTest(const char* filename, const char* pPassword)
 {
-    // If the testcase is stored in some other format, it's pointless to test.
-    if (mustTestImportOf(filename))
-    {
-        maTempFile.EnableKillingFile(false);
-        header();
-        std::unique_ptr<Resetter> const pChanges(preTest(filename));
-        load(mpTestDocumentPath, filename, pPassword);
-        verify();
-        finish();
-        maTempFile.EnableKillingFile();
-    }
+    maTempFile.EnableKillingFile(false);
+    header();
+    std::unique_ptr<Resetter> const pChanges(preTest(filename));
+    load(filename, pPassword);
+    verify();
+    finish();
+    maTempFile.EnableKillingFile();
 }
 
 void SwModelTestBase::executeLoadVerifyReloadVerify(const char* filename, const char* pPassword)
@@ -108,11 +71,8 @@ void SwModelTestBase::executeLoadVerifyReloadVerify(const char* filename, const 
     maTempFile.EnableKillingFile(false);
     header();
     std::unique_ptr<Resetter> const pChanges(preTest(filename));
-    load(mpTestDocumentPath, filename, pPassword);
-    if (mustTestImportOf(filename))
-    {
-        verify();
-    }
+    load(filename, pPassword);
+    verify();
     postLoad(filename);
     reload(mpFilter, filename, pPassword);
     verify();
@@ -125,7 +85,7 @@ void SwModelTestBase::executeLoadReloadVerify(const char* filename, const char* 
     maTempFile.EnableKillingFile(false);
     header();
     std::unique_ptr<Resetter> const pChanges(preTest(filename));
-    load(mpTestDocumentPath, filename, pPassword);
+    load(filename, pPassword);
     postLoad(filename);
     reload(mpFilter, filename, pPassword);
     verify();
@@ -138,8 +98,8 @@ void SwModelTestBase::executeImportExport(const char* filename, const char* pPas
     maTempFile.EnableKillingFile(false);
     header();
     std::unique_ptr<Resetter> const pChanges(preTest(filename));
-    load(mpTestDocumentPath, filename, pPassword);
-    save(OUString::createFromAscii(mpFilter), maTempFile);
+    load(filename, pPassword);
+    save(OUString::createFromAscii(mpFilter));
     maTempFile.EnableKillingFile(false);
     verify();
     finish();
@@ -473,131 +433,41 @@ uno::Reference<drawing::XShape> SwModelTestBase::getTextFrameByName(const OUStri
     return xShape;
 }
 
-void SwModelTestBase::setTestInteractionHandler(const char* pPassword,
-                                                std::vector<beans::PropertyValue>& rFilterOptions)
-{
-    OUString sPassword = OUString::createFromAscii(pPassword);
-    rFilterOptions.emplace_back();
-    xInteractionHandler
-        = rtl::Reference<TestInteractionHandler>(new TestInteractionHandler(sPassword));
-    uno::Reference<task::XInteractionHandler2> const xInteraction(xInteractionHandler);
-    rFilterOptions[0].Name = "InteractionHandler";
-    rFilterOptions[0].Value <<= xInteraction;
-}
-
 void SwModelTestBase::header() {}
 
-void SwModelTestBase::loadURLWithComponent(OUString const& rURL, OUString const& rComponent,
-                                           const char* pName, const char* pPassword)
+void SwModelTestBase::loadURL(OUString const& rURL, const char* pName, const char* pPassword)
 {
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    std::vector<beans::PropertyValue> aFilterOptions;
-
-    if (pPassword)
+    // Output name at load time, so in the case of a hang, the name of the hanging input file is visible.
+    if (!isExported())
     {
-        setTestInteractionHandler(pPassword, aFilterOptions);
+        if (pName)
+            std::cout << pName << ":\n";
+        mnStartTime = osl_getGlobalTimer();
     }
 
-    if (!maImportFilterOptions.isEmpty())
-    {
-        beans::PropertyValue aValue;
-        aValue.Name = "FilterOptions";
-        aValue.Value <<= maImportFilterOptions;
-        aFilterOptions.push_back(aValue);
-    }
-
-    if (!maImportFilterName.isEmpty())
-    {
-        beans::PropertyValue aValue;
-        aValue.Name = "FilterName";
-        aValue.Value <<= maImportFilterName;
-        aFilterOptions.push_back(aValue);
-    }
-
-    // Output name early, so in the case of a hang, the name of the hanging input file is visible.
-    if (pName)
-        std::cout << pName << ":\n";
-    mnStartTime = osl_getGlobalTimer();
-    mxComponent
-        = loadFromDesktop(rURL, rComponent, comphelper::containerToSequence(aFilterOptions));
-
-    if (pPassword)
-    {
-        CPPUNIT_ASSERT_MESSAGE("Password set but not requested",
-                               xInteractionHandler->wasPasswordRequested());
-    }
+    UnoApiXmlTest::load(rURL, pPassword);
 
     discardDumpedLayout();
     if (pName && mustCalcLayoutOf(pName))
         calcLayout();
 }
 
-void SwModelTestBase::loadURL(OUString const& rURL, const char* pName, const char* pPassword)
+void SwModelTestBase::reload(const char* pFilter, const char* pName, const char* pPassword)
 {
-    loadURLWithComponent(rURL, "com.sun.star.text.TextDocument", pName, pPassword);
+    save(OUString::createFromAscii(pFilter), pName, pPassword);
+
+    loadURL(maTempFile.GetURL(), pName, pPassword);
 }
 
-void SwModelTestBase::reload(const char* pFilter, const char* filename, const char* pPassword)
+void SwModelTestBase::save(const OUString& aFilterName, const char* pName, const char* pPassword)
 {
-    uno::Reference<frame::XStorable> xStorable(mxComponent, uno::UNO_QUERY);
-    OUString aFilterName = OUString::createFromAscii(pFilter);
-    utl::MediaDescriptor aMediaDescriptor;
-    aMediaDescriptor["FilterName"] <<= aFilterName;
-    if (!maFilterOptions.isEmpty())
-        aMediaDescriptor["FilterOptions"] <<= maFilterOptions;
-    if (pPassword)
-    {
-        if (strcmp(pFilter, "Office Open XML Text"))
-        {
-            aMediaDescriptor["Password"] <<= OUString::createFromAscii(pPassword);
-        }
-        else
-        {
-            OUString sPassword = OUString::createFromAscii(pPassword);
-            css::uno::Sequence<css::beans::NamedValue> aEncryptionData{
-                { "CryptoType", css::uno::Any(OUString("Standard")) },
-                { "OOXPassword", css::uno::Any(sPassword) }
-            };
-            aMediaDescriptor[utl::MediaDescriptor::PROP_ENCRYPTIONDATA] <<= aEncryptionData;
-        }
-    }
-    xStorable->storeToURL(maTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
-    uno::Reference<lang::XComponent> xComponent(xStorable, uno::UNO_QUERY);
-    xComponent->dispose();
-    mbExported = true;
+    // FIXME: Merge skipValidation and mustValidate
+    skipValidation();
 
-    std::vector<beans::PropertyValue> aFilterOptions;
-    if (pPassword)
-    {
-        setTestInteractionHandler(pPassword, aFilterOptions);
-    }
+    UnoApiXmlTest::save(aFilterName, pPassword);
 
-    if (!maImportFilterOptions.isEmpty())
-    {
-        beans::PropertyValue aValue;
-        aValue.Name = "FilterOptions";
-        aValue.Value <<= maImportFilterOptions;
-        aFilterOptions.push_back(aValue);
-    }
-
-    if (!maImportFilterName.isEmpty())
-    {
-        beans::PropertyValue aValue;
-        aValue.Name = "FilterName";
-        aValue.Value <<= maImportFilterName;
-        aFilterOptions.push_back(aValue);
-    }
-
-    mxComponent = loadFromDesktop(maTempFile.GetURL(), "com.sun.star.text.TextDocument",
-                                  comphelper::containerToSequence(aFilterOptions));
-    if (pPassword)
-    {
-        CPPUNIT_ASSERT_MESSAGE("Password set but not requested",
-                               xInteractionHandler->wasPasswordRequested());
-    }
-    if (mustValidate(filename) || aFilterName == "writer8"
+    // TODO: for now, validate only ODF here
+    if (mustValidate(pName) || aFilterName == "writer8"
         || aFilterName == "OpenDocument Text Flat XML")
     {
         if (aFilterName == "Office Open XML Text")
@@ -616,42 +486,23 @@ void SwModelTestBase::reload(const char* pFilter, const char* filename, const ch
         else
         {
             OString aMessage
-                = OString::Concat("validation requested, but don't know how to validate ")
-                  + filename + " (" + OUStringToOString(aFilterName, RTL_TEXTENCODING_UTF8) + ")";
+                = OString::Concat("validation requested, but don't know how to validate ") + pName
+                  + " (" + OUStringToOString(aFilterName, RTL_TEXTENCODING_UTF8) + ")";
             CPPUNIT_FAIL(aMessage.getStr());
         }
     }
-    discardDumpedLayout();
-    if (mustCalcLayoutOf(filename))
-        calcLayout();
-}
-
-void SwModelTestBase::save(const OUString& aFilterName, utl::TempFileNamed& rTempFile)
-{
-    rTempFile.EnableKillingFile();
-    uno::Reference<frame::XStorable> xStorable(mxComponent, uno::UNO_QUERY);
-    utl::MediaDescriptor aMediaDescriptor;
-    aMediaDescriptor["FilterName"] <<= aFilterName;
-    if (!maFilterOptions.isEmpty())
-        aMediaDescriptor["FilterOptions"] <<= maFilterOptions;
-    xStorable->storeToURL(rTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
-    // TODO: for now, validate only ODF here
-    if (aFilterName == "writer8" || aFilterName == "OpenDocument Text Flat XML")
-    {
-        validate(rTempFile.GetFileName(), test::ODF);
-    }
+    mbExported = true;
 }
 
 void SwModelTestBase::loadAndSave(const char* pName)
 {
-    load(mpTestDocumentPath, pName);
-    save(OUString::createFromAscii(mpFilter), maTempFile);
-    mbExported = true;
+    load(pName);
+    save(OUString::createFromAscii(mpFilter));
 }
 
 void SwModelTestBase::loadAndReload(const char* pName)
 {
-    load(mpTestDocumentPath, pName);
+    load(pName);
     reload(mpFilter, pName);
 }
 
@@ -680,43 +531,10 @@ int SwModelTestBase::getShapes() const
     return xDraws->getCount();
 }
 
-xmlDocUniquePtr SwModelTestBase::parseExport(const OUString& rStreamName)
-{
-    if (!mbExported)
-        return nullptr;
-
-    return parseExportInternal(maTempFile.GetURL(), rStreamName);
-}
-
 xmlDocUniquePtr SwModelTestBase::parseExportedFile()
 {
     auto stream(SvFileStream(maTempFile.GetURL(), StreamMode::READ | StreamMode::TEMPORARY));
     return parseXmlStream(&stream);
-}
-
-std::unique_ptr<SvStream> SwModelTestBase::parseExportStream(const OUString& url,
-                                                             const OUString& rStreamName)
-{
-    // Read the stream we're interested in.
-    uno::Reference<packages::zip::XZipFileAccess2> xNameAccess
-        = packages::zip::ZipFileAccess::createWithURL(comphelper::getComponentContext(m_xSFactory),
-                                                      url);
-    uno::Reference<io::XInputStream> xInputStream(xNameAccess->getByName(rStreamName),
-                                                  uno::UNO_QUERY);
-    CPPUNIT_ASSERT(xInputStream.is());
-    std::unique_ptr<SvStream> pStream(utl::UcbStreamHelper::CreateStream(xInputStream, true));
-    return pStream;
-}
-
-xmlDocUniquePtr SwModelTestBase::parseExportInternal(const OUString& url,
-                                                     const OUString& rStreamName)
-{
-    std::unique_ptr<SvStream> pStream(parseExportStream(url, rStreamName));
-
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
-    pXmlDoc->name = reinterpret_cast<char*>(xmlStrdup(
-        reinterpret_cast<xmlChar const*>(OUStringToOString(url, RTL_TEXTENCODING_UTF8).getStr())));
-    return pXmlDoc;
 }
 
 void SwModelTestBase::registerNamespaces(xmlXPathContextPtr& pXmlXpathCtx)
@@ -730,53 +548,45 @@ void SwModelTestBase::registerNamespaces(xmlXPathContextPtr& pXmlXpathCtx)
                        BAD_CAST("http://www.w3.org/1999/xhtml"));
 }
 
-SwDoc* SwModelTestBase::createSwDoc(std::u16string_view rDataDirectory, const char* pName)
+void SwModelTestBase::createSwDoc(const char* pName, const char* pPassword)
 {
-    if (rDataDirectory.empty() || !pName)
-        loadURL("private:factory/swriter", nullptr);
+    if (!pName)
+        loadURL("private:factory/swriter", pName, nullptr);
     else
-        load(rDataDirectory, pName);
+        load(pName, pPassword);
 
-    return getSwDoc();
+    uno::Reference<lang::XServiceInfo> xServiceInfo(mxComponent, uno::UNO_QUERY);
+    CPPUNIT_ASSERT(xServiceInfo->supportsService("com.sun.star.text.TextDocument"));
 }
 
-SwDoc* SwModelTestBase::createSwWebDoc(std::u16string_view rDataDirectory, const char* pName)
+void SwModelTestBase::createSwWebDoc(const char* pName)
 {
-    if (rDataDirectory.empty() || !pName)
-        loadURL("private:factory/swriter/web", nullptr);
+    if (!pName)
+        loadURL("private:factory/swriter/web", pName, nullptr);
     else
-        load_web(rDataDirectory, pName);
+        load(pName);
 
-    return getSwDoc();
+    uno::Reference<lang::XServiceInfo> xServiceInfo(mxComponent, uno::UNO_QUERY);
+    CPPUNIT_ASSERT(xServiceInfo->supportsService("com.sun.star.text.WebDocument"));
 }
 
-SwXTextDocument& SwModelTestBase::getSwXTextDocument()
+void SwModelTestBase::createSwGlobalDoc(const char* pName)
+{
+    if (!pName)
+        loadURL("private:factory/swriter/GlobalDocument", pName, nullptr);
+    else
+        load(pName);
+
+    uno::Reference<lang::XServiceInfo> xServiceInfo(mxComponent, uno::UNO_QUERY);
+    CPPUNIT_ASSERT(xServiceInfo->supportsService("com.sun.star.text.GlobalDocument"));
+}
+
+SwDoc* SwModelTestBase::getSwDoc()
 {
     SwXTextDocument* pTextDoc = dynamic_cast<SwXTextDocument*>(mxComponent.get());
     CPPUNIT_ASSERT(pTextDoc);
-    return *pTextDoc;
-}
 
-SwDoc* SwModelTestBase::getSwDoc() { return getSwXTextDocument().GetDocShell()->GetDoc(); }
-
-void SwModelTestBase::StoreToTempFile(const OUString& rFilterName)
-{
-    uno::Reference<frame::XStorable> xStorable(mxComponent, uno::UNO_QUERY);
-    utl::MediaDescriptor aMediaDescriptor;
-    aMediaDescriptor["FilterName"] <<= rFilterName;
-    xStorable->storeToURL(maTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
-}
-
-std::unique_ptr<vcl::pdf::PDFiumDocument> SwModelTestBase::LoadPdfFromTempFile()
-{
-    SvFileStream aFile(maTempFile.GetURL(), StreamMode::READ);
-    maMemory.WriteStream(aFile);
-    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
-    if (!pPDFium)
-    {
-        return nullptr;
-    }
-    return pPDFium->openDocument(maMemory.GetData(), maMemory.GetSize(), OString());
+    return pTextDoc->GetDocShell()->GetDoc();
 }
 
 void SwModelTestBase::WrapReqifFromTempFile(SvMemoryStream& rStream)

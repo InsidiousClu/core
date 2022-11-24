@@ -22,6 +22,7 @@
 #include <vcl/settings.hxx>
 #include <vcl/svapp.hxx>
 #include <vcl/weldutils.hxx>
+#include <contentcontrolaliasbutton.hxx>
 
 SwFrameControlsManager::SwFrameControlsManager( SwEditWin* pEditWin ) :
     m_pEditWin( pEditWin )
@@ -93,7 +94,7 @@ void SwFrameControlsManager::SetHeaderFooterControl( const SwPageFrame* pPageFra
     else
     {
         SwFrameControlPtr pNewControl =
-                std::make_shared<SwFrameControl>( VclPtr<SwHeaderFooterWin>::Create(
+                std::make_shared<SwFrameControl>( VclPtr<SwHeaderFooterDashedLine>::Create(
                                         m_pEditWin, pPageFrame, bHeader ).get() );
         const SwViewOption* pViewOpt = m_pEditWin->GetView().GetWrtShell().GetViewOptions();
         pNewControl->SetReadonly( pViewOpt->IsReadonly() );
@@ -103,7 +104,7 @@ void SwFrameControlsManager::SetHeaderFooterControl( const SwPageFrame* pPageFra
 
     tools::Rectangle aPageRect = m_pEditWin->LogicToPixel( pPageFrame->getFrameArea().SVRect() );
 
-    SwHeaderFooterWin* pWin = dynamic_cast<SwHeaderFooterWin *>(pControl->GetWindow());
+    SwHeaderFooterDashedLine* pWin = dynamic_cast<SwHeaderFooterDashedLine*>(pControl->GetWindow());
     assert( pWin != nullptr) ;
     assert( pWin->IsHeader() == bHeader );
     pWin->SetOffset( aOffset, aPageRect.Left(), aPageRect.Right() );
@@ -172,6 +173,32 @@ void SwFrameControlsManager::SetUnfloatTableButton( const SwFlyFrame* pFlyFrame,
     assert(pButton != nullptr);
     pButton->SetOffset(aTopRightPixel);
     pControl->ShowAll( bShow );
+}
+
+void SwFrameControlsManager::SetContentControlAliasButton(SwContentControl* pContentControl,
+                                                          Point aTopLeftPixel)
+{
+    SwFrameControlPtr pControl;
+    SwFrameControlPtrMap& rControls = m_aControls[FrameControlType::ContentControl];
+    // We don't really have a key, the SwPaM's mark decides what is the single content control in
+    // this view that can have an alias button.
+    SwFrameControlPtrMap::iterator it = rControls.find(nullptr);
+    if (it != rControls.end())
+        pControl = it->second;
+    else
+    {
+        pControl = std::make_shared<SwFrameControl>(
+            VclPtr<SwContentControlAliasButton>::Create(m_pEditWin, pContentControl).get());
+        const SwViewOption* pViewOpt = m_pEditWin->GetView().GetWrtShell().GetViewOptions();
+        pControl->SetReadonly(pViewOpt->IsReadonly());
+        rControls[nullptr] = pControl;
+    }
+
+    auto pButton = dynamic_cast<SwContentControlAliasButton*>(pControl->GetWindow());
+    assert(pButton);
+    pButton->SetOffset(aTopLeftPixel);
+    pButton->SetContentControl(pContentControl);
+    pControl->ShowAll(true);
 }
 
 SwFrameMenuButtonBase::SwFrameMenuButtonBase(SwEditWin* pEditWin, const SwFrame* pFrame,

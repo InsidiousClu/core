@@ -1377,7 +1377,6 @@ std::unique_ptr<SalLayout> OutputDevice::ImplLayout(const OUString& rOrigStr,
     vcl::text::ImplLayoutArgs aLayoutArgs = ImplPrepareLayoutArgs( aStr, nMinIndex, nLen,
             nPixelWidth, flags, pLayoutCache);
 
-    bool bHasScaledDXArray(false);
     DeviceCoordinate nEndGlyphCoord(0);
     std::unique_ptr<double[]> xNaturalDXPixelArray;
     if( !pDXArray.empty() )
@@ -1388,7 +1387,6 @@ std::unique_ptr<SalLayout> OutputDevice::ImplLayout(const OUString& rOrigStr,
         {
             // convert from logical units to font units without rounding,
             // keeping accuracy for lower levels
-            bHasScaledDXArray = true;
             for (int i = 0; i < nLen; ++i)
                 xNaturalDXPixelArray[i] = ImplLogicWidthToDeviceSubPixel(pDXArray[i]);
         }
@@ -1417,7 +1415,7 @@ std::unique_ptr<SalLayout> OutputDevice::ImplLayout(const OUString& rOrigStr,
     if( !pSalLayout )
         return nullptr;
 
-    pSalLayout->SetTextRenderModeForResolutionIndependentLayout(bHasScaledDXArray);
+    pSalLayout->SetTextRenderModeForResolutionIndependentLayout(mbMap);
 
     // do glyph fallback if needed
     // #105768# avoid fallback for very small font sizes
@@ -1432,10 +1430,9 @@ std::unique_ptr<SalLayout> OutputDevice::ImplLayout(const OUString& rOrigStr,
     // position, justify, etc. the layout
     pSalLayout->AdjustLayout( aLayoutArgs );
 
-    // default to on for pdf export which uses SubPixelToLogic to convert back to
-    // the logical coord space, default off for everything else for now unless
-    // a dxarray is provided which has to be scaled
-    if (bHasScaledDXArray || meOutDevType == OUTDEV_PDF)
+    // default to on for pdf export, which uses SubPixelToLogic to convert back to
+    // the logical coord space, of if we are scaling/mapping
+    if (mbMap || meOutDevType == OUTDEV_PDF)
         pSalLayout->DrawBase() = ImplLogicToDeviceSubPixel(rLogicalPos);
     else
     {
@@ -1796,8 +1793,8 @@ void OutputDevice::ImplDrawText( OutputDevice& rTargetDevice, const tools::Recta
         {
             std::unique_ptr<sal_Int32[]> const pCaretXArray(new sal_Int32[2 * aStr.getLength()]);
             /*sal_Bool bRet =*/ _rLayout.GetCaretPositions( aStr, pCaretXArray.get(), 0, aStr.getLength() );
-            sal_Int32 lc_x1 = pCaretXArray[2*nMnemonicPos];
-            sal_Int32 lc_x2 = pCaretXArray[2*nMnemonicPos+1];
+            tools::Long lc_x1 = pCaretXArray[2*nMnemonicPos];
+            tools::Long lc_x2 = pCaretXArray[2*nMnemonicPos+1];
             nMnemonicWidth = rTargetDevice.LogicWidthToDeviceCoordinate( std::abs(lc_x1 - lc_x2) );
 
             Point aTempPos = rTargetDevice.LogicToPixel( aPos );

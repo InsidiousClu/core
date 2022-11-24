@@ -921,56 +921,88 @@ void SdrTextObj::ImpSetCharStretching(SdrOutliner& rOutliner, const Size& rTextS
     tools::Long nXTolMi=nWantWdt/25;  // tolerance: -4%
     tools::Long nXCorr =nWantWdt/20;  // correction scale: 5%
 
-    tools::Long nX=(nWantWdt*100) /nIsWdt; // calculate X stretching
-    tools::Long nY=(nWantHgt*100) /nIsHgt; // calculate Y stretching
+    double nX = (nWantWdt * 100.0) / double(nIsWdt); // calculate X stretching
+    double nY = (nWantHgt * 100.0) / double(nIsHgt); // calculate Y stretching
     bool bChkX = true;
-    if (bNoStretching) { // might only be possible proportionally
-        if (nX>nY) { nX=nY; bChkX=false; }
-        else { nY=nX; }
+    if (bNoStretching)
+    { // might only be possible proportionally
+        if (nX > nY)
+        {
+            nX = nY;
+            bChkX = false;
+        }
+        else
+        {
+            nY = nX;
+        }
     }
 
-    while (nLoopCount<5 && !bNoMoreLoop) {
-        if (nX<0) nX=-nX;
-        if (nX<1) { nX=1; bNoMoreLoop = true; }
-        if (nX>65535) { nX=65535; bNoMoreLoop = true; }
+    while (nLoopCount<5 && !bNoMoreLoop)
+    {
+        if (nX < 0.0)
+            nX = -nX;
+        if (nX < 1.0)
+        {
+            nX = 1.0;
+            bNoMoreLoop = true;
+        }
+        if (nX > 65535.0)
+        {
+            nX = 65535.0;
+            bNoMoreLoop = true;
+        }
 
-        if (nY<0) nY=-nY;
-        if (nY<1) { nY=1; bNoMoreLoop = true; }
-        if (nY>65535) { nY=65535; bNoMoreLoop = true; }
+        if (nY < 0.0)
+        {
+            nY = -nY;
+        }
+        if (nY < 1.0)
+        {
+            nY = 1.0;
+            bNoMoreLoop = true;
+        }
+        if (nY > 65535.0)
+        {
+            nY = 65535.0;
+            bNoMoreLoop = true;
+        }
 
         // exception, there is no text yet (horizontal case)
-        if(nIsWdt <= 1)
+        if (nIsWdt <= 1)
         {
             nX = nY;
             bNoMoreLoop = true;
         }
 
         // exception, there is no text yet (vertical case)
-        if(nIsHgt <= 1)
+        if (nIsHgt <= 1)
         {
             nY = nX;
             bNoMoreLoop = true;
         }
-
-        rOutliner.SetGlobalCharStretching(static_cast<sal_uInt16>(nX),static_cast<sal_uInt16>(nY));
+        rOutliner.SetGlobalCharStretching(nX, nY);
         nLoopCount++;
         Size aSiz(rOutliner.CalcTextSize());
-        tools::Long nXDiff=aSiz.Width()-nWantWdt;
+        tools::Long nXDiff = aSiz.Width() - nWantWdt;
         rFitXCorrection=Fraction(nWantWdt,aSiz.Width());
         if (((nXDiff>=nXTolMi || !bChkX) && nXDiff<=nXTolPl) || nXDiff==nXDiff0) {
             bNoMoreLoop = true;
         } else {
             // correct stretching factors
-            tools::Long nMul=nWantWdt;
-            tools::Long nDiv=aSiz.Width();
-            if (std::abs(nXDiff)<=2*nXCorr) {
-                if (nMul>nDiv) nDiv+=(nMul-nDiv)/2; // but only add half of what we calculated,
-                else nMul+=(nDiv-nMul)/2;           // because the EditEngine calculates wrongly later on
+            tools::Long nMul = nWantWdt;
+            tools::Long nDiv = aSiz.Width();
+            if (std::abs(nXDiff) <= 2 * nXCorr)
+            {
+                if (nMul > nDiv)
+                    nDiv += (nMul - nDiv) / 2.0; // but only add half of what we calculated,
+                else
+                    nMul += (nDiv - nMul) / 2.0;// because the EditEngine calculates wrongly later on
             }
-            nX=nX*nMul/nDiv;
-            if (bNoStretching) nY=nX;
+            nX = nX * double(nMul) / double(nDiv);
+            if (bNoStretching)
+                nY = nX;
         }
-        nXDiff0=nXDiff;
+        nXDiff0 = nXDiff;
     }
 }
 
@@ -1133,7 +1165,7 @@ void SdrTextObj::ImpInitDrawOutliner( SdrOutliner& rOutl ) const
         nOutlinerMode = OutlinerMode::TextObject;
     rOutl.Init( nOutlinerMode );
 
-    rOutl.SetGlobalCharStretching();
+    rOutl.SetGlobalCharStretching(100.0, 100.0);
     EEControlBits nStat=rOutl.GetControlWord();
     nStat &= ~EEControlBits(EEControlBits::STRETCHING|EEControlBits::AUTOPAGESIZE);
     rOutl.SetControlWord(nStat);
@@ -1197,8 +1229,8 @@ sal_uInt16 SdrTextObj::GetFontScaleY() const
     // This eventually calls ImpAutoFitText
     UpdateOutlinerFormatting(rOutliner, o3tl::temporary(tools::Rectangle()));
 
-    sal_uInt16 nStretchY;
-    rOutliner.GetGlobalCharStretching(o3tl::temporary(sal_uInt16()), nStretchY);
+    double nStretchY;
+    rOutliner.GetGlobalCharStretching(o3tl::temporary(double()), nStretchY);
     return nStretchY;
 }
 
@@ -1218,13 +1250,13 @@ void SdrTextObj::ImpAutoFitText(SdrOutliner& rOutliner, const Size& rTextSize,
     // line-breaking text that we need some more samples
 
     // loop early-exits if we detect an already attained value
-    sal_uInt16 nMinStretchX=0, nMinStretchY=0;
-    sal_uInt16 aOldStretchXVals[]={0,0,0,0,0,0,0,0,0,0};
-    const size_t aStretchArySize=SAL_N_ELEMENTS(aOldStretchXVals);
-    for(unsigned int i=0; i<aStretchArySize; ++i)
+    double nMinStretchX = 0.0;
+    double nMinStretchY = 0.0;
+    std::array<sal_Int32, 10> aOldStretchXVals = {0,0,0,0,0,0,0,0,0,0};
+    for (size_t i = 0; i < aOldStretchXVals.size(); ++i)
     {
         const Size aCurrTextSize = rOutliner.CalcTextSizeNTP();
-        double fFactor(1.0);
+        double fFactor = 1.0;
         if( bIsVerticalWriting )
         {
             if (aCurrTextSize.Width() != 0)
@@ -1243,27 +1275,27 @@ void SdrTextObj::ImpAutoFitText(SdrOutliner& rOutliner, const Size& rTextSize,
         // - bulleted words will have to go through more iterations
         fFactor = std::sqrt(fFactor);
 
-        sal_uInt16 nCurrStretchX, nCurrStretchY;
+        double nCurrStretchX, nCurrStretchY;
         rOutliner.GetGlobalCharStretching(nCurrStretchX, nCurrStretchY);
 
-        if (fFactor >= 1.0 )
+        if (fFactor >= 0.98)
         {
             // resulting text area fits into available shape rect -
             // err on the larger stretching, to optimally fill area
-            nMinStretchX = std::max(nMinStretchX,nCurrStretchX);
-            nMinStretchY = std::max(nMinStretchY,nCurrStretchY);
+            nMinStretchX = std::max(nMinStretchX, nCurrStretchX);
+            nMinStretchY = std::max(nMinStretchY, nCurrStretchY);
         }
 
-        aOldStretchXVals[i] = nCurrStretchX;
-        if( std::find(aOldStretchXVals, aOldStretchXVals+i, nCurrStretchX) != aOldStretchXVals+i )
+        aOldStretchXVals[i] = basegfx::fround(nCurrStretchX * 10.0);
+        if (std::find(aOldStretchXVals.begin(), aOldStretchXVals.begin() + i, basegfx::fround(nCurrStretchX * 10.0)) != aOldStretchXVals.begin() + i)
             break; // same value already attained once; algo is looping, exit
 
         if (fFactor < 1.0 || nCurrStretchX != 100)
         {
-            nCurrStretchX = sal::static_int_cast<sal_uInt16>(nCurrStretchX*fFactor);
-            nCurrStretchY = sal::static_int_cast<sal_uInt16>(nCurrStretchY*fFactor);
-            rOutliner.SetGlobalCharStretching(std::min(sal_uInt16(100),nCurrStretchX),
-                                              std::min(sal_uInt16(100),nCurrStretchY));
+            nCurrStretchX = double(basegfx::fround(nCurrStretchX * fFactor * 100.0)) / 100.00;
+            nCurrStretchY = double(basegfx::fround(nCurrStretchY * fFactor * 100.0)) / 100.00;
+
+            rOutliner.SetGlobalCharStretching(std::min(100.0, nCurrStretchX), std::min(100.0, nCurrStretchY));
             SAL_INFO("svx", "zoom is " << nCurrStretchX);
         }
     }
@@ -1276,8 +1308,7 @@ void SdrTextObj::ImpAutoFitText(SdrOutliner& rOutliner, const Size& rTextSize,
     }
 
     SAL_INFO("svx", "final zoom is " << nMinStretchX);
-    rOutliner.SetGlobalCharStretching(std::min(sal_uInt16(100),nMinStretchX),
-                                      std::min(sal_uInt16(100),nMinStretchY));
+    rOutliner.SetGlobalCharStretching(std::min(100.0, nMinStretchX), std::min(100.0, nMinStretchY));
 }
 
 void SdrTextObj::SetupOutlinerFormatting( SdrOutliner& rOutl, tools::Rectangle& rPaintRect ) const
@@ -1911,7 +1942,7 @@ static void ImpUpdateChainLinks(SdrTextObj *pTextObj, std::u16string_view aNextL
 
     SdrPage *pPage(pTextObj->getSdrPageFromSdrObject());
     assert(pPage);
-    SdrTextObj *pNextTextObj = dynamic_cast< SdrTextObj * >
+    SdrTextObj *pNextTextObj = DynCastSdrTextObj
                                 (ImpGetObjByName(pPage, aNextLinkName));
     if (!pNextTextObj) {
         SAL_INFO("svx.chaining", "[CHAINING] Can't find object as next link.");
@@ -2033,7 +2064,7 @@ bool SdrTextObj::GetPreventChainable() const
 rtl::Reference<SdrObject> SdrTextObj::getFullDragClone() const
 {
     rtl::Reference<SdrObject> pClone = SdrAttrObj::getFullDragClone();
-    SdrTextObj *pTextObjClone = dynamic_cast<SdrTextObj *>(pClone.get());
+    SdrTextObj *pTextObjClone = DynCastSdrTextObj(pClone.get());
     if (pTextObjClone != nullptr) {
         // Avoid transferring of text for chainable object during dragging
         pTextObjClone->mbIsUnchainableClone = true;

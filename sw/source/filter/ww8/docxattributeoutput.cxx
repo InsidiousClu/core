@@ -1369,7 +1369,7 @@ void lcl_writeParagraphMarkerProperties(DocxAttributeOutput& rAttributeOutput, c
     bool bFontSizeWritten = false;
     while (nWhichId)
     {
-        if (aIter.GetItemState(true, &pItem) == SfxItemState::SET)
+        if (aIter.GetItemState(true, &pItem) == SfxItemState::SET && nWhichId != RES_CHRATR_GRABBAG)
         {
             if (isCHRATR(nWhichId) || nWhichId == RES_TXTATR_CHARFMT)
             {
@@ -2361,6 +2361,24 @@ void DocxAttributeOutput::WriteContentControlStart()
                                        m_pContentControl->GetColor());
     }
 
+    if (!m_pContentControl->GetAlias().isEmpty())
+    {
+        m_pSerializer->singleElementNS(XML_w, XML_alias, FSNS(XML_w, XML_val),
+                                       m_pContentControl->GetAlias());
+    }
+
+    if (!m_pContentControl->GetTag().isEmpty())
+    {
+        m_pSerializer->singleElementNS(XML_w, XML_tag, FSNS(XML_w, XML_val),
+                                       m_pContentControl->GetTag());
+    }
+
+    if (m_pContentControl->GetId())
+    {
+        m_pSerializer->singleElementNS(XML_w, XML_id, FSNS(XML_w, XML_val),
+                                       OString::number(m_pContentControl->GetId()));
+    }
+
     if (m_pContentControl->GetShowingPlaceHolder())
     {
         m_pSerializer->singleElementNS(XML_w, XML_showingPlcHdr);
@@ -2391,7 +2409,7 @@ void DocxAttributeOutput::WriteContentControlStart()
         m_pSerializer->endElementNS(XML_w14, XML_checkbox);
     }
 
-    if (m_pContentControl->HasListItems())
+    if (m_pContentControl->GetComboBox() || m_pContentControl->GetDropDown())
     {
         if (m_pContentControl->GetComboBox())
         {
@@ -2403,9 +2421,14 @@ void DocxAttributeOutput::WriteContentControlStart()
         }
         for (const auto& rItem : m_pContentControl->GetListItems())
         {
-            m_pSerializer->singleElementNS(XML_w, XML_listItem,
-                    FSNS(XML_w, XML_displayText), rItem.m_aDisplayText,
-                    FSNS(XML_w, XML_value), rItem.m_aValue);
+            rtl::Reference<FastAttributeList> xAttributes = FastSerializerHelper::createAttrList();
+            if (!rItem.m_aDisplayText.isEmpty())
+            {
+                // If there is no display text, need to omit the attribute, not write an empty one.
+                xAttributes->add(FSNS(XML_w, XML_displayText), rItem.m_aDisplayText);
+            }
+            xAttributes->add(FSNS(XML_w, XML_value), rItem.m_aValue);
+            m_pSerializer->singleElementNS(XML_w, XML_listItem, xAttributes);
         }
         if (m_pContentControl->GetComboBox())
         {
@@ -2458,16 +2481,19 @@ void DocxAttributeOutput::WriteContentControlStart()
         // This content control has a data binding, update the data source.
         SwTextContentControl* pTextAttr = m_pContentControl->GetTextAttr();
         SwTextNode* pTextNode = m_pContentControl->GetTextNode();
-        SwPosition aPoint(*pTextNode, pTextAttr->GetStart());
-        SwPosition aMark(*pTextNode, *pTextAttr->GetEnd());
-        SwPaM aPam(aMark, aPoint);
-        OUString aSnippet = aPam.GetText();
-        static sal_Unicode const aForbidden[] = {
-            CH_TXTATR_BREAKWORD,
-            0
-        };
-        aSnippet = comphelper::string::removeAny(aSnippet, aForbidden);
-        m_rExport.AddSdtData(rPrefixMapping, rXpath, aSnippet);
+        if (pTextNode && pTextAttr)
+        {
+            SwPosition aPoint(*pTextNode, pTextAttr->GetStart());
+            SwPosition aMark(*pTextNode, *pTextAttr->GetEnd());
+            SwPaM aPam(aMark, aPoint);
+            OUString aSnippet = aPam.GetText();
+            static sal_Unicode const aForbidden[] = {
+                CH_TXTATR_BREAKWORD,
+                0
+            };
+            aSnippet = comphelper::string::removeAny(aSnippet, aForbidden);
+            m_rExport.AddSdtData(rPrefixMapping, rXpath, aSnippet);
+        }
     }
 
     m_pContentControl = nullptr;
@@ -7767,7 +7793,7 @@ void DocxAttributeOutput::EmbedFontStyle( std::u16string_view name, int tag, Fon
         xOutStream->closeOutput();
         OString relId = OUStringToOString( GetExport().GetFilter().addRelation( m_pSerializer->getOutputStream(),
             oox::getRelationship(Relationship::FONT),
-            OUStringConcatenation("fonts/font" + OUString::number( m_nextFontId ) + ".odttf") ), RTL_TEXTENCODING_UTF8 );
+            Concat2View("fonts/font" + OUString::number( m_nextFontId ) + ".odttf") ), RTL_TEXTENCODING_UTF8 );
         EmbeddedFontRef ref;
         ref.relId = relId;
         ref.fontKey = fontKeyStr;
@@ -8574,9 +8600,13 @@ void DocxAttributeOutput::CharHighlight( const SvxBrushItem& rHighlight )
 
 void DocxAttributeOutput::TextINetFormat( const SwFormatINetFormat& rLink )
 {
-    OString aStyleId = MSWordStyles::CreateStyleId(rLink.GetINetFormat());
-    if (!aStyleId.isEmpty() && !aStyleId.equalsIgnoreAsciiCase("DefaultStyle"))
-        m_pSerializer->singleElementNS(XML_w, XML_rStyle, FSNS(XML_w, XML_val), aStyleId);
+    const SwCharFormat* pFormat = m_rExport.m_rDoc.FindCharFormatByName(rLink.GetINetFormat());
+    if (pFormat)
+    {
+        OString aStyleId(m_rExport.m_pStyles->GetStyleId(m_rExport.GetId(pFormat)));
+        if (!aStyleId.equalsIgnoreAsciiCase("DefaultStyle"))
+            m_pSerializer->singleElementNS(XML_w, XML_rStyle, FSNS(XML_w, XML_val), aStyleId);
+    }
 }
 
 void DocxAttributeOutput::TextCharFormat( const SwFormatCharFormat& rCharFormat )
@@ -10046,16 +10076,16 @@ void DocxAttributeOutput::FormatBox( const SvxBoxItem& rBox )
         // and so on.
         OStringBuffer aInset;
         if(!aInset.isEmpty() || fDistanceBottomInch != 0.05)
-            aInset.insert(0, OStringConcatenation("," + OString::number(fDistanceBottomInch) + "in"));
+            aInset.insert(0, Concat2View("," + OString::number(fDistanceBottomInch) + "in"));
 
         if(!aInset.isEmpty() || fDistanceRightInch != 0.1)
-            aInset.insert(0, OStringConcatenation("," + OString::number(fDistanceRightInch) + "in"));
+            aInset.insert(0, Concat2View("," + OString::number(fDistanceRightInch) + "in"));
 
         if(!aInset.isEmpty() || fDistanceTopInch != 0.05)
-            aInset.insert(0, OStringConcatenation("," + OString::number(fDistanceTopInch) + "in"));
+            aInset.insert(0, Concat2View("," + OString::number(fDistanceTopInch) + "in"));
 
         if(!aInset.isEmpty() || fDistanceLeftInch != 0.1)
-            aInset.insert(0, OStringConcatenation(OString::number(fDistanceLeftInch) + "in"));
+            aInset.insert(0, Concat2View(OString::number(fDistanceLeftInch) + "in"));
 
         if (!aInset.isEmpty())
             m_rExport.SdrExporter().getTextboxAttrList()->add(XML_inset, aInset.makeStringAndClear());

@@ -1320,8 +1320,7 @@ void FastSaxParserImpl::addUnknownElementWithPrefix(const xmlChar **attributes, 
     OString aQualifiedName = (rPrefix.isEmpty())? rLocalName : rPrefix + ":" + rLocalName;
     xAttributes->addUnknown( aNamespaceURI, aQualifiedName,
         OString( XML_CAST( attributes[ i + 3 ] ), attributes[ i + 4 ] - attributes[ i + 3 ] ));
-    // ignore an element that otherwise generates a lot of noise in the logs
-    SAL_WARN_IF(aQualifiedName != "x14ac:dyDescent", "xmloff", "unknown element " << aQualifiedName << " " << aNamespaceURI);
+    SAL_INFO("xmloff", "unknown element " << aQualifiedName << " " << aNamespaceURI);
 }
 
 void FastSaxParserImpl::callbackEndElement()

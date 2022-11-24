@@ -517,7 +517,7 @@ void FuDraw::ForcePointer(const MouseEvent* pMEvt)
                 // wouldn't be possible per default.
                 const SdrMarkList& rMarkList = mpView->GetMarkedObjectList();
                 SdrObject* pObject = rMarkList.GetMark(0)->GetMarkedSdrObj();
-                if ((dynamic_cast<const E3dObject* >(pObject) !=  nullptr) && (rMarkList.GetMarkCount() == 1))
+                if (DynCastE3dObject(pObject) && (rMarkList.GetMarkCount() == 1))
                 {
                     mpWindow->SetPointer(PointerStyle::Rotate);
                     bDefPointer = false;     // Otherwise it'll be called Joe's routine and the mousepointer will reconfigurate again
@@ -556,7 +556,7 @@ void FuDraw::ForcePointer(const MouseEvent* pMEvt)
 
                 if (bDefPointer
                     && (dynamic_cast<const SdrObjGroup*>(pObj) != nullptr
-                        || dynamic_cast<const E3dScene*>(pObj) != nullptr))
+                        || DynCastE3dScene(pObj)))
                 {
                     // take a glance into the group
                     pObj = mpView->PickObj(aPnt, mpView->getHitTolLog(), pPV,
@@ -655,7 +655,7 @@ void FuDraw::DoubleClick(const MouseEvent& rMEvt)
                     GetDispatcher()->Execute( SID_INSERT_GRAPHIC,
                                               SfxCallMode::ASYNCHRON | SfxCallMode::RECORD );
             }
-            else if ( ( dynamic_cast< const SdrTextObj *>( pObj ) != nullptr || dynamic_cast< const SdrObjGroup *>( pObj ) !=  nullptr ) &&
+            else if ( ( DynCastSdrTextObj( pObj ) != nullptr || dynamic_cast< const SdrObjGroup *>( pObj ) !=  nullptr ) &&
                       !SD_MOD()->GetWaterCan()                            &&
                       mpViewShell->GetFrameView()->IsDoubleClickTextEdit() &&
                       !mpDocSh->IsReadOnly())
@@ -698,7 +698,7 @@ bool FuDraw::RequestHelp(const HelpEvent& rHEvt)
 
             bReturn = SetHelpText(pObj, aPosPixel, aVEvt);
 
-            if (!bReturn && (dynamic_cast< const SdrObjGroup *>( pObj ) != nullptr || dynamic_cast< const E3dScene* >(pObj) != nullptr))
+            if (!bReturn && (dynamic_cast< const SdrObjGroup *>( pObj ) != nullptr || DynCastE3dScene(pObj)))
             {
                 // take a glance into the group
                 SdrPageView* pPV = nullptr;

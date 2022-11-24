@@ -22,7 +22,7 @@
 
 #include "calbck.hxx"
 
-#include <cppuhelper/weakref.hxx>
+#include <unotools/weakref.hxx>
 
 #include <svl/poolitem.hxx>
 #include <sfx2/Metadatable.hxx>
@@ -175,7 +175,7 @@ private:
     sal_uInt32 m_nNumberFormat;
     bool       m_bIsFixedLanguage;
 
-    sal_uInt32 GetNumberFormat(OUString const & rContent) const;
+    sal_uInt32 GetNumberFormat(std::u16string_view aContent) const;
     void SetNumberFormat(sal_uInt32 nNumberFormat);
     bool IsFixedLanguage() const    { return m_bIsFixedLanguage; }
     void SetIsFixedLanguage(bool b) { m_bIsFixedLanguage = b; }

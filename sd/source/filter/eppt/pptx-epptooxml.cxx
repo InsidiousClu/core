@@ -53,6 +53,7 @@
 #include <com/sun/star/container/XIndexContainer.hpp>
 #include <com/sun/star/container/XNamed.hpp>
 #include <com/sun/star/presentation/XPresentationSupplier.hpp>
+#include <comphelper/diagnose_ex.hxx>
 
 #include <oox/export/utils.hxx>
 
@@ -499,8 +500,15 @@ bool PowerPointExport::exportDocument()
     WriteModifyVerifier();
 
     mPresentationFS->endElementNS(XML_p, XML_presentation);
+    mPresentationFS->endDocument();
     mPresentationFS.reset();
     // Free all FSHelperPtr, to flush data before committing storage
+    for (auto& serializer : mpSlidesFSArray)
+    {
+        if (!serializer)
+            continue;
+        serializer->endDocument();
+    }
     mpSlidesFSArray.clear();
 
     commitStorage();
@@ -1042,18 +1050,18 @@ void PowerPointExport::WriteTransition(const FSHelperPtr& pFS)
     }
 }
 
-static OUString lcl_GetInitials(const OUString& sName)
+static OUString lcl_GetInitials(std::u16string_view sName)
 {
     OUStringBuffer sRet;
 
-    if (!sName.isEmpty())
+    if (!sName.empty())
     {
         sRet.append(sName[0]);
-        sal_Int32 nStart = 0, nOffset;
+        size_t nStart = 0, nOffset;
 
-        while ((nOffset = sName.indexOf(' ', nStart)) != -1)
+        while ((nOffset = sName.find(' ', nStart)) != std::u16string_view::npos)
         {
-            if (nOffset + 1 < sName.getLength())
+            if (nOffset + 1 < sName.size())
                 sRet.append(sName[ nOffset + 1 ]);
             nStart = nOffset + 1;
         }
@@ -1087,6 +1095,8 @@ void PowerPointExport::WriteAuthors()
     }
 
     pFS->endElementNS(XML_p, XML_cmAuthorLst);
+
+    pFS->endDocument();
 }
 
 sal_Int32 PowerPointExport::GetAuthorIdAndLastIndex(const OUString& sAuthor, sal_Int32& nLastIndex)
@@ -1178,6 +1188,8 @@ void PowerPointExport::WritePresentationProps()
     pFS->endElementNS(XML_p, XML_showPr);
 
     pFS->endElementNS(XML_p, XML_presentationPr);
+
+    pFS->endDocument();
 }
 
 bool PowerPointExport::WriteComments(sal_uInt32 nPageNum)
@@ -1228,6 +1240,8 @@ bool PowerPointExport::WriteComments(sal_uInt32 nPageNum)
             while (xAnnotationEnumeration->hasMoreElements());
 
             pFS->endElementNS(XML_p, XML_cmLst);
+
+            pFS->endDocument();
 
             return true;
         }
@@ -1343,7 +1357,7 @@ void PowerPointExport::ImplWriteSlide(sal_uInt32 nPageNum, sal_uInt32 nMasterNum
     // add explicit relation of presentation to this slide
     OUString sRelId = addRelation(mPresentationFS->getOutputStream(),
                                   oox::getRelationship(Relationship::SLIDE),
-                                  OUStringConcatenation("slides/slide" + OUString::number(nPageNum + 1) +".xml"));
+                                  Concat2View("slides/slide" + OUString::number(nPageNum + 1) +".xml"));
 
     mPresentationFS->singleElementNS(XML_p, XML_sldId,
                                      XML_id, OString::number(GetNewSlideId()),
@@ -1401,7 +1415,7 @@ void PowerPointExport::ImplWriteSlide(sal_uInt32 nPageNum, sal_uInt32 nMasterNum
     // add implicit relation to slide layout
     addRelation(pFS->getOutputStream(),
                 oox::getRelationship(Relationship::SLIDELAYOUT),
-                OUStringConcatenation("../slideLayouts/slideLayout" +
+                Concat2View("../slideLayouts/slideLayout" +
                     OUString::number(GetLayoutFileId(GetPPTXLayoutId(GetLayoutOffset(mXPagePropSet)), nMasterNum)) +
                     ".xml"));
 
@@ -1409,7 +1423,7 @@ void PowerPointExport::ImplWriteSlide(sal_uInt32 nPageNum, sal_uInt32 nMasterNum
         // add implicit relation to slide comments
         addRelation(pFS->getOutputStream(),
                     oox::getRelationship(Relationship::COMMENTS),
-                    OUStringConcatenation("../comments/comment" + OUString::number(nPageNum + 1) + ".xml"));
+                    Concat2View("../comments/comment" + OUString::number(nPageNum + 1) + ".xml"));
 
     SAL_INFO("sd.eppt", "----------------");
 }
@@ -1440,13 +1454,13 @@ void PowerPointExport::ImplWriteNotes(sal_uInt32 nPageNum)
     // add implicit relation to slide
     addRelation(pFS->getOutputStream(),
                 oox::getRelationship(Relationship::SLIDE),
-                OUStringConcatenation("../slides/slide" + OUString::number(nPageNum + 1) + ".xml"));
+                Concat2View("../slides/slide" + OUString::number(nPageNum + 1) + ".xml"));
 
     // add slide implicit relation to notes
     if (nPageNum < mpSlidesFSArray.size())
         addRelation(mpSlidesFSArray[ nPageNum ]->getOutputStream(),
                     oox::getRelationship(Relationship::NOTESSLIDE),
-                    OUStringConcatenation("../notesSlides/notesSlide" + OUString::number(nPageNum + 1) + ".xml"));
+                    Concat2View("../notesSlides/notesSlide" + OUString::number(nPageNum + 1) + ".xml"));
 
     // add implicit relation to notes master
     addRelation(pFS->getOutputStream(),
@@ -1454,6 +1468,8 @@ void PowerPointExport::ImplWriteNotes(sal_uInt32 nPageNum)
                 u"../notesMasters/notesMaster1.xml");
 
     SAL_INFO("sd.eppt", "-----------------");
+
+    pFS->endDocument();
 }
 
 void PowerPointExport::AddLayoutIdAndRelation(const FSHelperPtr& pFS, sal_Int32 nLayoutFileId)
@@ -1461,7 +1477,7 @@ void PowerPointExport::AddLayoutIdAndRelation(const FSHelperPtr& pFS, sal_Int32 
     // add implicit relation of slide master to slide layout
     OUString sRelId = addRelation(pFS->getOutputStream(),
                                   oox::getRelationship(Relationship::SLIDELAYOUT),
-                                  OUStringConcatenation("../slideLayouts/slideLayout" + OUString::number(nLayoutFileId) + ".xml"));
+                                  Concat2View("../slideLayouts/slideLayout" + OUString::number(nLayoutFileId) + ".xml"));
 
     pFS->singleElementNS(XML_p, XML_sldLayoutId,
                          XML_id, OString::number(GetNewSlideMasterId()),
@@ -1478,7 +1494,7 @@ void PowerPointExport::ImplWriteSlideMaster(sal_uInt32 nPageNum, Reference< XPro
 
     OUString sRelId = addRelation(mPresentationFS->getOutputStream(),
                                   oox::getRelationship(Relationship::SLIDEMASTER),
-                                  OUStringConcatenation("slideMasters/slideMaster" + OUString::number(nPageNum + 1) + ".xml"));
+                                  Concat2View("slideMasters/slideMaster" + OUString::number(nPageNum + 1) + ".xml"));
 
     mPresentationFS->singleElementNS(XML_p, XML_sldMasterId,
                                      XML_id, OString::number(GetNewSlideMasterId()),
@@ -1505,7 +1521,7 @@ void PowerPointExport::ImplWriteSlideMaster(sal_uInt32 nPageNum, Reference< XPro
     // add implicit relation to the presentation theme
     addRelation(pFS->getOutputStream(),
                 oox::getRelationship(Relationship::THEME),
-                OUStringConcatenation("../theme/theme" + OUString::number(nPageNum + 1) + ".xml"));
+                Concat2View("../theme/theme" + OUString::number(nPageNum + 1) + ".xml"));
 
     pFS->startElementNS(XML_p, XML_sldMaster, PNMSS);
 
@@ -1554,6 +1570,8 @@ void PowerPointExport::ImplWriteSlideMaster(sal_uInt32 nPageNum, Reference< XPro
     pFS->endElementNS(XML_p, XML_sldMaster);
 
     SAL_INFO("sd.eppt", "----------------");
+
+    pFS->endDocument();
 }
 
 sal_Int32 PowerPointExport::GetLayoutFileId(sal_Int32 nOffset, sal_uInt32 nMasterNum)
@@ -1602,7 +1620,7 @@ void PowerPointExport::ImplWritePPTXLayout(sal_Int32 nOffset, sal_uInt32 nMaster
     // add implicit relation of slide layout to slide master
     addRelation(pFS->getOutputStream(),
                 oox::getRelationship(Relationship::SLIDEMASTER),
-                OUStringConcatenation("../slideMasters/slideMaster" + OUString::number(nMasterNum + 1) + ".xml"));
+                Concat2View("../slideMasters/slideMaster" + OUString::number(nMasterNum + 1) + ".xml"));
 
     pFS->startElementNS(XML_p, XML_sldLayout,
                         PNMSS,
@@ -1623,6 +1641,8 @@ void PowerPointExport::ImplWritePPTXLayout(sal_Int32 nOffset, sal_uInt32 nMaster
     mnLayoutFileIdMax ++;
 
     xDrawPages->remove(xSlide);
+
+    pFS->endDocument();
 }
 
 void PowerPointExport::WriteShapeTree(const FSHelperPtr& pFS, PageType ePageType, bool bMaster)
@@ -1989,7 +2009,7 @@ ShapeExport& PowerPointShapeExport::WritePlaceholderReferenceTextBody(
         </a:gradFill>\
       </a:fillStyleLst>\
       <a:lnStyleLst>\
-        <a:ln w=\"9525\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\
+        <a:ln w=\"6350\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\
           <a:solidFill>\
             <a:schemeClr val=\"phClr\">\
               <a:shade val=\"95000\"/>\
@@ -1999,14 +2019,14 @@ ShapeExport& PowerPointShapeExport::WritePlaceholderReferenceTextBody(
           <a:prstDash val=\"solid\"/>\
           <a:miter/>\
         </a:ln>\
-        <a:ln w=\"25400\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\
+        <a:ln w=\"12700\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\
           <a:solidFill>\
             <a:schemeClr val=\"phClr\"/>\
           </a:solidFill>\
           <a:prstDash val=\"solid\"/>\
           <a:miter/>\
         </a:ln>\
-        <a:ln w=\"38100\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\
+        <a:ln w=\"19050\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\
           <a:solidFill>\
             <a:schemeClr val=\"phClr\"/>\
           </a:solidFill>\
@@ -2303,6 +2323,8 @@ void PowerPointExport::WriteTheme(sal_Int32 nThemeNum, svx::Theme* pTheme)
 
     pFS->endElementNS(XML_a, XML_themeElements);
     pFS->endElementNS(XML_a, XML_theme);
+
+    pFS->endDocument();
 }
 
 bool PowerPointExport::ImplCreateDocument()
@@ -2348,7 +2370,7 @@ void PowerPointExport::WriteNotesMaster()
     // add implicit relation to the presentation theme
     addRelation(pFS->getOutputStream(),
                 oox::getRelationship(Relationship::THEME),
-                OUStringConcatenation("../theme/theme" + OUString::number(mnMasterPages + 1) + ".xml"));
+                Concat2View("../theme/theme" + OUString::number(mnMasterPages + 1) + ".xml"));
 
     pFS->startElementNS(XML_p, XML_notesMaster, PNMSS);
 
@@ -2381,6 +2403,8 @@ void PowerPointExport::WriteNotesMaster()
     pFS->endElementNS(XML_p, XML_notesMaster);
 
     SAL_INFO("sd.eppt", "----------------");
+
+    pFS->endDocument();
 }
 
 void PowerPointExport::embedEffectAudio(const FSHelperPtr& pFS, const OUString& sUrl, OUString& sRelId, OUString& sName)
@@ -2391,24 +2415,31 @@ void PowerPointExport::embedEffectAudio(const FSHelperPtr& pFS, const OUString& 
         return;
 
     uno::Reference<io::XInputStream> xAudioStream;
-    if (sUrl.startsWith("vnd.sun.star.Package:"))
+    try
     {
-        uno::Reference<document::XStorageBasedDocument> xStorageBasedDocument(getModel(), uno::UNO_QUERY);
-        if (!xStorageBasedDocument.is())
-            return;
+        if (sUrl.startsWith("vnd.sun.star.Package:"))
+        {
+            uno::Reference<document::XStorageBasedDocument> xStorageBasedDocument(getModel(), uno::UNO_QUERY);
+            if (!xStorageBasedDocument.is())
+                return;
 
-        uno::Reference<embed::XStorage> xDocumentStorage = xStorageBasedDocument->getDocumentStorage();
-        if (!xDocumentStorage.is())
-            return;
+            uno::Reference<embed::XStorage> xDocumentStorage = xStorageBasedDocument->getDocumentStorage();
+            if (!xDocumentStorage.is())
+                return;
 
-        uno::Reference<io::XStream> xStream = comphelper::OStorageHelper::GetStreamAtPackageURL(xDocumentStorage, sUrl,
-                                                    css::embed::ElementModes::READ, aProxy);
+            uno::Reference<io::XStream> xStream = comphelper::OStorageHelper::GetStreamAtPackageURL(xDocumentStorage, sUrl,
+                                                        css::embed::ElementModes::READ, aProxy);
 
-        if (xStream.is())
-            xAudioStream = xStream->getInputStream();
+            if (xStream.is())
+                xAudioStream = xStream->getInputStream();
+        }
+        else
+            xAudioStream = comphelper::OStorageHelper::GetInputStreamFromURL(sUrl, getComponentContext());
     }
-    else
-        xAudioStream = comphelper::OStorageHelper::GetInputStreamFromURL(sUrl, getComponentContext());
+    catch (const Exception&)
+    {
+        TOOLS_WARN_EXCEPTION("sd", "PowerPointExport::embedEffectAudio");
+    }
 
     if (!xAudioStream.is())
         return;

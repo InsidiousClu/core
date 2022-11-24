@@ -111,7 +111,7 @@ DECLARE_RTFEXPORT_TEST(testFdo64671, "fdo64671.rtf")
 
 CPPUNIT_TEST_FIXTURE(Test, testFdo62044)
 {
-    load(mpTestDocumentPath, "fdo62044.rtf");
+    createSwDoc("fdo62044.rtf");
     // The problem was that RTF import during copy&paste did not ignore existing paragraph styles.
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextRange> xText = xTextDocument->getText();
@@ -180,7 +180,7 @@ DECLARE_RTFEXPORT_TEST(testParaBottomMargin, "para-bottom-margin.rtf")
 
 CPPUNIT_TEST_FIXTURE(Test, testParaStyleBottomMargin2)
 {
-    load(mpTestDocumentPath, "para-style-bottom-margin-2.rtf");
+    createSwDoc("para-style-bottom-margin-2.rtf");
     uno::Reference<beans::XPropertySet> xPropertySet(
         getStyles("ParagraphStyles")->getByName("Standard"), uno::UNO_QUERY);
     CPPUNIT_ASSERT_EQUAL(sal_Int32(353), getProperty<sal_Int32>(xPropertySet, "ParaBottomMargin"));
@@ -819,7 +819,7 @@ DECLARE_RTFEXPORT_TEST(testTdf91074, "tdf91074.rtf")
 
 CPPUNIT_TEST_FIXTURE(Test, testTdf90260Nopar)
 {
-    load(mpTestDocumentPath, "hello.rtf");
+    createSwDoc("hello.rtf");
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextRange> xText = xTextDocument->getText();
     uno::Reference<text::XTextRange> xEnd = xText->getEnd();
@@ -846,6 +846,24 @@ DECLARE_RTFEXPORT_TEST(testTdf150267, "tdf150267.rtf")
 
     auto xFieldMaster = xTextFieldMasters->getByName("com.sun.star.text.fieldmaster.User.Unused");
     CPPUNIT_ASSERT_EQUAL(OUString("Hello World"), getProperty<OUString>(xFieldMaster, "Content"));
+}
+
+DECLARE_RTFEXPORT_TEST(testTdf151370, "tdf151370.rtf")
+{
+    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY);
+    uno::Reference<text::XTextFieldsSupplier> xSupplier(xModel, uno::UNO_QUERY);
+    uno::Reference<container::XNameAccess> xTextFieldMasters = xSupplier->getTextFieldMasters();
+    // Here we try to read/write docvar having non-ascii name and value. So it is encoded in Unicode
+    OUString sFieldName(u"com.sun.star.text.fieldmaster.User."
+                        "LocalChars\u00c1\u0072\u0076\u00ed\u007a\u0074\u0075\u0072\u006f\u0054"
+                        "\u00fc\u006b\u00f6\u0072\u0066\u00fa\u0072\u00f3\u0067\u00e9\u0070");
+    CPPUNIT_ASSERT_EQUAL(sal_True, xTextFieldMasters->hasByName(sFieldName));
+
+    auto xFieldMaster = xTextFieldMasters->getByName(sFieldName);
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"\u00e1\u0072\u0076\u00ed\u007a\u0074\u0075\u0072\u006f\u0074\u00fc"
+                 "\u006b\u00f6\u0072\u0066\u00fa\u0072\u00f3\u0067\u00e9\u0070"),
+        getProperty<OUString>(xFieldMaster, "Content"));
 }
 
 DECLARE_RTFEXPORT_TEST(testTdf108416, "tdf108416.rtf")
@@ -975,7 +993,7 @@ DECLARE_RTFEXPORT_TEST(testTdf87034, "tdf87034.rtf")
 
 CPPUNIT_TEST_FIXTURE(Test, testClassificatonPasteLevels)
 {
-    load(mpTestDocumentPath, "classification-confidential.rtf");
+    createSwDoc("classification-confidential.rtf");
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextRange> xText = xTextDocument->getText();
     uno::Reference<text::XTextRange> xEnd = xText->getEnd();
@@ -1104,7 +1122,7 @@ DECLARE_RTFEXPORT_TEST(testTdf104744, "tdf104744.rtf")
 CPPUNIT_TEST_FIXTURE(SwModelTestBase, testChicagoNumberingFootnote)
 {
     // Create a document, set footnote numbering type to SYMBOL_CHICAGO.
-    loadURL("private:factory/swriter", nullptr);
+    createSwDoc();
     uno::Reference<text::XFootnotesSupplier> xFootnotesSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<beans::XPropertySet> xFootnoteSettings
         = xFootnotesSupplier->getFootnoteSettings();

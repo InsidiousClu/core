@@ -152,7 +152,7 @@ class OUStringConstExpr
 public:
     template<std::size_t N> constexpr OUStringConstExpr(OUStringLiteral<N> const & literal):
         pData(const_cast<rtl_uString *>(&literal.str)) {}
-    
+
     // prevent mis-use
     template<std::size_t N> constexpr OUStringConstExpr(OUStringLiteral<N> && literal)
         = delete;
@@ -163,7 +163,7 @@ public:
     /**
       make it easier to pass to OUStringBuffer and similar without casting/converting
     */
-    constexpr std::u16string_view asView() const { return {pData->buffer, static_cast<sal_uInt32>(pData->length)}; }
+    constexpr std::u16string_view asView() const { return std::u16string_view(pData->buffer, pData->length); }
 
     inline operator const OUString&() const;
 
@@ -502,8 +502,8 @@ public:
      @overload
      @internal
     */
-    template< typename T >
-    OUString( OUStringNumber< T >&& n )
+    template< typename T, std::size_t N >
+    OUString( StringNumberBase< sal_Unicode, T, N >&& n )
         : OUString( n.buf, n.length )
     {}
 #endif
@@ -638,8 +638,8 @@ public:
     }
     template<std::size_t N> OUString & operator =(OUStringLiteral<N> &&) = delete;
 
-    template<typename T>
-    OUString & operator =(OUStringNumber<T> && n) {
+    template <typename T, std::size_t N>
+    OUString & operator =(StringNumberBase<sal_Unicode, T, N> && n) {
         // n.length should never be zero, so no need to add an optimization for that case
         rtl_uString_newFromStr_WithLength(&pData, n.buf, n.length);
         return *this;
@@ -770,8 +770,8 @@ public:
      @overload
      @internal
     */
-    template< typename T >
-    OUString& operator+=( OUStringNumber< T >&& n ) & {
+    template< typename T, std::size_t N >
+    OUString& operator+=( StringNumberBase< sal_Unicode, T, N >&& n ) & {
         sal_Int32 l = n.length;
         if( l == 0 )
             return *this;
@@ -782,8 +782,8 @@ public:
         pData->length = l;
         return *this;
     }
-    template<typename T> void operator +=(
-        OUStringNumber<T> &&) && = delete;
+    template<typename T, std::size_t N> void operator +=(
+        StringNumberBase<sal_Unicode, T, N> &&) && = delete;
 #endif
 
     /**
@@ -3301,16 +3301,14 @@ public:
     //
     // would not compile):
     template<typename T> [[nodiscard]] static
-    typename std::enable_if_t<
-        ToStringHelper<T>::allowOUStringConcat, OUStringConcat<OUStringConcatMarker, T>>
+    OUStringConcat<OUStringConcatMarker, T>
     Concat(T const & value) { return OUStringConcat<OUStringConcatMarker, T>({}, value); }
 
     // This overload is needed so that an argument of type 'char const[N]' ends up as
     // 'OUStringConcat<rtl::OUStringConcatMarker, char const[N]>' rather than as
     // 'OUStringConcat<rtl::OUStringConcatMarker, char[N]>':
     template<typename T, std::size_t N> [[nodiscard]] static
-    typename std::enable_if_t<
-        ToStringHelper<T[N]>::allowOUStringConcat, OUStringConcat<OUStringConcatMarker, T[N]>>
+    OUStringConcat<OUStringConcatMarker, T[N]>
     Concat(T (& value)[N]) { return OUStringConcat<OUStringConcatMarker, T[N]>({}, value); }
 #endif
 
@@ -3347,13 +3345,13 @@ void operator !=(std::nullptr_t, OUString const &) = delete;
 #endif
 
 #if defined LIBO_INTERNAL_ONLY && !defined RTL_STRING_UNITTEST
-inline bool operator ==(OUString const & lhs, OUStringConcatenation const & rhs)
+inline bool operator ==(OUString const & lhs, StringConcatenation<char16_t> const & rhs)
 { return lhs == std::u16string_view(rhs); }
-inline bool operator !=(OUString const & lhs, OUStringConcatenation const & rhs)
+inline bool operator !=(OUString const & lhs, StringConcatenation<char16_t> const & rhs)
 { return lhs != std::u16string_view(rhs); }
-inline bool operator ==(OUStringConcatenation const & lhs, OUString const & rhs)
+inline bool operator ==(StringConcatenation<char16_t> const & lhs, OUString const & rhs)
 { return std::u16string_view(lhs) == rhs; }
-inline bool operator !=(OUStringConcatenation const & lhs, OUString const & rhs)
+inline bool operator !=(StringConcatenation<char16_t> const & lhs, OUString const & rhs)
 { return std::u16string_view(lhs) != rhs; }
 #endif
 
@@ -3365,24 +3363,20 @@ inline bool operator !=(OUStringConcatenation const & lhs, OUString const & rhs)
 */
 template<>
 struct ToStringHelper< OUString >
-    {
+{
     static std::size_t length( const OUString& s ) { return s.getLength(); }
-    static sal_Unicode* addData( sal_Unicode* buffer, const OUString& s ) { return addDataHelper( buffer, s.getStr(), s.getLength()); }
-    static const bool allowOStringConcat = false;
-    static const bool allowOUStringConcat = true;
-    };
+    sal_Unicode* operator() ( sal_Unicode* buffer, const OUString& s ) const { return addDataHelper( buffer, s.getStr(), s.getLength()); }
+};
 
 /**
  @internal
 */
 template<std::size_t N>
 struct ToStringHelper< OUStringLiteral<N> >
-    {
+{
     static std::size_t length( const OUStringLiteral<N>& str ) { return str.getLength(); }
-    static sal_Unicode* addData( sal_Unicode* buffer, const OUStringLiteral<N>& str ) { return addDataHelper( buffer, str.getStr(), str.getLength() ); }
-    static const bool allowOStringConcat = false;
-    static const bool allowOUStringConcat = true;
-    };
+    sal_Unicode* operator()( sal_Unicode* buffer, const OUStringLiteral<N>& str ) const { return addDataHelper( buffer, str.getStr(), str.getLength() ); }
+};
 
 /**
  @internal
@@ -3394,7 +3388,6 @@ inline std::basic_ostream<charT, traits> & operator <<(
     return stream << OUString( std::move(concat) );
 }
 
-    
 /// @endcond
 #endif
 
@@ -3525,7 +3518,7 @@ using ::rtl::OStringToOUString;
 using ::rtl::OUStringToOString;
 using ::rtl::OUStringLiteral;
 using ::rtl::OUStringChar;
-using ::rtl::OUStringConcatenation;
+using ::rtl::Concat2View;
 #endif
 
 /// @cond INTERNAL

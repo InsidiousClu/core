@@ -174,13 +174,14 @@ public:
 
 class AbstractScDeleteCellDlg_Impl : public AbstractScDeleteCellDlg
 {
-    std::unique_ptr<ScDeleteCellDlg> m_xDlg;
+    std::shared_ptr<ScDeleteCellDlg> m_xDlg;
 public:
     explicit AbstractScDeleteCellDlg_Impl(std::unique_ptr<ScDeleteCellDlg> p)
         : m_xDlg(std::move(p))
     {
     }
-    virtual short           Execute() override;
+    virtual short Execute() override;
+    virtual bool  StartExecuteAsync(AsyncContext& rCtx) override;
     virtual DelCellCmd GetDelCellCmd() const override;
 
     // screenshotting
@@ -255,13 +256,14 @@ public:
 
 class AbstractScInsertCellDlg_Impl : public AbstractScInsertCellDlg
 {
-    std::unique_ptr<ScInsertCellDlg> m_xDlg;
+    std::shared_ptr<ScInsertCellDlg> m_xDlg;
 public:
     explicit AbstractScInsertCellDlg_Impl(std::unique_ptr<ScInsertCellDlg> p)
         : m_xDlg(std::move(p))
     {
     }
-    virtual short           Execute() override;
+    virtual short Execute() override;
+    virtual bool StartExecuteAsync(VclAbstractDialog::AsyncContext &rCtx) override;
     virtual InsCellCmd GetInsCellCmd() const override ;
 };
 
@@ -346,13 +348,14 @@ public:
 
 class AbstractScMetricInputDlg_Impl : public AbstractScMetricInputDlg
 {
-    std::unique_ptr<ScMetricInputDlg> m_xDlg;
+    std::shared_ptr<ScMetricInputDlg> m_xDlg;
 public:
-    explicit AbstractScMetricInputDlg_Impl(std::unique_ptr<ScMetricInputDlg> p)
+    explicit AbstractScMetricInputDlg_Impl(std::shared_ptr<ScMetricInputDlg> p)
         : m_xDlg(std::move(p))
     {
     }
     virtual short Execute() override;
+    virtual bool StartExecuteAsync(AsyncContext& rCtx) override;
     virtual int GetInputValue() const override;
 };
 

@@ -70,6 +70,7 @@
 #include <sfx2/lokhelper.hxx>
 
 #include <editeng/acorrcfg.hxx>
+#include <bookmark.hxx>
 #include <SwSmartTagMgr.hxx>
 #include <edtdd.hxx>
 #include <edtwin.hxx>
@@ -905,7 +906,7 @@ void SwEditWin::FlushInBuffer()
         rSh.NormalizePam();     // make point be the first (left) one
         if (!rSh.GetCursor()->HasMark())
             rSh.GetCursor()->SetMark();
-        rSh.GetCursor()->GetMark()->nContent = 0;
+        rSh.GetCursor()->GetMark()->SetContent(0);
 
         const OUString aOldText( rSh.GetCursor()->GetText() );
         const sal_Int32 nOldLen = aOldText.getLength();
@@ -1888,6 +1889,13 @@ KEYINPUT_CHECKTABLE:
                     bool bMod1 = 0 != (rKeyCode.GetModifier() & KEY_MOD1);
                     if(!bMod1)
                     {
+                        ::sw::mark::IFieldmark* pMark = rSh.GetCurrentFieldmark();
+                        if (auto pDropDown = dynamic_cast<FieldmarkWithDropDownButton*>(pMark))
+                        {
+                            pDropDown->LaunchPopup();
+                            eKeyState = SwKeyState::End;
+                            break;
+                        }
                         eFlyState = SwKeyState::Fly_Change;
                         nDir = MOVE_DOWN_BIG;
                     }
@@ -1920,9 +1928,7 @@ KEYINPUT_CHECKTABLE_INSDEL:
                     }
                     else if (!rSh.IsCursorInParagraphMetadataField())
                     {
-                        std::unique_ptr<weld::Builder> xBuilder(Application::CreateBuilder(GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui"));
-                        std::unique_ptr<weld::MessageDialog> xInfo(xBuilder->weld_message_dialog("InfoReadonlyDialog"));
-                        xInfo->run();
+                        rSh.InfoReadOnlyDialog();
                         eKeyState = SwKeyState::End;
                     }
                     break;
@@ -2076,9 +2082,7 @@ KEYINPUT_CHECKTABLE_INSDEL:
                     }
                     else if (!rSh.IsCursorInParagraphMetadataField())
                     {
-                        std::unique_ptr<weld::Builder> xBuilder(Application::CreateBuilder(GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui"));
-                        std::unique_ptr<weld::MessageDialog> xInfo(xBuilder->weld_message_dialog("InfoReadonlyDialog"));
-                        xInfo->run();
+                        rSh.InfoReadOnlyDialog();
                         eKeyState = SwKeyState::End;
                     }
                     break;
@@ -2359,8 +2363,7 @@ KEYINPUT_CHECKTABLE_INSDEL:
                     && (   rKeyCode.GetFunction() == KeyFuncType::PASTE
                         || rKeyCode.GetFunction() == KeyFuncType::CUT))
                 {
-                    auto xInfo(std::make_shared<weld::GenericDialogController>(GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui", "InfoReadonlyDialog"));
-                    weld::DialogController::runAsync(xInfo, [](int) {});
+                    rSh.InfoReadOnlyDialog(true);
                     eKeyState = SwKeyState::End;
                 }
                 else if( m_rView.KeyInput( aKeyEvent ) )
@@ -2568,8 +2571,7 @@ KEYINPUT_CHECKTABLE_INSDEL:
             }
             else
             {
-                auto xInfo(std::make_shared<weld::GenericDialogController>(GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui", "InfoReadonlyDialog"));
-                weld::DialogController::runAsync(xInfo, [](int) {});
+                rSh.InfoReadOnlyDialog(true);
                 eKeyState = SwKeyState::End;
             }
         break;
@@ -2800,7 +2802,7 @@ KEYINPUT_CHECKTABLE_INSDEL:
 /**
  * MouseEvents
  */
-void SwEditWin::RstMBDownFlags()
+void SwEditWin::ResetMouseButtonDownFlags()
 {
     // Not on all systems a MouseButtonUp is used ahead
     // of the modal dialog (like on WINDOWS).
@@ -3398,7 +3400,7 @@ void SwEditWin::MouseButtonDown(const MouseEvent& _rMEvt)
                             switch ( rSh.GetSelectionType() & ~SelectionType( SelectionType::FontWork | SelectionType::ExtrudedCustomShape ) )
                             {
                             case SelectionType::Graphic:
-                                RstMBDownFlags();
+                                ResetMouseButtonDownFlags();
                                 if (!comphelper::LibreOfficeKit::isActive())
                                 {
                                     GetView().GetViewFrame()->GetBindings().Execute(
@@ -3409,12 +3411,12 @@ void SwEditWin::MouseButtonDown(const MouseEvent& _rMEvt)
 
                             // double click on OLE object --> OLE-InPlace
                             case SelectionType::Ole:
-                                RstMBDownFlags();
+                                ResetMouseButtonDownFlags();
                                 rSh.LaunchOLEObj();
                                 return;
 
                             case SelectionType::Frame:
-                                RstMBDownFlags();
+                                ResetMouseButtonDownFlags();
                                 if (!comphelper::LibreOfficeKit::isActive())
                                 {
                                     GetView().GetViewFrame()->GetBindings().Execute(
@@ -3424,7 +3426,7 @@ void SwEditWin::MouseButtonDown(const MouseEvent& _rMEvt)
                                 return;
 
                             case SelectionType::DrawObject:
-                                RstMBDownFlags();
+                                ResetMouseButtonDownFlags();
                                 EnterDrawTextMode(aDocPos);
                                 if ( auto pSwDrawTextShell = dynamic_cast< SwDrawTextShell *>(  m_rView.GetCurShell() )  )
                                     pSwDrawTextShell->Init();
@@ -3446,7 +3448,7 @@ void SwEditWin::MouseButtonDown(const MouseEvent& _rMEvt)
                             (nullptr != (pField = rSh.GetCurField(true)) ||
                               ( bFootnote = rSh.GetCurFootnote() )        ) )
                         {
-                            RstMBDownFlags();
+                            ResetMouseButtonDownFlags();
                             if( bFootnote )
                                 GetView().GetViewFrame()->GetBindings().Execute( FN_EDIT_FOOTNOTE );
                             else
@@ -3507,7 +3509,7 @@ void SwEditWin::MouseButtonDown(const MouseEvent& _rMEvt)
                             IFieldmark *pFieldBM = const_cast< IFieldmark* > ( aContentAtPos.aFnd.pFieldmark );
                             if ( pFieldBM->GetFieldname( ) == ODF_FORMDROPDOWN || pFieldBM->GetFieldname( ) == ODF_FORMDATE )
                             {
-                                RstMBDownFlags();
+                                ResetMouseButtonDownFlags();
                                 rSh.getIDocumentMarkAccess()->ClearFieldActivation();
                                 GetView().GetViewFrame()->GetBindings().Execute(SID_FM_CTL_PROPERTIES);
                                 return;
@@ -3525,7 +3527,7 @@ void SwEditWin::MouseButtonDown(const MouseEvent& _rMEvt)
                                     = aToxContentAtPos.pFndTextAttr->GetTOXMark().GetTOXType();
                                 if (pTType && pTType->GetType() == TOXTypes::TOX_INDEX)
                                 {
-                                    RstMBDownFlags();
+                                    ResetMouseButtonDownFlags();
                                     GetView().GetViewFrame()->GetBindings().Execute(
                                         FN_EDIT_IDX_ENTRY_DLG);
                                     return;
@@ -5747,9 +5749,7 @@ void SwEditWin::Command( const CommandEvent& rCEvt )
         if (rSh.HasReadonlySel())
         {
             // Inform the user that the request has been ignored.
-            auto xInfo = std::make_shared<weld::GenericDialogController>(
-                GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui", "InfoReadonlyDialog");
-            weld::DialogController::runAsync(xInfo, [](sal_Int32 /*nResult*/) {});
+            rSh.InfoReadOnlyDialog(true);
         }
     }
     break;
@@ -6646,13 +6646,14 @@ Selection SwEditWin::GetSurroundingTextSelection() const
     if (rSh.HasDrawView() && rSh.GetDrawView()->IsTextEdit())
         return rSh.GetDrawView()->GetTextEditOutlinerView()->GetSurroundingTextSelection();
 
+    Selection aSel(0, 0);
     if( rSh.HasSelection() )
     {
         OUString sReturn;
         rSh.GetSelectedText( sReturn, ParaBreakType::ToOnlyCR  );
-        return Selection( 0, sReturn.getLength() );
+        aSel = Selection( 0, sReturn.getLength() );
     }
-    else
+    else if (rSh.GetCursor()->GetPoint()->GetNode().GetTextNode())
     {
         bool bUnLockView = !rSh.IsViewLocked();
         rSh.LockView(true);
@@ -6680,8 +6681,10 @@ Selection SwEditWin::GetSurroundingTextSelection() const
         if (bUnLockView)
             rSh.LockView(false);
 
-        return Selection(sal_Int32(nPos - nStartPos), sal_Int32(nPos - nStartPos));
+        aSel = Selection(sal_Int32(nPos - nStartPos), sal_Int32(nPos - nStartPos));
     }
+
+    return aSel;
 }
 
 bool SwEditWin::DeleteSurroundingText(const Selection& rSelection)
@@ -6722,45 +6725,6 @@ bool SwEditWin::DeleteSurroundingText(const Selection& rSelection)
 void SwEditWin::LogicInvalidate(const tools::Rectangle* pRectangle)
 {
     SfxLokHelper::notifyInvalidation(&m_rView, pRectangle);
-}
-
-void SwEditWin::LogicMouseButtonDown(const MouseEvent& rMouseEvent)
-{
-    // When we're not doing tiled rendering, then positions must be passed as pixels.
-    assert(comphelper::LibreOfficeKit::isActive());
-
-    Point aPoint = GetPointerPosPixel();
-    SetLastMousePos(rMouseEvent.GetPosPixel());
-
-    MouseButtonDown(rMouseEvent);
-
-    SetPointerPosPixel(aPoint);
-}
-
-void SwEditWin::LogicMouseButtonUp(const MouseEvent& rMouseEvent)
-{
-    // When we're not doing tiled rendering, then positions must be passed as pixels.
-    assert(comphelper::LibreOfficeKit::isActive());
-
-    Point aPoint = GetPointerPosPixel();
-    SetLastMousePos(rMouseEvent.GetPosPixel());
-
-    MouseButtonUp(rMouseEvent);
-
-    SetPointerPosPixel(aPoint);
-}
-
-void SwEditWin::LogicMouseMove(const MouseEvent& rMouseEvent)
-{
-    // When we're not doing tiled rendering, then positions must be passed as pixels.
-    assert(comphelper::LibreOfficeKit::isActive());
-
-    Point aPoint = GetPointerPosPixel();
-    SetLastMousePos(rMouseEvent.GetPosPixel());
-
-    MouseMove(rMouseEvent);
-
-    SetPointerPosPixel(aPoint);
 }
 
 void SwEditWin::SetCursorTwipPosition(const Point& rPosition, bool bPoint, bool bClearMark)
@@ -6838,6 +6802,9 @@ SwFrameControlsManager& SwEditWin::GetFrameControlsManager()
 
 void SwEditWin::ToggleOutlineContentVisibility(const size_t nOutlinePos, const bool bSubs)
 {
+    // bSubs purpose is to set all sub level outline content to the same visibility as
+    // nOutlinePos outline content visibility is toggled. It is only applicable when not treating
+    // sub outline levels as content.
     SwWrtShell& rSh = GetView().GetWrtShell();
 
     if (GetView().GetDrawView()->IsTextEdit())
@@ -6855,7 +6822,7 @@ void SwEditWin::ToggleOutlineContentVisibility(const size_t nOutlinePos, const b
     }
     else if (bSubs)
     {
-        // toggle including sub levels
+        // also toggle sub levels to the same content visibility
         SwOutlineNodes::size_type nPos = nOutlinePos;
         SwOutlineNodes::size_type nOutlineNodesCount
                 = rSh.getIDocumentOutlineNodesAccess()->getOutlineNodesCount();
@@ -6871,6 +6838,7 @@ void SwEditWin::ToggleOutlineContentVisibility(const size_t nOutlinePos, const b
 
     rSh.InvalidateOutlineContentVisibility();
     rSh.GotoOutline(nOutlinePos);
+    rSh.SetModified();
     GetView().GetDocShell()->Broadcast(SfxHint(SfxHintId::DocChanged));
 }
 

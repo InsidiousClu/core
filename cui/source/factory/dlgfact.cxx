@@ -89,6 +89,7 @@
 #include <hyphen.hxx>
 #include <thesdlg.hxx>
 #include <tipofthedaydlg.hxx>
+#include <widgettestdlg.hxx>
 #include <toolbarmodedlg.hxx>
 #include <DiagramDialog.hxx>
 #include <fileextcheckdlg.hxx>
@@ -113,7 +114,6 @@ IMPL_ABSTDLG_CLASS(AbstractGraphicFilterDialog)
 IMPL_ABSTDLG_CLASS(AbstractHangulHanjaConversionDialog)
 IMPL_ABSTDLG_CLASS(AbstractInsertObjectDialog)
 IMPL_ABSTDLG_CLASS(AbstractLinksDialog)
-IMPL_ABSTDLG_CLASS(AbstractPasswordToOpenModifyDialog)
 IMPL_ABSTDLG_CLASS(AbstractQrCodeGenDialog)
 IMPL_ABSTDLG_CLASS(AbstractScreenshotAnnotationDlg)
 IMPL_ABSTDLG_CLASS(AbstractSignatureLineDialog)
@@ -132,6 +132,7 @@ IMPL_ABSTDLG_CLASS(AbstractSvxSearchSimilarityDialog)
 IMPL_ABSTDLG_CLASS(AbstractSvxZoomDialog)
 IMPL_ABSTDLG_CLASS(AbstractTitleDialog)
 IMPL_ABSTDLG_CLASS(AbstractURLDlg)
+IMPL_ABSTDLG_CLASS_ASYNC(AbstractPasswordToOpenModifyDialog,weld::DialogController)
 IMPL_ABSTDLG_CLASS_ASYNC(AbstractPasteDialog,SfxDialogController)
 IMPL_ABSTDLG_CLASS_ASYNC(AbstractScriptSelectorDialog,SfxDialogController)
 IMPL_ABSTDLG_CLASS_ASYNC(AbstractSpellDialog,SfxDialogController)
@@ -143,6 +144,7 @@ IMPL_ABSTDLG_CLASS_ASYNC(CuiAbstractControllerAsync,weld::DialogController)
 IMPL_ABSTDLG_CLASS_ASYNC(CuiAbstractTabController,SfxTabDialogController)
 IMPL_ABSTDLG_CLASS(CuiAbstractController)
 IMPL_ABSTDLG_CLASS(CuiAbstractSingleTabController)
+IMPL_ABSTDLG_CLASS_ASYNC(CuiAbstractWidgetTestControllerAsync,weld::GenericDialogController)
 
 short AbstractHyphenWordDialog_Impl::Execute()
 {
@@ -802,6 +804,16 @@ bool AbstractPasswordToOpenModifyDialog_Impl::IsRecommendToOpenReadonly() const
     return m_xDlg->IsRecommendToOpenReadonly();
 }
 
+void AbstractPasswordToOpenModifyDialog_Impl::Response(sal_Int32 nResult)
+{
+     m_xDlg->response(nResult);
+}
+
+void AbstractPasswordToOpenModifyDialog_Impl::AllowEmpty()
+{
+     m_xDlg->AllowEmpty();
+}
+
 // Create dialogs with simplest interface
 VclPtr<VclAbstractDialog> AbstractDialogFactory_Impl::CreateVclDialog(weld::Window* pParent, sal_uInt32 nResId)
 {
@@ -1428,9 +1440,9 @@ VclPtr<SfxAbstractLinksDialog> AbstractDialogFactory_Impl::CreateLinksDialog(wel
     return VclPtr<AbstractLinksDialog_Impl>::Create(std::move(xLinkDlg));
 }
 
-VclPtr<SfxAbstractTabDialog> AbstractDialogFactory_Impl::CreateSvxFormatCellsDialog(weld::Window* pParent, const SfxItemSet* pAttr, const SdrModel& rModel)
+VclPtr<SfxAbstractTabDialog> AbstractDialogFactory_Impl::CreateSvxFormatCellsDialog(weld::Window* pParent, const SfxItemSet* pAttr, const SdrModel& rModel, bool bStyle)
 {
-    return VclPtr<CuiAbstractTabController_Impl>::Create(std::make_shared<SvxFormatCellsDialog>(pParent, pAttr, rModel));
+    return VclPtr<CuiAbstractTabController_Impl>::Create(std::make_shared<SvxFormatCellsDialog>(pParent, pAttr, rModel, bStyle));
 }
 
 VclPtr<SvxAbstractSplitTableDialog> AbstractDialogFactory_Impl::CreateSvxSplitTableDialog(weld::Window* pParent, bool bIsTableVertical, tools::Long nMaxVertical)
@@ -1516,6 +1528,13 @@ AbstractDialogFactory_Impl::CreateTipOfTheDayDialog(weld::Window* pParent)
     (void) pParent;
     return nullptr;
 #endif
+}
+
+VclPtr<VclAbstractDialog>
+AbstractDialogFactory_Impl::CreateWidgetTestDialog(weld::Window* pParent)
+{
+    return VclPtr<CuiAbstractWidgetTestControllerAsync_Impl>::Create(
+        std::make_shared<WidgetTestDialog>(pParent));
 }
 
 VclPtr<VclAbstractDialog>

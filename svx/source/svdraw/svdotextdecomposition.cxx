@@ -759,7 +759,11 @@ void SdrTextObj::impDecomposeAutoFitTextPrimitive(
     rOutliner.SetMinAutoPaperSize(aNullSize);
     rOutliner.SetMaxAutoPaperSize(Size(1000000,1000000));
 
-    // add one to rage sizes to get back to the old Rectangle and outliner measurements
+    // That color needs to be restored on leaving this method
+    Color aOriginalBackColor(rOutliner.GetBackgroundColor());
+    setSuitableOutlinerBg(rOutliner);
+
+    // add one to range sizes to get back to the old Rectangle and outliner measurements
     const sal_uInt32 nAnchorTextWidth(FRound(aAnchorTextRange.getWidth() + 1));
     const sal_uInt32 nAnchorTextHeight(FRound(aAnchorTextRange.getHeight() + 1));
     const OutlinerParaObject* pOutlinerParaObject = rSdrAutofitTextPrimitive.getSdrText()->GetOutlinerParaObject();
@@ -861,6 +865,7 @@ void SdrTextObj::impDecomposeAutoFitTextPrimitive(
     aConverter.decomposeBlockTextPrimitive(aNewTransformA, aNewTransformB, aClipRange);
 
     // cleanup outliner
+    rOutliner.SetBackgroundColor(aOriginalBackColor);
     rOutliner.Clear();
     rOutliner.setVisualizedPage(nullptr);
     rOutliner.SetControlWord(nOriginalControlWord);
@@ -870,7 +875,7 @@ void SdrTextObj::impDecomposeAutoFitTextPrimitive(
 
 // Resolves: fdo#35779 set background color of this shape as the editeng background if there
 // is one. Check the shape itself, then the host page, then that page's master page.
-void SdrObject::setSuitableOutlinerBg(::Outliner& rOutliner) const
+bool SdrObject::setSuitableOutlinerBg(::Outliner& rOutliner) const
 {
     const SfxItemSet* pBackgroundFillSet = getBackgroundFillSet();
     if (drawing::FillStyle_NONE != pBackgroundFillSet->Get(XATTR_FILLSTYLE).GetValue())
@@ -878,7 +883,9 @@ void SdrObject::setSuitableOutlinerBg(::Outliner& rOutliner) const
         Color aColor(rOutliner.GetBackgroundColor());
         GetDraftFillColor(*pBackgroundFillSet, aColor);
         rOutliner.SetBackgroundColor(aColor);
+        return true;
     }
+    return false;
 }
 
 const SfxItemSet* SdrObject::getBackgroundFillSet() const
@@ -948,7 +955,7 @@ void SdrTextObj::impDecomposeBlockTextPrimitive(
     Color aOriginalBackColor(rOutliner.GetBackgroundColor());
     setSuitableOutlinerBg(rOutliner);
 
-    // add one to rage sizes to get back to the old Rectangle and outliner measurements
+    // add one to range sizes to get back to the old Rectangle and outliner measurements
     const sal_uInt32 nAnchorTextWidth(FRound(aAnchorTextRange.getWidth() + 1));
     const sal_uInt32 nAnchorTextHeight(FRound(aAnchorTextRange.getHeight() + 1));
     const bool bVerticalWriting(rSdrBlockTextPrimitive.getOutlinerParaObject().IsEffectivelyVertical());
@@ -1218,7 +1225,7 @@ void SdrTextObj::impDecomposeStretchTextPrimitive(
     // to layout without mirroring
     const double fScaleX(fabs(aScale.getX()) / aOutlinerScale.getX());
     const double fScaleY(fabs(aScale.getY()) / aOutlinerScale.getY());
-    rOutliner.SetGlobalCharStretching(static_cast<sal_Int16>(FRound(fScaleX * 100.0)), static_cast<sal_Int16>(FRound(fScaleY * 100.0)));
+    rOutliner.SetGlobalCharStretching(fScaleX * 100.0, fScaleY * 100.0);
 
     // When mirroring in X and Y,
     // move the null point which was top left to bottom right.
@@ -1493,7 +1500,7 @@ void SdrTextObj::impHandleChainingEventsDuringDecomposition(SdrOutliner &rOutlin
     size_t nObjCount(getSdrPageFromSdrObject()->GetObjCount());
     for (size_t i = 0; i < nObjCount; i++)
     {
-        SdrTextObj* pCurObj(dynamic_cast< SdrTextObj* >(getSdrPageFromSdrObject()->GetObj(i)));
+        SdrTextObj* pCurObj(DynCastSdrTextObj(getSdrPageFromSdrObject()->GetObj(i)));
         if(pCurObj == this)
         {
             SAL_INFO("svx.chaining", "Working on TextBox " << i);
@@ -1557,7 +1564,7 @@ void SdrTextObj::impDecomposeChainedTextPrimitive(
     rOutliner.SetMinAutoPaperSize(aNullSize);
     rOutliner.SetMaxAutoPaperSize(Size(1000000,1000000));
 
-    // add one to rage sizes to get back to the old Rectangle and outliner measurements
+    // add one to range sizes to get back to the old Rectangle and outliner measurements
     const sal_uInt32 nAnchorTextWidth(FRound(aAnchorTextRange.getWidth() + 1));
     const sal_uInt32 nAnchorTextHeight(FRound(aAnchorTextRange.getHeight() + 1));
 

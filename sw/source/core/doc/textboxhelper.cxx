@@ -36,7 +36,6 @@
 #include <editeng/memberids.h>
 #include <svx/svdoashp.hxx>
 #include <svx/svdpage.hxx>
-#include <svx/svdogrp.hxx>
 #include <svl/itemiter.hxx>
 #include <comphelper/sequenceashashmap.hxx>
 #include <sal/log.hxx>
@@ -186,7 +185,7 @@ void SwTextBoxHelper::create(SwFrameFormat* pShape, SdrObject* pObject, bool bCo
 
     if (pObject)
     {
-        auto pSourceText = dynamic_cast<SdrTextObj*>(pObject);
+        auto pSourceText = DynCastSdrTextObj(pObject);
         uno::Reference<text::XTextRange> xDestText(xRealTextFrame, uno::UNO_QUERY);
 
         xDestText->setString(sCopyableText);

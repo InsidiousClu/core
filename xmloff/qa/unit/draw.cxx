@@ -7,15 +7,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include <test/bootstrapfixture.hxx>
-#include <unotest/macros_test.hxx>
-#include <test/xmltesttools.hxx>
+#include <test/unoapixml_test.hxx>
 
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/drawing/XDrawPageSupplier.hpp>
-#include <com/sun/star/frame/Desktop.hpp>
-#include <com/sun/star/frame/XStorable.hpp>
-#include <com/sun/star/packages/zip/ZipFileAccess.hpp>
 #include <com/sun/star/drawing/EnhancedCustomShapeMetalType.hpp>
 #include <com/sun/star/drawing/EnhancedCustomShapeSegment.hpp>
 #include <com/sun/star/drawing/EnhancedCustomShapeSegmentCommand.hpp>
@@ -28,9 +23,8 @@
 
 #include <comphelper/propertyvalue.hxx>
 #include <comphelper/sequence.hxx>
-#include <unotools/mediadescriptor.hxx>
+#include <comphelper/sequenceashashmap.hxx>
 #include <unotools/tempfile.hxx>
-#include <unotools/ucbstreamhelper.hxx>
 #include <unotools/saveopt.hxx>
 #include <svx/unopage.hxx>
 #include <svx/svdpage.hxx>
@@ -38,53 +32,23 @@
 
 using namespace ::com::sun::star;
 
-constexpr OUStringLiteral DATA_DIRECTORY = u"/xmloff/qa/unit/data/";
-
 /// Covers xmloff/source/draw/ fixes.
-class XmloffDrawTest : public test::BootstrapFixture,
-                       public unotest::MacrosTest,
-                       public XmlTestTools
+class XmloffDrawTest : public UnoApiXmlTest
 {
-private:
-    uno::Reference<lang::XComponent> mxComponent;
-
 public:
-    void setUp() override;
-    void tearDown() override;
+    XmloffDrawTest();
     void registerNamespaces(xmlXPathContextPtr& pXmlXpathCtx) override;
-    uno::Reference<lang::XComponent>& getComponent() { return mxComponent; }
-    void save(const OUString& rFilterName, utl::TempFileNamed& rTempFile);
     uno::Reference<drawing::XShape> getShape(sal_uInt8 nShapeIndex);
 };
 
-void XmloffDrawTest::setUp()
+XmloffDrawTest::XmloffDrawTest()
+    : UnoApiXmlTest("/xmloff/qa/unit/data/")
 {
-    test::BootstrapFixture::setUp();
-
-    mxDesktop.set(frame::Desktop::create(mxComponentContext));
-}
-
-void XmloffDrawTest::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    test::BootstrapFixture::tearDown();
 }
 
 void XmloffDrawTest::registerNamespaces(xmlXPathContextPtr& pXmlXpathCtx)
 {
     XmlTestTools::registerODFNamespaces(pXmlXpathCtx);
-}
-
-void XmloffDrawTest::save(const OUString& rFilterName, utl::TempFileNamed& rTempFile)
-{
-    uno::Reference<frame::XStorable> xStorable(mxComponent, uno::UNO_QUERY);
-    utl::MediaDescriptor aMediaDescriptor;
-    aMediaDescriptor["FilterName"] <<= rFilterName;
-    rTempFile.EnableKillingFile();
-    xStorable->storeToURL(rTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
-    validate(rTempFile.GetFileName(), test::ODF);
 }
 
 uno::Reference<drawing::XShape> XmloffDrawTest::getShape(sal_uInt8 nShapeIndex)
@@ -101,19 +65,11 @@ uno::Reference<drawing::XShape> XmloffDrawTest::getShape(sal_uInt8 nShapeIndex)
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTextBoxLoss)
 {
     // Load a document that has a shape with a textbox in it. Save it to ODF and reload.
-    OUString aURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "textbox-loss.docx";
-    getComponent() = loadFromDesktop(aURL);
-    uno::Reference<frame::XStorable> xStorable(getComponent(), uno::UNO_QUERY);
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    utl::MediaDescriptor aMediaDescriptor;
-    aMediaDescriptor["FilterName"] <<= OUString("writer8");
-    xStorable->storeToURL(aTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
-    getComponent()->dispose();
-    getComponent() = loadFromDesktop(aTempFile.GetURL());
+    loadFromURL(u"textbox-loss.docx");
+    saveAndReload("impress8");
 
     // Make sure that the shape is still a textbox.
-    uno::Reference<drawing::XDrawPageSupplier> xDrawPageSupplier(getComponent(), uno::UNO_QUERY);
+    uno::Reference<drawing::XDrawPageSupplier> xDrawPageSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XDrawPage> xDrawPage = xDrawPageSupplier->getDrawPage();
     uno::Reference<beans::XPropertySet> xShape(xDrawPage->getByIndex(1), uno::UNO_QUERY);
     bool bTextBox = false;
@@ -127,18 +83,11 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTextBoxLoss)
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTdf141301_Extrusion_Angle)
 {
     // Load a document that has a custom shape with extrusion direction as set by LO as its default.
-    OUString aURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "tdf141301_Extrusion_Skew.odg";
-    getComponent() = loadFromDesktop(aURL, "com.sun.star.comp.drawing.DrawingDocument");
+    loadFromURL(u"tdf141301_Extrusion_Skew.odg");
 
     // Prepare use of XPath
-    utl::TempFileNamed aTempFile;
-    save("draw8", aTempFile);
-    uno::Reference<packages::zip::XZipFileAccess2> xNameAccess
-        = packages::zip::ZipFileAccess::createWithURL(mxComponentContext, aTempFile.GetURL());
-    uno::Reference<io::XInputStream> xInputStream(xNameAccess->getByName("content.xml"),
-                                                  uno::UNO_QUERY);
-    std::unique_ptr<SvStream> pStream(utl::UcbStreamHelper::CreateStream(xInputStream, true));
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    save("draw8");
+    xmlDocUniquePtr pXmlDoc = parseExport("content.xml");
 
     // Without fix draw:extrusion-skew="50 -135" was not written to file although "50 -135" is not
     // default in ODF, but only default inside LO.
@@ -148,8 +97,8 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTdf141301_Extrusion_Angle)
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testThemeExport)
 {
     // Create an Impress document which has a master page which has a theme associated with it.
-    getComponent() = loadFromDesktop("private:factory/simpress");
-    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(getComponent(), uno::UNO_QUERY);
+    mxComponent = loadFromDesktop("private:factory/simpress");
+    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XMasterPageTarget> xDrawPage(
         xDrawPagesSupplier->getDrawPages()->getByIndex(0), uno::UNO_QUERY);
     uno::Reference<beans::XPropertySet> xMasterPage(xDrawPage->getMasterPage(), uno::UNO_QUERY);
@@ -163,12 +112,10 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testThemeExport)
     xMasterPage->setPropertyValue("Theme", aTheme);
 
     // Export to ODP:
-    utl::TempFileNamed aTempFile;
-    save("impress8", aTempFile);
+    save("impress8");
 
     // Check if the 12 colors are written in the XML:
-    std::unique_ptr<SvStream> pStream = parseExportStream(aTempFile, "styles.xml");
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    xmlDocUniquePtr pXmlDoc = parseExport("styles.xml");
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 12
     // - Actual  : 0
@@ -180,9 +127,8 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testThemeExport)
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testVideoSnapshot)
 {
     // Execute ODP import:
-    OUString aURL = m_directories.getURLFromSrc(u"xmloff/qa/unit/data/video-snapshot.odp");
-    getComponent() = loadFromDesktop(aURL, "com.sun.star.presentation.PresentationDocument");
-    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(getComponent(),
+    loadFromURL(u"video-snapshot.odp");
+    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent,
                                                                    uno::UNO_QUERY_THROW);
     CPPUNIT_ASSERT(xDrawPagesSupplier.is());
     uno::Reference<drawing::XDrawPages> xDrawPages(xDrawPagesSupplier->getDrawPages());
@@ -205,11 +151,9 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testVideoSnapshot)
     CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(1356), rCrop.Right);
 
     // Execute ODP export:
-    utl::TempFileNamed aTempFile;
-    save("impress8", aTempFile);
+    save("impress8");
 
-    std::unique_ptr<SvStream> pStream = parseExportStream(aTempFile, "content.xml");
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    xmlDocUniquePtr pXmlDoc = parseExport("content.xml");
     // Check that the preview was exported:
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 1
@@ -226,13 +170,10 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testVideoSnapshot)
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testThemeImport)
 {
     // Given a document that has a master page with a theme associated:
-    OUString aURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "theme.odp";
-
-    // When loading that document:
-    getComponent() = loadFromDesktop(aURL);
+    loadFromURL(u"theme.odp");
 
     // Then make sure the doc model has a master page with a theme:
-    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(getComponent(), uno::UNO_QUERY);
+    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XMasterPageTarget> xDrawPage(
         xDrawPagesSupplier->getDrawPages()->getByIndex(0), uno::UNO_QUERY);
     uno::Reference<beans::XPropertySet> xMasterpage(xDrawPage->getMasterPage(), uno::UNO_QUERY);
@@ -250,16 +191,11 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testThemeImport)
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testReferToTheme)
 {
     // Given a document that refers to a theme color:
-    OUString aURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "refer-to-theme.odp";
-
-    // When loading and saving that document:
-    getComponent() = loadFromDesktop(aURL);
-    utl::TempFileNamed aTempFile;
-    save("impress8", aTempFile);
+    loadFromURL(u"refer-to-theme.odp");
+    save("impress8");
 
     // Make sure the export result has the theme reference:
-    std::unique_ptr<SvStream> pStream = parseExportStream(aTempFile, "content.xml");
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    xmlDocUniquePtr pXmlDoc = parseExport("content.xml");
     // Without the accompanying fix in place, this test would have failed with:
     // - XPath '//style:style[@style:name='T1']/style:text-properties' no attribute 'theme-color' exist
     // i.e. only the direct color was written, but not the theme reference.
@@ -317,13 +253,10 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTableInShape)
 {
     // Given a document with a shape with a "FrameX" parent style (starts with Frame, but is not
     // Frame):
-    OUString aURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "table-in-shape.fodt";
-
-    // When loading that document:
-    getComponent() = loadFromDesktop(aURL);
+    loadFromURL(u"table-in-shape.fodt");
 
     // Then make sure the table inside the shape is not lost:
-    uno::Reference<drawing::XDrawPageSupplier> xDrawPageSupplier(getComponent(), uno::UNO_QUERY);
+    uno::Reference<drawing::XDrawPageSupplier> xDrawPageSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XDrawPage> xDrawPage = xDrawPageSupplier->getDrawPage();
     uno::Reference<text::XTextRange> xShape(xDrawPage->getByIndex(0), uno::UNO_QUERY);
     uno::Reference<container::XEnumerationAccess> xText(xShape->getText(), uno::UNO_QUERY);
@@ -363,28 +296,22 @@ void lcl_assertMetalProperties(std::string_view sInfo, uno::Reference<drawing::X
 
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testExtrusionMetalTypeExtended)
 {
-    // import
-    getComponent() = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY)
-                                         + "tdf145700_3D_metal_type_MSCompatible.doc",
-                                     "com.sun.star.text.TextDocument");
+    loadFromURL(u"tdf145700_3D_metal_type_MSCompatible.doc");
     // verify properties
     uno::Reference<drawing::XShape> xShape(getShape(0));
     lcl_assertMetalProperties("from doc", xShape);
 
     // Test, that new attribute is written with loext namespace. Adapt when attribute is added to ODF.
-    utl::TempFileNamed aTempFile;
-    save("writer8", aTempFile);
+    save("writer8");
 
     // assert XML.
-    std::unique_ptr<SvStream> pStream = parseExportStream(aTempFile, "content.xml");
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    xmlDocUniquePtr pXmlDoc = parseExport("content.xml");
     assertXPath(pXmlDoc, "//draw:enhanced-geometry", "extrusion-metal", "true");
     assertXPath(pXmlDoc,
                 "//draw:enhanced-geometry[@loext:extrusion-metal-type='loext:MetalMSCompatible']");
 
     // reload
-    getComponent()->dispose();
-    getComponent() = loadFromDesktop(aTempFile.GetURL(), "com.sun.star.text.TextDocument");
+    mxComponent = loadFromDesktop(maTempFile.GetURL(), "com.sun.star.text.TextDocument");
     // verify properties
     uno::Reference<drawing::XShape> xShapeReload(getShape(0));
     lcl_assertMetalProperties("from ODF 1.3 extended", xShapeReload);
@@ -392,21 +319,16 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testExtrusionMetalTypeExtended)
 
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testExtrusionMetalTypeStrict)
 {
-    // import
-    getComponent() = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY)
-                                         + "tdf145700_3D_metal_type_MSCompatible.doc",
-                                     "com.sun.star.text.TextDocument");
+    loadFromURL(u"tdf145700_3D_metal_type_MSCompatible.doc");
 
     // save ODF 1.3 strict and test, that new attribute is not written. Adapt when attribute is
     // added to ODF.
     const SvtSaveOptions::ODFDefaultVersion nCurrentODFVersion(GetODFDefaultVersion());
     SetODFDefaultVersion(SvtSaveOptions::ODFVER_013);
-    utl::TempFileNamed aTempFile;
-    save("writer8", aTempFile);
+    save("writer8");
 
     // assert XML.
-    std::unique_ptr<SvStream> pStream = parseExportStream(aTempFile, "content.xml");
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    xmlDocUniquePtr pXmlDoc = parseExport("content.xml");
     assertXPath(pXmlDoc, "//draw:enhanced-geometry", "extrusion-metal", "true");
     assertXPath(pXmlDoc, "//draw:enhanced-geometry[@loext:extrusion-metal-type]", 0);
 
@@ -434,29 +356,23 @@ void lcl_assertSpecularityProperty(std::string_view sInfo, uno::Reference<drawin
 
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testExtrusionSpecularityExtended)
 {
-    // import
-    getComponent() = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY)
-                                         + "tdf147580_extrusion-specularity.doc",
-                                     "com.sun.star.text.TextDocument");
+    loadFromURL(u"tdf147580_extrusion-specularity.doc");
     // verify property
     uno::Reference<drawing::XShape> xShape(getShape(0));
     lcl_assertSpecularityProperty("from doc", xShape);
 
     // Test, that attribute is written in draw namespace with value 100% and in loext namespace with
     // value 122.0703125%.
-    utl::TempFileNamed aTempFile;
-    save("writer8", aTempFile);
+    save("writer8");
 
     // assert XML.
-    std::unique_ptr<SvStream> pStream = parseExportStream(aTempFile, "content.xml");
-    xmlDocUniquePtr pXmlDoc = parseXmlStream(pStream.get());
+    xmlDocUniquePtr pXmlDoc = parseExport("content.xml");
     assertXPath(pXmlDoc, "//draw:enhanced-geometry[@draw:extrusion-specularity='100%']");
     assertXPath(pXmlDoc,
                 "//draw:enhanced-geometry[@loext:extrusion-specularity-loext='122.0703125%']");
 
     // reload and verify, that the loext value is used
-    getComponent()->dispose();
-    getComponent() = loadFromDesktop(aTempFile.GetURL(), "com.sun.star.text.TextDocument");
+    mxComponent = loadFromDesktop(maTempFile.GetURL(), "com.sun.star.text.TextDocument");
     // verify properties
     uno::Reference<drawing::XShape> xShapeReload(getShape(0));
     lcl_assertSpecularityProperty("from ODF 1.3 extended", xShapeReload);
@@ -464,17 +380,13 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testExtrusionSpecularityExtended)
 
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testExtrusionSpecularity)
 {
-    // import
-    getComponent() = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY)
-                                         + "tdf147580_extrusion-specularity.doc",
-                                     "com.sun.star.text.TextDocument");
+    loadFromURL(u"tdf147580_extrusion-specularity.doc");
 
     // The file has c3DSpecularAmt="80000" which results internally in specularity=122%.
     // Save to ODF 1.3 strict and make sure it does not produce a validation error.
     const SvtSaveOptions::ODFDefaultVersion nCurrentODFVersion(GetODFDefaultVersion());
     SetODFDefaultVersion(SvtSaveOptions::ODFVER_013);
-    utl::TempFileNamed aTempFile;
-    save("writer8", aTempFile);
+    save("writer8");
 
     SetODFDefaultVersion(nCurrentODFVersion);
 }
@@ -517,8 +429,7 @@ bool lcl_getShapeSegments(uno::Sequence<drawing::EnhancedCustomShapeSegment>& rS
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTdf148714_CurvedArrowsOld)
 {
     // Load a document with CurveArrow shapes with faulty path as written by older LO versions.
-    OUString sURL = m_directories.getURLFromSrc(DATA_DIRECTORY) + "tdf148714_CurvedArrowsOld.odp";
-    getComponent() = loadFromDesktop(sURL, "com.sun.star.presentation.PresentationDocument");
+    loadFromURL(u"tdf148714_CurvedArrowsOld.odp");
 
     //  Make sure, that the error has been corrected on opening.
     for (sal_Int32 nShapeIndex = 0; nShapeIndex < 4; nShapeIndex++)
@@ -556,10 +467,7 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTdf148714_CurvedArrowsOld)
 
 CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTextRotationPlusPre)
 {
-    // import
-    getComponent() = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY)
-                                         + "tdf149551_verticalText.pptx",
-                                     "com.sun.star.presentation.PresentationDocument");
+    loadFromURL(u"tdf149551_verticalText.pptx");
     // The file has a shape with attribute vert="vert" in <bodyPr> element. That generates a
     // TextPreRotateAngle attribute in CustomShapeGeometry.
 
@@ -576,12 +484,9 @@ CPPUNIT_TEST_FIXTURE(XmloffDrawTest, testTextRotationPlusPre)
     // Save to ODF. Without the fix, a file format error was produced, because attribute
     // draw:text-rotate-angle was written twice, one from TextPreRotateAngle and the other from
     // TextRotateAngle.
-    utl::TempFileNamed aTempFile;
     // This should already catch the format error, but does not, see tdf#149567
-    save("impress8", aTempFile);
     // But reload catches it.
-    getComponent()->dispose();
-    getComponent() = loadFromDesktop(aTempFile.GetURL());
+    saveAndReload("writer8");
 }
 CPPUNIT_PLUGIN_IMPLEMENT();
 

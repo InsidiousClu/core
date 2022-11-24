@@ -110,9 +110,9 @@ static void lcl_EnsureValidPam( SwPaM& rPam )
     {
         // point is not valid, so move it into the first content
         rPam.DeleteMark();
-        rPam.GetPoint()->nNode =
-            *rPam.GetDoc().GetNodes().GetEndOfContent().StartOfSectionNode();
-        ++ rPam.GetPoint()->nNode;
+        rPam.GetPoint()->Assign(
+            *rPam.GetDoc().GetNodes().GetEndOfContent().StartOfSectionNode() );
+        rPam.GetPoint()->Adjust(SwNodeOffset(+1));
         rPam.Move( fnMoveForward, GoInContent ); // go into content
     }
 }
@@ -688,10 +688,10 @@ ErrCode XMLReader::Read( SwDoc &rDoc, const OUString& rBaseURL, SwPaM &rPaM, con
     }
     else if( m_bInsertMode )
     {
-        const uno::Reference<text::XTextRange> xInsertTextRange =
+        const rtl::Reference<SwXTextRange> xInsertTextRange =
             SwXTextRange::CreateXTextRange(rDoc, *rPaM.GetPoint(), nullptr);
         xInfoSet->setPropertyValue( "TextInsertModeRange",
-                                    Any(xInsertTextRange) );
+                                    Any(uno::Reference<text::XTextRange>(xInsertTextRange)) );
     }
     else
     {

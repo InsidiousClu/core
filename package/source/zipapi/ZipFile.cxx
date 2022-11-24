@@ -812,6 +812,13 @@ void ZipFile::readLOC( ZipEntry &rEntry )
     aGrabber.ReadInt32(); //size
     sal_Int16 nPathLen = aGrabber.ReadInt16();
     sal_Int16 nExtraLen = aGrabber.ReadInt16();
+
+    if (nPathLen < 0)
+    {
+        SAL_WARN("package", "bogus path len of: " << nPathLen);
+        nPathLen = 0;
+    }
+
     rEntry.nOffset = aGrabber.getPosition() + nPathLen + nExtraLen;
 
     // FIXME64: need to read 64bit LOC
@@ -820,16 +827,10 @@ void ZipFile::readLOC( ZipEntry &rEntry )
 
     try
     {
-        sal_Int16 nPathLenToRead = nPathLen;
-        const sal_Int64 nBytesAvailable = aGrabber.getLength() - aGrabber.getPosition();
-        if (nPathLenToRead > nBytesAvailable)
-            nPathLenToRead = nBytesAvailable;
-        else if (nPathLenToRead < 0)
-            nPathLenToRead = 0;
-
         // read always in UTF8, some tools seem not to set UTF8 bit
-        uno::Sequence<sal_Int8> aNameBuffer(nPathLenToRead);
-        sal_Int32 nRead = aGrabber.readBytes(aNameBuffer, nPathLenToRead);
+        // coverity[tainted_data] - we've checked negative lens, and up to max short is ok here
+        uno::Sequence<sal_Int8> aNameBuffer(nPathLen);
+        sal_Int32 nRead = aGrabber.readBytes(aNameBuffer, nPathLen);
         if (nRead < aNameBuffer.getLength())
             aNameBuffer.realloc(nRead);
 

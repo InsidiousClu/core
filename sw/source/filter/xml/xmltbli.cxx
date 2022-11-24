@@ -63,6 +63,7 @@
 #include "xmltbli.hxx"
 #include <vcl/svapp.hxx>
 #include <ndtxt.hxx>
+#include <unotextcursor.hxx>
 #include <SwStyleNameMapper.hxx>
 
 #include <algorithm>
@@ -1166,7 +1167,7 @@ SwXMLTableContext::SwXMLTableContext( SwXMLImport& rImport,
         }
     }
 
-    SwDoc *pDoc = SwImport::GetDocFromXMLImport( GetSwImport() );
+    SwDoc *pDoc = GetSwImport().getDoc();
 
     OUString sTableName;
     if( !aName.isEmpty() )
@@ -2687,7 +2688,7 @@ const SwStartNode *SwXMLTableContext::InsertTableSection(
     }
     else
     {
-        SwDoc* pDoc = SwImport::GetDocFromXMLImport( GetSwImport() );
+        SwDoc* pDoc = GetSwImport().getDoc();
         const SwEndNode *pEndNd = pPrevSttNd ? pPrevSttNd->EndOfSectionNode()
                                              : m_pTableNode->EndOfSectionNode();
         // #i78921# - make code robust
@@ -2704,19 +2705,18 @@ const SwStartNode *SwXMLTableContext::InsertTableSection(
                                                  pColl );
         // Consider the case that a table is defined without a row.
         if( !pPrevSttNd && m_pBox1 != nullptr )
-
         {
             m_pBox1->m_pStartNode = pStNd;
             SwContentNode *pCNd = pDoc->GetNodes()[ pStNd->GetIndex() + 1 ]
                                                             ->GetContentNode();
-            SwPosition aPos( *pCNd );
-
-            const uno::Reference< text::XTextRange > xTextRange =
-                SwXTextRange::CreateXTextRange( *pDoc, aPos, nullptr );
-            Reference < XText > xText = xTextRange->getText();
-            Reference < XTextCursor > xTextCursor =
-                xText->createTextCursorByRange( xTextRange );
-            GetImport().GetTextImport()->SetCursor( xTextCursor );
+            SwFrameFormat *const pTableFormat = m_pTableNode->GetTable().GetFrameFormat();
+            rtl::Reference<SwXCell> xParent = SwXCell::CreateXCell( pTableFormat, m_pBox1 );
+            DBG_TESTSOLARMUTEX();
+            SwPaM aPam(*pCNd, *pCNd);
+            rtl::Reference<SwXTextCursor> xTextCursor =
+                new SwXTextCursor(*pDoc, xParent, CursorType::TableText,
+                *aPam.GetPoint(), aPam.GetMark());
+            GetImport().GetTextImport()->SetCursor( static_cast<XWordCursor*>(xTextCursor.get()) );
         }
     }
 

@@ -188,6 +188,7 @@ $(eval $(call gb_Library_add_exception_objects,cui,\
     cui/source/options/optgenrl \
     cui/source/options/opthtml \
     cui/source/options/optlanguagetool \
+    cui/source/options/optdeepl \
     cui/source/options/optinet2 \
     cui/source/options/optjava \
     cui/source/options/optjsearch \
@@ -240,6 +241,7 @@ $(eval $(call gb_Library_add_exception_objects,cui,\
     cui/source/tabpages/tptrans \
     cui/source/tabpages/transfrm \
     cui/source/util/FontFeatures \
+    cui/source/dialogs/widgettestdlg \
 ))
 
 # vim: set noet sw=4 ts=4:

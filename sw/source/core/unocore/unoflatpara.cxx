@@ -42,7 +42,7 @@
 #include <rootfrm.hxx>
 #include <poolfmt.hxx>
 #include <pagedesc.hxx>
-#include <IGrammarContact.hxx>
+#include <GrammarContact.hxx>
 #include <viewopt.hxx>
 #include <comphelper/servicehelper.hxx>
 #include <comphelper/propertysetinfo.hxx>
@@ -182,7 +182,7 @@ void SAL_CALL SwXFlatParagraph::setChecked( ::sal_Int32 nType, sal_Bool bVal )
     if ( text::TextMarkupType::SPELLCHECK == nType )
     {
         GetTextNode()->SetWrongDirty(
-            bVal ? SwTextNode::WrongState::DONE : SwTextNode::WrongState::TODO);
+            bVal ? sw::WrongState::DONE : sw::WrongState::TODO);
     }
     else if ( text::TextMarkupType::SMARTTAG == nType )
         GetTextNode()->SetSmartTagDirty( !bVal );
@@ -190,7 +190,7 @@ void SAL_CALL SwXFlatParagraph::setChecked( ::sal_Int32 nType, sal_Bool bVal )
     {
         GetTextNode()->SetGrammarCheckDirty( !bVal );
         if( bVal )
-            ::finishGrammarCheck( *GetTextNode() );
+            sw::finishGrammarCheckFor(*GetTextNode());
     }
 }
 
@@ -260,14 +260,13 @@ void SAL_CALL SwXFlatParagraph::changeText(::sal_Int32 nPos, ::sal_Int32 nLen, c
 
     UnoActionContext aAction( &GetTextNode()->GetDoc() );
 
-    const uno::Reference< text::XTextRange > xRange =
+    const rtl::Reference<SwXTextRange> xRange =
         SwXTextRange::CreateXTextRange(
             GetTextNode()->GetDoc(), *aPaM.GetPoint(), aPaM.GetMark() );
-    uno::Reference< beans::XPropertySet > xPropSet( xRange, uno::UNO_QUERY );
-    if ( xPropSet.is() )
+    if ( xRange.is() )
     {
         for ( const auto& rAttribute : aAttributes )
-            xPropSet->setPropertyValue( rAttribute.Name, rAttribute.Value );
+            xRange->setPropertyValue( rAttribute.Name, rAttribute.Value );
     }
 
     IDocumentContentOperations& rIDCO = pOldTextNode->getIDocumentContentOperations();
@@ -293,14 +292,13 @@ void SAL_CALL SwXFlatParagraph::changeAttributes(::sal_Int32 nPos, ::sal_Int32 n
 
     UnoActionContext aAction( &GetTextNode()->GetDoc() );
 
-    const uno::Reference< text::XTextRange > xRange =
+    const rtl::Reference<SwXTextRange> xRange =
         SwXTextRange::CreateXTextRange(
             GetTextNode()->GetDoc(), *aPaM.GetPoint(), aPaM.GetMark() );
-    uno::Reference< beans::XPropertySet > xPropSet( xRange, uno::UNO_QUERY );
-    if ( xPropSet.is() )
+    if ( xRange.is() )
     {
         for ( const auto& rAttribute : aAttributes )
-            xPropSet->setPropertyValue( rAttribute.Name, rAttribute.Value );
+            xRange->setPropertyValue( rAttribute.Name, rAttribute.Value );
     }
 
     ClearTextNode(); // TODO: is this really needed?
@@ -464,7 +462,7 @@ uno::Reference< text::XFlatParagraph > SwXFlatParagraphIterator::getNextPara()
 
             ++mnCurrentNode;
 
-            pRet = dynamic_cast<SwTextNode*>(pNd);
+            pRet = pNd->GetTextNode();
             if ( pRet )
                 break;
 
@@ -521,7 +519,7 @@ uno::Reference< text::XFlatParagraph > SwXFlatParagraphIterator::getParaAfter(co
     for( SwNodeOffset nCurrentNode = pCurrentNode->GetIndex() + 1; nCurrentNode < rNodes.Count(); ++nCurrentNode )
     {
         SwNode* pNd = rNodes[ nCurrentNode ];
-        pNextTextNode = dynamic_cast<SwTextNode*>(pNd);
+        pNextTextNode = pNd->GetTextNode();
         if ( pNextTextNode )
             break;
     }
@@ -567,7 +565,7 @@ uno::Reference< text::XFlatParagraph > SwXFlatParagraphIterator::getParaBefore(c
     for( SwNodeOffset nCurrentNode = pCurrentNode->GetIndex() - 1; nCurrentNode > SwNodeOffset(0); --nCurrentNode )
     {
         SwNode* pNd = rNodes[ nCurrentNode ];
-        pPrevTextNode = dynamic_cast<SwTextNode*>(pNd);
+        pPrevTextNode = pNd->GetTextNode();
         if ( pPrevTextNode )
             break;
     }

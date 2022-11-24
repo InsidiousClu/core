@@ -21,6 +21,7 @@
 
 #include <com/sun/star/style/XStyle.hpp>
 #include <com/sun/star/drawing/LineStyle.hpp>
+#include <com/sun/star/form/XReset.hpp>
 #include <i18nlangtag/languagetag.hxx>
 #include <i18nlangtag/mslangid.hxx>
 #include <sfx2/dispatch.hxx>
@@ -785,6 +786,10 @@ void SdDrawDocument::CreateDefaultCellStyles()
     Any aYellow3( implMakeSolidCellStyle( pSSPool, "yellow3" , aDefaultCellStyleName, Color(255,204,153)));
 
     implCreateTableTemplate( xTableFamily, "yellow" , aYellow1, aYellow3, aYellow2 );
+
+    Reference<form::XReset> xReset(xTableFamily, UNO_QUERY);
+    if (xReset)
+        xReset->reset();
 }
 
 // Number of pages that reference a master page
@@ -917,7 +922,7 @@ IMPL_LINK_NOARG(SdDrawDocument, OnlineSpellingHdl, Timer *, void)
 
         if (pObj)
         {
-            if (pObj->GetOutlinerParaObject() && dynamic_cast< const SdrTextObj *>( pObj ) !=  nullptr)
+            if (pObj->GetOutlinerParaObject() && DynCastSdrTextObj( pObj ) !=  nullptr)
             {
                 // Spell text object
                 SpellObject(static_cast<SdrTextObj*>(pObj));
@@ -933,7 +938,7 @@ IMPL_LINK_NOARG(SdDrawDocument, OnlineSpellingHdl, Timer *, void)
                     SdrObject* pSubObj = aGroupIter.Next();
 
                     if (pSubObj->GetOutlinerParaObject())
-                        if (auto pTextObj = dynamic_cast< SdrTextObj *>( pSubObj ))
+                        if (auto pTextObj = DynCastSdrTextObj( pSubObj ))
                             // Found a text object in a group object
                             SpellObject(pTextObj);
                 }
@@ -1055,7 +1060,7 @@ void SdDrawDocument::ImpOnlineSpellCallback(SpellCallbackInfo const * pInfo, Sdr
         || nCommand == SpellCallbackCommand::ADDTODICTIONARY)
     {
         if(pOutl)
-            if (auto pTextObj = dynamic_cast<SdrTextObj *>( pObj ))
+            if (auto pTextObj = DynCastSdrTextObj( pObj ))
             {
                 bool bModified(IsChanged());
                 pTextObj->SetOutlinerParaObject(pOutl->CreateParaObject());

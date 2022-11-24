@@ -32,6 +32,13 @@
 #include <svsys.h>
 #include <vector>
 
+#include <dwrite_3.h>
+// Currently, we build with _WIN32_WINNT=0x0601 (Windows 7), which means newer
+// declarations in dwrite_3.h will not be visible.
+#if WINVER < 0x0A00
+#  include "dw-extra.h"
+#endif
+
 #include <o3tl/lru_map.hxx>
 #include <basegfx/matrix/b2dhommatrixtools.hxx>
 #include <basegfx/polygon/b2dpolygon.hxx>
@@ -51,6 +58,7 @@
 #include <vcl/metric.hxx>
 #include <vcl/fontcharmap.hxx>
 #include <comphelper/scopeguard.hxx>
+#include <comphelper/windowserrorstring.hxx>
 
 #include <font/FontSelectPattern.hxx>
 #include <font/PhysicalFontCollection.hxx>
@@ -83,74 +91,6 @@ static int IntTimes256FromFixed(FIXED f)
 {
     int nFixedTimes256 = (f.value << 8) + ((f.fract+0x80) >> 8);
     return nFixedTimes256;
-}
-
-namespace {
-
-// raw font data with a scoped lifetime
-class RawFontData
-{
-public:
-    explicit    RawFontData( HDC, DWORD nTableTag=0 );
-    const unsigned char*    get() const { return mpRawBytes.get(); }
-    const unsigned char*    steal() { return mpRawBytes.release(); }
-    int               size() const { return mnByteCount; }
-
-private:
-    std::unique_ptr<unsigned char[]> mpRawBytes;
-    unsigned        mnByteCount;
-};
-
-}
-
-RawFontData::RawFontData( HDC hDC, DWORD nTableTag )
-:   mnByteCount( 0 )
-{
-    // get required size in bytes
-    mnByteCount = ::GetFontData( hDC, nTableTag, 0, nullptr, 0 );
-    if (mnByteCount == GDI_ERROR)
-        mnByteCount = 0;
-    if (!mnByteCount)
-        return;
-
-    // allocate the array
-    mpRawBytes.reset(new unsigned char[ mnByteCount ]);
-
-    // get raw data in chunks small enough for GetFontData()
-    unsigned nRawDataOfs = 0;
-    DWORD nMaxChunkSize = 0x100000;
-    for(;;)
-    {
-        // calculate remaining raw data to get
-        DWORD nFDGet = mnByteCount - nRawDataOfs;
-        if( nFDGet <= 0 )
-            break;
-        // #i56745# limit GetFontData requests
-        if( nFDGet > nMaxChunkSize )
-            nFDGet = nMaxChunkSize;
-        const DWORD nFDGot = ::GetFontData( hDC, nTableTag, nRawDataOfs,
-            mpRawBytes.get() + nRawDataOfs, nFDGet );
-        if( !nFDGot )
-            break;
-        else if( nFDGot != GDI_ERROR )
-            nRawDataOfs += nFDGot;
-        else
-        {
-            // was the chunk too big? reduce it
-            nMaxChunkSize /= 2;
-            if( nMaxChunkSize < 0x10000 )
-                break;
-        }
-    }
-
-    // cleanup if the raw data is incomplete
-    if( nRawDataOfs != mnByteCount )
-    {
-        mpRawBytes.reset();
-        // mnByteCount must correspond to mpRawBytes length
-        SAL_WARN( "vcl", "Raw data of font is incomplete: " << nRawDataOfs << " byte(s) found whereas " << mnByteCount << " byte(s) expected!" );
-        mnByteCount = 0;
-    }
 }
 
 // platform specific font substitution hooks for glyph fallback enhancement
@@ -230,7 +170,7 @@ const std::map<OUString, OUString> aBitmapFontSubs =
 // TODO: See if Windows have API that we can use here to improve font fallback.
 bool WinPreMatchFontSubstititution::FindFontSubstitute(vcl::font::FontSelectPattern& rFontSelData) const
 {
-    if (rFontSelData.IsSymbolFont() || IsStarSymbol(rFontSelData.maSearchName))
+    if (rFontSelData.IsMicrosoftSymbolEncoded() || IsOpenSymbol(rFontSelData.maSearchName))
         return false;
 
     for (const auto& aSub : aBitmapFontSubs)
@@ -508,7 +448,7 @@ static FontAttributes WinFont2DevFontAttributes( const ENUMLOGFONTEXW& rEnumFont
     aDFA.SetWeight(ImplWeightToSal( rLogFont.lfWeight ));
     aDFA.SetItalic((rLogFont.lfItalic) ? ITALIC_NORMAL : ITALIC_NONE);
     aDFA.SetPitch(ImplLogPitchToSal( rLogFont.lfPitchAndFamily ));
-    aDFA.SetSymbolFlag(rLogFont.lfCharSet == SYMBOL_CHARSET);
+    aDFA.SetMicrosoftSymbolEncoded(rLogFont.lfCharSet == SYMBOL_CHARSET);
 
     // get the font face name
     aDFA.SetFamilyName(OUString(o3tl::toU(rLogFont.lfFaceName)));
@@ -577,30 +517,8 @@ WinFontFace::WinFontFace(const ENUMLOGFONTEXW& rEnumFont, const NEWTEXTMETRICW& 
     mnId( 0 ),
     meWinCharSet(rEnumFont.elfLogFont.lfCharSet),
     mnPitchAndFamily(rMetric.tmPitchAndFamily),
-    mbAliasSymbolsHigh( false ),
-    mbAliasSymbolsLow( false ),
     maLogFont(rEnumFont.elfLogFont)
 {
-    if (meWinCharSet == SYMBOL_CHARSET)
-    {
-        if ((mnPitchAndFamily & TMPF_TRUETYPE) != 0)
-        {
-            // truetype fonts need their symbols as U+F0xx
-            mbAliasSymbolsHigh = true;
-        }
-        else if ((mnPitchAndFamily & (TMPF_VECTOR|TMPF_DEVICE))
-                                  == (TMPF_VECTOR|TMPF_DEVICE))
-        {
-            // scalable device fonts (e.g. builtin printer fonts)
-            // need their symbols as U+00xx
-            mbAliasSymbolsLow  = true;
-        }
-        else if ((mnPitchAndFamily & (TMPF_VECTOR|TMPF_TRUETYPE)) == 0)
-        {
-            // bitmap fonts need their symbols as U+F0xx
-            mbAliasSymbolsHigh = true;
-        }
-    }
 }
 
 WinFontFace::~WinFontFace()
@@ -619,6 +537,37 @@ rtl::Reference<LogicalFontInstance> WinFontFace::CreateFontInstance(const vcl::f
         return new SkiaWinFontInstance(*this, rFSD);
 #endif
     return new WinFontInstance(*this, rFSD);
+}
+
+const std::vector<hb_variation_t>&
+WinFontFace::GetVariations(const LogicalFontInstance& rFont) const
+{
+    if (!mxVariations)
+    {
+        mxVariations.emplace();
+        auto pDWFontFace = static_cast<const WinFontInstance&>(rFont).GetDWFontFace();
+        if (pDWFontFace)
+        {
+            sal::systools::COMReference<IDWriteFontFace5> xDWFontFace5;
+            auto hr = pDWFontFace->QueryInterface(__uuidof(IDWriteFontFace5),
+                                                  reinterpret_cast<void**>(&xDWFontFace5));
+            if (SUCCEEDED(hr) && xDWFontFace5->HasVariations())
+            {
+                std::vector<DWRITE_FONT_AXIS_VALUE> aAxisValues(
+                    xDWFontFace5->GetFontAxisValueCount());
+                hr = xDWFontFace5->GetFontAxisValues(aAxisValues.data(), aAxisValues.size());
+                if (SUCCEEDED(hr))
+                {
+                    mxVariations->reserve(aAxisValues.size());
+                    for (auto& rAxisValue : aAxisValues)
+                        mxVariations->push_back(
+                            { OSL_NETDWORD(rAxisValue.axisTag), rAxisValue.value });
+                }
+            }
+        }
+    }
+
+    return *mxVariations;
 }
 
 namespace
@@ -748,7 +697,7 @@ void ImplGetLogFontFromFontSelect( const vcl::font::FontSelectPattern& rFont,
     }
     else
     {
-        rLogFont.lfCharSet = rFont.IsSymbolFont() ? SYMBOL_CHARSET : DEFAULT_CHARSET;
+        rLogFont.lfCharSet = rFont.IsMicrosoftSymbolEncoded() ? SYMBOL_CHARSET : DEFAULT_CHARSET;
         rLogFont.lfPitchAndFamily = ImplPitchToWin( rFont.GetPitch() )
                                   | ImplFamilyToWin( rFont.GetFamilyType() );
     }
@@ -911,7 +860,7 @@ void WinSalGraphics::GetFontMetric( ImplFontMetricDataRef& rxFontMetric, int nFa
 
     // device independent font attributes
     rxFontMetric->SetFamilyType(ImplFamilyToSal( aWinMetric.tmPitchAndFamily ));
-    rxFontMetric->SetSymbolFlag(aWinMetric.tmCharSet == SYMBOL_CHARSET);
+    rxFontMetric->SetMicrosoftSymbolEncoded(aWinMetric.tmCharSet == SYMBOL_CHARSET);
     rxFontMetric->SetWeight(ImplWeightToSal( aWinMetric.tmWeight ));
     rxFontMetric->SetPitch(ImplMetricPitchToSal( aWinMetric.tmPitchAndFamily ));
     rxFontMetric->SetItalic(aWinMetric.tmItalic ? ITALIC_NORMAL : ITALIC_NONE);
@@ -1447,6 +1396,37 @@ bool WinFontInstance::GetGlyphOutline(sal_GlyphId nId, basegfx::B2DPolyPolygon& 
     }
 
     return true;
+}
+
+IDWriteFontFace* WinFontInstance::GetDWFontFace() const
+{
+    if (!mxDWFontFace)
+    {
+        assert(m_pGraphics);
+        HDC hDC = m_pGraphics->getHDC();
+        const HFONT hOrigFont = static_cast<HFONT>(GetCurrentObject(hDC, OBJ_FONT));
+        const HFONT hFont = GetHFONT();
+        if (hFont != hOrigFont)
+            SelectObject(hDC, hFont);
+
+        const ::comphelper::ScopeGuard aFontRestoreScopeGuard([hFont, hOrigFont, hDC]() {
+            if (hFont != hOrigFont)
+                SelectObject(hDC, hOrigFont);
+        });
+
+        IDWriteGdiInterop* pDWriteGdiInterop;
+        WinSalGraphics::getDWriteFactory(nullptr, &pDWriteGdiInterop);
+
+        HRESULT hr = pDWriteGdiInterop->CreateFontFaceFromHdc(hDC, &mxDWFontFace);
+        if (FAILED(hr))
+        {
+            SAL_WARN("vcl.fonts", "HRESULT 0x" << OUString::number(hr, 16) << ": "
+                                               << WindowsErrorStringFromHRESULT(hr));
+            mxDWFontFace = nullptr;
+        }
+    }
+
+    return mxDWFontFace;
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */

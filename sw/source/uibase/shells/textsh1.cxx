@@ -103,6 +103,9 @@
 #include <bookmark.hxx>
 #include <linguistic/misc.hxx>
 #include <authfld.hxx>
+#include <translatelangselect.hxx>
+#include <svtools/deeplcfg.hxx>
+#include <translatehelper.hxx>
 
 using namespace ::com::sun::star;
 using namespace com::sun::star::beans;
@@ -401,10 +404,7 @@ void SwTextShell::Execute(SfxRequest &rReq)
                 if (rWrtSh.HasReadonlySel() && !rWrtSh.CursorInsideInputField())
                 {
                     // Only break if there's something to do; don't nag with the dialog otherwise
-                    auto xInfo(std::make_unique<weld::GenericDialogController>(
-                        rWrtSh.GetView().GetFrameWeld(), "modules/swriter/ui/inforeadonlydialog.ui",
-                        "InfoReadonlyDialog"));
-                    xInfo->run();
+                    rWrtSh.InfoReadOnlyDialog();
                     break;
                 }
                 SwRewriter aRewriter;
@@ -1366,7 +1366,7 @@ void SwTextShell::Execute(SfxRequest &rReq)
         rWrtSh.GetCurAttr(aSet);
         if(SfxItemState::SET <= aSet.GetItemState( RES_TXTATR_INETFMT ))
         {
-            const SwFormatINetFormat& rINetFormat = dynamic_cast<const SwFormatINetFormat&>( aSet.Get(RES_TXTATR_INETFMT) );
+            const SwFormatINetFormat& rINetFormat = aSet.Get(RES_TXTATR_INETFMT);
             if( nSlot == SID_COPY_HYPERLINK_LOCATION )
             {
                 OUString hyperlinkLocation = rINetFormat.GetValue();
@@ -1486,6 +1486,32 @@ void SwTextShell::Execute(SfxRequest &rReq)
             SfxRequest aReq( GetView().GetViewFrame(), SID_FM_CTL_PROPERTIES );
             aReq.AppendItem( SfxBoolItem( SID_FM_CTL_PROPERTIES, true ) );
             rWrtSh.GetView().GetFormShell()->Execute( aReq );
+        }
+    }
+    break;
+    case SID_FM_TRANSLATE:
+    {
+        const SfxPoolItem* pTargetLangStringItem = nullptr;
+        if (pArgs && SfxItemState::SET == pArgs->GetItemState(SID_ATTR_TARGETLANG_STR, false, &pTargetLangStringItem))
+        {
+            SvxDeeplOptions& rDeeplOptions = SvxDeeplOptions::Get();
+            if (rDeeplOptions.getAPIUrl().isEmpty() || rDeeplOptions.getAuthKey().isEmpty())
+            {
+                SAL_WARN("sw.ui", "SID_FM_TRANSLATE: API options are not set");
+                break;
+            }
+            const OString aAPIUrl = OUStringToOString(rtl::Concat2View(rDeeplOptions.getAPIUrl() + "?tag_handling=html"), RTL_TEXTENCODING_UTF8).trim();
+            const OString aAuthKey = OUStringToOString(rDeeplOptions.getAuthKey(), RTL_TEXTENCODING_UTF8).trim();
+            OString aTargetLang = OUStringToOString(static_cast<const SfxStringItem*>(pTargetLangStringItem)->GetValue(), RTL_TEXTENCODING_UTF8);
+            SwTranslateHelper::TranslateAPIConfig aConfig({aAPIUrl, aAuthKey, aTargetLang});
+            SwTranslateHelper::TranslateDocument(rWrtSh, aConfig);
+        }
+        else
+        {
+            SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+            std::shared_ptr<AbstractSwTranslateLangSelectDlg> pAbstractDialog(pFact->CreateSwTranslateLangSelectDlg(GetView().GetFrameWeld(), rWrtSh));
+            std::shared_ptr<weld::DialogController> pDialogController(pAbstractDialog->getDialogController());
+            weld::DialogController::runAsync(pDialogController, [] (sal_Int32 /*nResult*/) { });
         }
     }
     break;

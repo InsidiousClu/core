@@ -2005,11 +2005,11 @@ bool SwFEShell::ImpEndCreate()
             {
                 std::pair<SwTextNode const*, sal_Int32> const pos(
                     static_cast<SwTextFrame const*>(pAnch)->MapViewToModel(TextFrameIndex(0)));
-                aPos.nNode = *pos.first;
+                aPos.Assign( *pos.first );
             }
             else
             {
-                aPos.nNode = *static_cast<const SwNoTextFrame*>(pAnch)->GetNode();
+                aPos.Assign( *static_cast<const SwNoTextFrame*>(pAnch)->GetNode() );
             }
 
             // do not set in ReadnOnly-content
@@ -3199,7 +3199,7 @@ void SwFEShell::CreateDefaultShape( SdrObjKind eSdrObjectKind, const tools::Rect
             pCaptionObj->SetTailPos(
                 aRect.TopLeft() - Point(aRect.GetWidth() / 2, aRect.GetHeight() / 2));
         }
-        else if(auto pText = dynamic_cast<SdrTextObj*>( pObj.get()))
+        else if(auto pText = DynCastSdrTextObj( pObj.get()))
         {
             pText->SetLogicRect(aRect);
 

@@ -68,7 +68,7 @@
 #include <fmtflcnt.hxx>
 #include <fmtcntnt.hxx>
 #include <numrule.hxx>
-#include <IGrammarContact.hxx>
+#include <GrammarContact.hxx>
 #include <calbck.hxx>
 #include <ftnidx.hxx>
 #include <ftnfrm.hxx>
@@ -1630,15 +1630,15 @@ void SwTextFrame::HideAndShowObjects()
  * line has to be formatted as well.
  * nFound is <= nEndLine.
  */
-TextFrameIndex SwTextFrame::FindBrk(const OUString &rText,
+TextFrameIndex SwTextFrame::FindBrk(std::u16string_view aText,
                               const TextFrameIndex nStart,
                               const TextFrameIndex nEnd)
 {
     sal_Int32 nFound = sal_Int32(nStart);
-    const sal_Int32 nEndLine = std::min(sal_Int32(nEnd), rText.getLength() - 1);
+    const sal_Int32 nEndLine = std::min(sal_Int32(nEnd), sal_Int32(aText.size()) - 1);
 
     // Skip all leading blanks.
-    while( nFound <= nEndLine && ' ' == rText[nFound] )
+    while( nFound <= nEndLine && ' ' == aText[nFound] )
     {
          nFound++;
     }
@@ -1647,7 +1647,7 @@ TextFrameIndex SwTextFrame::FindBrk(const OUString &rText,
     // "Dr.$Meyer" at the beginning of the second line. Typing a blank after that
     // doesn't result in the word moving into first line, even though that would work.
     // For this reason we don't skip the dummy char.
-    while( nFound <= nEndLine && ' ' != rText[nFound] )
+    while( nFound <= nEndLine && ' ' != aText[nFound] )
     {
         nFound++;
     }
@@ -1801,7 +1801,7 @@ static void lcl_SetWrong( SwTextFrame& rFrame, SwTextNode const& rNode,
     if ( !rFrame.IsFollow() )
     {
         SwTextNode* pTextNode = const_cast<SwTextNode*>(&rNode);
-        IGrammarContact* pGrammarContact = getGrammarContact( *pTextNode );
+        sw::GrammarContact* pGrammarContact = sw::getGrammarContactFor(*pTextNode);
         SwGrammarMarkUp* pWrongGrammar = pGrammarContact ?
             pGrammarContact->getGrammarCheck( *pTextNode, false ) :
             pTextNode->GetGrammarCheck();
@@ -1837,7 +1837,7 @@ static void lcl_SetWrong( SwTextFrame& rFrame, SwTextNode const& rNode,
             pTextNode->SetSmartTags( std::make_unique<SwWrongList>( WRONGLIST_SMARTTAG ) );
             pTextNode->GetSmartTags()->SetInvalid( nPos, nEnd );
         }
-        pTextNode->SetWrongDirty(SwTextNode::WrongState::TODO);
+        pTextNode->SetWrongDirty(sw::WrongState::TODO);
         pTextNode->SetGrammarCheckDirty( true );
         pTextNode->SetWordCountDirty( true );
         pTextNode->SetAutoCompleteWordDirty( true );
@@ -3241,7 +3241,7 @@ bool SwTextFrame::TestFormat( const SwFrame* pPrv, SwTwips &rMaxHeight, bool &bS
 
     SwTestFormat aSave( this, pPrv, rMaxHeight );
 
-    return SwTextFrame::WouldFit( rMaxHeight, bSplit, true );
+    return SwTextFrame::WouldFit(rMaxHeight, bSplit, true, false);
 }
 
 /**
@@ -3256,7 +3256,7 @@ bool SwTextFrame::TestFormat( const SwFrame* pPrv, SwTwips &rMaxHeight, bool &bS
  *
  * @returns true if I can split
  */
-bool SwTextFrame::WouldFit( SwTwips &rMaxHeight, bool &bSplit, bool bTst )
+bool SwTextFrame::WouldFit(SwTwips &rMaxHeight, bool &bSplit, bool bTst, bool bMoveBwd)
 {
     OSL_ENSURE( ! IsVertical() || ! IsSwapped(),
             "SwTextFrame::WouldFit with swapped frame" );
@@ -3339,7 +3339,7 @@ bool SwTextFrame::WouldFit( SwTwips &rMaxHeight, bool &bSplit, bool bTst )
     // is breaking necessary?
     bSplit = !aFrameBreak.IsInside( aLine );
     if ( bSplit )
-        bRet = !aFrameBreak.IsKeepAlways() && aFrameBreak.WouldFit( aLine, rMaxHeight, bTst );
+        bRet = !aFrameBreak.IsKeepAlways() && aFrameBreak.WouldFit(aLine, rMaxHeight, bTst, bMoveBwd);
     else
     {
         // we need the total height including the current line
@@ -3770,7 +3770,42 @@ sal_uInt16 SwTextFrame::FirstLineHeight() const
     if ( !pPara )
         return USHRT_MAX;
 
-    return pPara->Height();
+    // tdf#146500 Lines with only fly overlap cannot be "moved", so the idea
+    // here is to continue until there's some text.
+    // FIXME ideally we want to count a fly to the line in which it is anchored
+    // - it may even be anchored in some other paragraph! SwFlyPortion doesn't
+    // have a pointer sadly so no way to find out.
+    sal_uInt16 nHeight(0);
+    for (SwLineLayout const* pLine = pPara; pLine; pLine = pLine->GetNext())
+    {
+        nHeight += pLine->Height();
+        bool hasNonFly(false);
+        for (SwLinePortion const* pPortion = pLine->GetFirstPortion();
+                pPortion; pPortion = pPortion->GetNextPortion())
+        {
+            switch (pPortion->GetWhichPor())
+            {
+                case PortionType::Fly:
+                case PortionType::Glue:
+                case PortionType::Margin:
+                    break;
+                default:
+                {
+                    hasNonFly = true;
+                    break;
+                }
+            }
+            if (hasNonFly)
+            {
+                break;
+            }
+        }
+        if (hasNonFly)
+        {
+            break;
+        }
+    }
+    return nHeight;
 }
 
 sal_uInt16 SwTextFrame::GetLineCount(TextFrameIndex const nPos)
@@ -3923,7 +3958,7 @@ void SwTextFrame::VisitPortions( SwPortionHandler& rPH ) const
                 pPor = pPor->GetNextPortion();
             }
 
-            rPH.LineBreak(pLine->Width());
+            rPH.LineBreak();
             pLine = pLine->GetNext();
         }
     }

@@ -43,8 +43,6 @@ service ContentControl
     [optional, property] string UncheckedState;
 
     /** List items of a dropdown: DisplayText + Value pairs with string values for each item.
-
-        If the list is non-empty, a dropdown control is provided on the UI.
     */
     [optional, property] sequence< sequence< com::sun::star::beans::PropertyValue > > ListItems;
 
@@ -99,6 +97,36 @@ service ContentControl
         @since LibreOffice 7.5
     */
     [optional, property] boolean ComboBox;
+
+    /** Drop-down that does not allow free-form text, i.e. not combo box.
+
+        @since LibreOffice 7.5
+    */
+    [optional, property] boolean DropDown;
+
+    /** The alias: kind of a human-readable title / description, show up on the UI.
+
+        @since LibreOffice 7.5
+    */
+    [optional, property] string Alias;
+
+    /** The tag: similar to Alias, but is meant to be machine-readable.
+
+        @since LibreOffice 7.5
+    */
+    [optional, property] string Tag;
+
+    /** The formatted date string, based on DateFormat, DateLanguage and CurrentDate.
+
+        @since LibreOffice 7.5
+    */
+    [optional, property, readonly] string DateString;
+
+    /** A unique numeric id, used by macros to identify a specific control.
+
+        @since LibreOffice 7.5
+    */
+    [optional, property] long Id;
 };
 
 

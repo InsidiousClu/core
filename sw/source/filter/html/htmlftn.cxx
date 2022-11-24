@@ -37,11 +37,11 @@
 #include "swhtml.hxx"
 #include "wrthtml.hxx"
 
-static sal_Int32 lcl_html_getNextPart( OUString& rPart, const OUString& rContent,
+static sal_Int32 lcl_html_getNextPart( OUString& rPart, std::u16string_view aContent,
                              sal_Int32 nPos )
 {
     rPart.clear();
-    sal_Int32 nLen = rContent.getLength();
+    sal_Int32 nLen = aContent.size();
     if( nPos >= nLen )
     {
         nPos = -1;
@@ -51,7 +51,7 @@ static sal_Int32 lcl_html_getNextPart( OUString& rPart, const OUString& rContent
         bool bQuoted = false, bDone = false;
         for( ; nPos < nLen && !bDone; nPos++ )
         {
-            sal_Unicode c = rContent[nPos];
+            sal_Unicode c = aContent[nPos];
             switch( c )
             {
             case '\\':
@@ -80,7 +80,7 @@ static sal_Int32 lcl_html_getNextPart( OUString& rPart, const OUString& rContent
 }
 
 static sal_Int32 lcl_html_getEndNoteInfo( SwEndNoteInfo& rInfo,
-                                    const OUString& rContent,
+                                    std::u16string_view aContent,
                                     bool bEndNote )
 {
     sal_Int32 nStrPos = 0;
@@ -88,7 +88,7 @@ static sal_Int32 lcl_html_getEndNoteInfo( SwEndNoteInfo& rInfo,
     {
         OUString aPart;
         if( -1 != nStrPos )
-            nStrPos = lcl_html_getNextPart( aPart, rContent, nStrPos );
+            nStrPos = lcl_html_getNextPart( aPart, aContent, nStrPos );
 
         switch( nPart )
         {
@@ -116,24 +116,24 @@ static sal_Int32 lcl_html_getEndNoteInfo( SwEndNoteInfo& rInfo,
     return nStrPos;
 }
 
-void SwHTMLParser::FillEndNoteInfo( const OUString& rContent )
+void SwHTMLParser::FillEndNoteInfo( std::u16string_view aContent )
 {
     SwEndNoteInfo aInfo( m_xDoc->GetEndNoteInfo() );
-    lcl_html_getEndNoteInfo( aInfo, rContent, true );
+    lcl_html_getEndNoteInfo( aInfo, aContent, true );
     m_xDoc->SetEndNoteInfo( aInfo );
 }
 
-void SwHTMLParser::FillFootNoteInfo( const OUString& rContent )
+void SwHTMLParser::FillFootNoteInfo( std::u16string_view aContent )
 {
     SwFootnoteInfo aInfo( m_xDoc->GetFootnoteInfo() );
 
-    sal_Int32 nStrPos = lcl_html_getEndNoteInfo( aInfo, rContent, false );
+    sal_Int32 nStrPos = lcl_html_getEndNoteInfo( aInfo, aContent, false );
 
     for( int nPart = 4; nPart < 8; ++nPart )
     {
         OUString aPart;
         if( -1 != nStrPos )
-            nStrPos = lcl_html_getNextPart( aPart, rContent, nStrPos );
+            nStrPos = lcl_html_getNextPart( aPart, aContent, nStrPos );
 
         switch( nPart )
         {
@@ -322,11 +322,11 @@ Writer& OutHTML_SwFormatFootnote( Writer& rWrt, const SfxPoolItem& rHt )
     sOut.append(">");
     rWrt.Strm().WriteOString( sOut );
     sOut.setLength(0);
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_superscript ));
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_superscript ));
 
     HTMLOutFuncs::Out_String( rWrt.Strm(), rFormatFootnote.GetViewNumStr(*rWrt.m_pDoc, nullptr) );
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_superscript), false );
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_anchor), false );
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_superscript), false );
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_anchor), false );
 
     return rWrt;
 }
@@ -384,7 +384,7 @@ void SwHTMLWriter::OutFootEndNotes()
         DecIndentLevel();   // indent content of <DIV>
         if( m_bLFPossible )
             OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
         m_bLFPossible = true;
 
         OSL_ENSURE( !m_pFormatFootnote,
@@ -487,7 +487,7 @@ void SwHTMLWriter::OutFootEndNoteSym( const SwFormatFootnote& rFormatFootnote,
     sOut.setLength(0);
 
     HTMLOutFuncs::Out_String( Strm(), rNum );
-    HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_anchor), false );
+    HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_anchor), false );
 }
 
 static int lcl_html_fillEndNoteInfo( const SwEndNoteInfo& rInfo,

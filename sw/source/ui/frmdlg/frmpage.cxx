@@ -386,13 +386,13 @@ FrameMap const aVAsCharHtmlMap[] =
     {SwFPos::CENTER_VERT,   SwFPos::CENTER_VERT,    text::VertOrientation::LINE_CENTER,   LB::RelRow}
 };
 
-const WhichRangesContainer SwFramePage::aPageRg(svl::Items<
+const WhichRangesContainer SwFramePage::s_aPageRg(svl::Items<
     RES_FRM_SIZE, RES_FRM_SIZE,
     RES_VERT_ORIENT, RES_ANCHOR,
     RES_COL, RES_COL,
     RES_FOLLOW_TEXT_FLOW, RES_FOLLOW_TEXT_FLOW
 >);
-const WhichRangesContainer SwFrameAddPage::aAddPgRg(svl::Items<
+const WhichRangesContainer SwFrameAddPage::s_aAddPgRg(svl::Items<
     RES_PRINT,              RES_PRINT,
     RES_PROTECT,            RES_PROTECT,
     FN_SET_FRM_NAME,        FN_SET_FRM_NAME,
@@ -2420,8 +2420,8 @@ void SwGrfExtPage::ActivatePage(const SfxItemSet& rSet)
     {
         if( !pGraphicBrushItem->GetGraphicLink().isEmpty() )
         {
-            aGrfName = aNewGrfName = pGraphicBrushItem->GetGraphicLink();
-            m_xConnectED->set_text(aNewGrfName);
+            m_aGrfName = m_aNewGrfName = pGraphicBrushItem->GetGraphicLink();
+            m_xConnectED->set_text(m_aNewGrfName);
         }
         OUString referer;
         SfxStringItem const * it = static_cast<SfxStringItem const *>(
@@ -2484,11 +2484,11 @@ bool SwGrfExtPage::FillItemSet( SfxItemSet *rSet )
         rSet->Put( aMirror );
     }
 
-    if (aGrfName != aNewGrfName || m_xConnectED->get_value_changed_from_saved())
+    if (m_aGrfName != m_aNewGrfName || m_xConnectED->get_value_changed_from_saved())
     {
         bModified = true;
-        aGrfName = m_xConnectED->get_text();
-        rSet->Put( SvxBrushItem( aGrfName, aFilterName, GPOS_LT,
+        m_aGrfName = m_xConnectED->get_text();
+        rSet->Put( SvxBrushItem( m_aGrfName, m_aFilterName, GPOS_LT,
                                 SID_ATTR_GRAF_GRAPHIC ));
     }
 
@@ -2527,10 +2527,10 @@ IMPL_LINK_NOARG(SwGrfExtPage, BrowseHdl, weld::Button&, void)
         return;
 
 // remember selected filter
-    aFilterName = m_xGrfDlg->GetCurrentFilter();
-    aNewGrfName = INetURLObject::decode( m_xGrfDlg->GetPath(),
+    m_aFilterName = m_xGrfDlg->GetCurrentFilter();
+    m_aNewGrfName = INetURLObject::decode( m_xGrfDlg->GetPath(),
                                        INetURLObject::DecodeMechanism::Unambiguous );
-    m_xConnectED->set_text(aNewGrfName);
+    m_xConnectED->set_text(m_aNewGrfName);
     //reset mirrors because maybe a Bitmap was swapped with
     //another type of graphic that cannot be mirrored.
     m_xMirrorVertBox->set_active(false);
@@ -2573,9 +2573,9 @@ IMPL_LINK_NOARG(SwGrfExtPage, MirrorHdl, weld::Toggleable&, void)
 
 // example window
 BmpWindow::BmpWindow()
-    : bHorz(false)
-    , bVert(false)
-    , bGraphic(false)
+    : m_bHorz(false)
+    , m_bVert(false)
+    , m_bGraphic(false)
 {
 }
 
@@ -2600,11 +2600,11 @@ void BmpWindow::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
     Point aPntPos;
     Size aPntSz(GetOutputSizePixel());
     Size aGrfSize;
-    if (bGraphic)
-        aGrfSize = ::GetGraphicSizeTwip(aGraphic, &rRenderContext);
+    if (m_bGraphic)
+        aGrfSize = ::GetGraphicSizeTwip(m_aGraphic, &rRenderContext);
     //it should show the default bitmap also if no graphic can be found
     if (!aGrfSize.Width() && !aGrfSize.Height())
-        aGrfSize = rRenderContext.PixelToLogic(aBmp.GetSizePixel());
+        aGrfSize = rRenderContext.PixelToLogic(m_aBmp.GetSizePixel());
 
     tools::Long nRelGrf = aGrfSize.Width() * 100 / aGrfSize.Height();
     tools::Long nRelWin = aPntSz.Width() * 100 / aPntSz.Height();
@@ -2612,7 +2612,7 @@ void BmpWindow::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
     {
         const tools::Long nWidth = aPntSz.Width();
         // if we use a replacement preview, try to draw at original size
-        if (!bGraphic && (aGrfSize.Width() <= aPntSz.Width())
+        if (!m_bGraphic && (aGrfSize.Width() <= aPntSz.Width())
                       && (aGrfSize.Height() <= aPntSz.Height()))
         {
             const tools::Long nHeight = aPntSz.Height();
@@ -2629,24 +2629,24 @@ void BmpWindow::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
     // #i119307# clear window background, the graphic might have transparency
     rRenderContext.DrawRect(tools::Rectangle(aPntPos, aPntSz));
 
-    if (bHorz || bVert)
+    if (m_bHorz || m_bVert)
     {
-        BitmapEx aTmpBmp(bGraphic ? aGraphic.GetBitmapEx() : aBmp);
+        BitmapEx aTmpBmp(m_bGraphic ? m_aGraphic.GetBitmapEx() : m_aBmp);
         BmpMirrorFlags nMirrorFlags(BmpMirrorFlags::NONE);
-        if (bHorz)
+        if (m_bHorz)
             nMirrorFlags |= BmpMirrorFlags::Vertical;
-        if (bVert)
+        if (m_bVert)
             nMirrorFlags |= BmpMirrorFlags::Horizontal;
         aTmpBmp.Mirror(nMirrorFlags);
         rRenderContext.DrawBitmapEx(aPntPos, aPntSz, aTmpBmp);
     }
-    else if (bGraphic)  //draw unmirrored preview graphic
+    else if (m_bGraphic)  //draw unmirrored preview graphic
     {
-        aGraphic.Draw(rRenderContext, aPntPos, aPntSz);
+        m_aGraphic.Draw(rRenderContext, aPntPos, aPntSz);
     }
     else    //draw unmirrored stock sample image
     {
-        rRenderContext.DrawBitmapEx(aPntPos, aPntSz, aBmp);
+        rRenderContext.DrawBitmapEx(aPntPos, aPntSz, m_aBmp);
     }
 }
 
@@ -2656,15 +2656,15 @@ BmpWindow::~BmpWindow()
 
 void BmpWindow::SetGraphic(const Graphic& rGraphic)
 {
-    aGraphic = rGraphic;
-    Size aSize = aGraphic.GetPrefSize();
-    bGraphic = aSize.Width() && aSize.Height();
+    m_aGraphic = rGraphic;
+    Size aSize = m_aGraphic.GetPrefSize();
+    m_bGraphic = aSize.Width() && aSize.Height();
     Invalidate();
 }
 
 void BmpWindow::SetBitmapEx(const BitmapEx& rBmp)
 {
-    aBmp = rBmp;
+    m_aBmp = rBmp;
     Invalidate();
 }
 
@@ -2791,12 +2791,9 @@ SwFrameAddPage::SwFrameAddPage(weld::Container* pPage, weld::DialogController* p
     , m_xNameED(m_xBuilder->weld_entry("name"))
     , m_xAltNameFT(m_xBuilder->weld_label("altname_label"))
     , m_xAltNameED(m_xBuilder->weld_entry("altname"))
-    , m_xDescriptionFT(m_xBuilder->weld_label("description_label"))
     , m_xDescriptionED(m_xBuilder->weld_text_view("description"))
     , m_xSequenceFrame(m_xBuilder->weld_widget("frmSequence"))
-    , m_xPrevFT(m_xBuilder->weld_label("prev_label"))
     , m_xPrevLB(m_xBuilder->weld_combo_box("prev"))
-    , m_xNextFT(m_xBuilder->weld_label("next_label"))
     , m_xNextLB(m_xBuilder->weld_combo_box("next"))
     , m_xProtectFrame(m_xBuilder->weld_widget("protect"))
     , m_xProtectContentCB(m_xBuilder->weld_check_button("protectcontent"))

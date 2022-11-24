@@ -17,6 +17,8 @@
  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
  */
 
+#include <sal/config.h>
+
 #include <docsh.hxx>
 
 #include <config_features.h>
@@ -43,6 +45,7 @@
 #include <sfx2/docfile.hxx>
 #include <sfx2/event.hxx>
 #include <sfx2/docfilt.hxx>
+#include <sfx2/lokhelper.hxx>
 #include <sfx2/objface.hxx>
 #include <sfx2/viewfrm.hxx>
 #include <svl/documentlockfile.hxx>
@@ -113,6 +116,7 @@
 #include <warnpassword.hxx>
 #include <optsolver.hxx>
 #include <sheetdata.hxx>
+#include <table.hxx>
 #include <tabprotection.hxx>
 #include <docparam.hxx>
 #include "docshimp.hxx"
@@ -602,23 +606,20 @@ bool ScDocShell::Load( SfxMedium& rMedium )
             m_pDocument->GetStyleSheetPool()->CreateStandardStyles();
             m_pDocument->UpdStlShtPtrsFrmNms();
 
-            if (!m_bUcalcTest)
+            /* Create styles that are imported through Orcus */
+
+            OUString aURL("$BRAND_BASE_DIR/" LIBO_SHARE_FOLDER "/calc/styles.xml");
+            rtl::Bootstrap::expandMacros(aURL);
+
+            OUString aPath;
+            osl::FileBase::getSystemPathFromFileURL(aURL, aPath);
+
+            ScOrcusFilters* pOrcus = ScFormatFilter::Get().GetOrcusFilters();
+
+            if (pOrcus)
             {
-                /* Create styles that are imported through Orcus */
-
-                OUString aURL("$BRAND_BASE_DIR/" LIBO_SHARE_FOLDER "/calc/styles.xml");
-                rtl::Bootstrap::expandMacros(aURL);
-
-                OUString aPath;
-                osl::FileBase::getSystemPathFromFileURL(aURL, aPath);
-
-                ScOrcusFilters* pOrcus = ScFormatFilter::Get().GetOrcusFilters();
-
-                if (pOrcus)
-                {
-                    pOrcus->importODS_Styles(*m_pDocument, aPath);
-                    m_pDocument->GetStyleSheetPool()->setAllParaStandard();
-                }
+                pOrcus->importODS_Styles(*m_pDocument, aPath);
+                m_pDocument->GetStyleSheetPool()->setAllParaStandard();
             }
 
             bRet = LoadXML( &rMedium, nullptr );
@@ -1299,23 +1300,21 @@ bool ScDocShell::ConvertFrom( SfxMedium& rMedium )
                     sc::SetFormulaDirtyContext aCxt;
                     m_pDocument->SetAllFormulasDirty(aCxt);
 
-                    bool bIsMobile = comphelper::LibreOfficeKit::isActive() && SfxViewShell::Current()
-                        && SfxViewShell::Current()->isLOKMobilePhone();
                     // for mobile case, we use a copy of the original document and give it a temporary name before editing
                     // Therefore, the sheet name becomes ugly, long and nonsensical.
-                    if (!bIsMobile)
-                        // The same resulting name has to be handled in
-                        // ScExternalRefCache::initializeDoc() and related, hence
-                        // pass 'true' for RenameTab()'s bExternalDocument for a
-                        // composed name so ValidTabName() will not be checked,
-                        // which could veto the rename in case it contained
-                        // characters that Excel does not handle. If we wanted to
-                        // change that then it needed to be handled in all
-                        // corresponding places of the external references
-                        // manager/cache. Likely then we'd also need a method to
-                        // compose a name excluding such characters.
-                        m_pDocument->RenameTab( 0, INetURLObject( rMedium.GetName()).GetBase(), true/*bExternalDocument*/);
-
+#if !(defined ANDROID)
+                    // The same resulting name has to be handled in
+                    // ScExternalRefCache::initializeDoc() and related, hence
+                    // pass 'true' for RenameTab()'s bExternalDocument for a
+                    // composed name so ValidTabName() will not be checked,
+                    // which could veto the rename in case it contained
+                    // characters that Excel does not handle. If we wanted to
+                    // change that then it needed to be handled in all
+                    // corresponding places of the external references
+                    // manager/cache. Likely then we'd also need a method to
+                    // compose a name excluding such characters.
+                    m_pDocument->RenameTab( 0, INetURLObject( rMedium.GetName()).GetBase(), true/*bExternalDocument*/);
+#endif
                     bOverflowRow = aImpEx.IsOverflowRow();
                     bOverflowCol = aImpEx.IsOverflowCol();
                     bOverflowCell = aImpEx.IsOverflowCell();
@@ -2884,7 +2883,6 @@ ScDocShell::ScDocShell( const SfxModelFlags i_nSfxCreationFlags, const std::shar
     m_bIsInUndo       ( false ),
     m_bDocumentModifiedPending( false ),
     m_bUpdateEnabled  ( true ),
-    m_bUcalcTest     ( false ),
     m_bAreasChangedNeedBroadcast( false ),
     m_nDocumentLock   ( 0 ),
     m_nCanUpdate (css::document::UpdateDocMode::ACCORDING_TO_CONFIG)
@@ -3397,11 +3395,6 @@ bool ScDocShell::GetProtectionHash( /*out*/ css::uno::Sequence< sal_Int8 > &rPas
         bRes = true;
     }
     return bRes;
-}
-
-void ScDocShell::SetIsInUcalc()
-{
-    m_bUcalcTest = true;
 }
 
 void ScDocShell::RegisterAutomationWorkbookObject(css::uno::Reference< ooo::vba::excel::XWorkbook > const& xWorkbook)

@@ -37,14 +37,6 @@
 #include <dbnamdlg.hxx>
 #include <dbdocfun.hxx>
 
-namespace {
-
-class DBSaveData;
-
-}
-
-static std::unique_ptr<DBSaveData> xSaveObj;
-
 namespace
 {
     void ERRORBOX(weld::Window* pParent, const OUString& rString)
@@ -126,6 +118,7 @@ void DBSaveData::Restore()
     }
 }
 
+static std::unique_ptr<DBSaveData> xSaveObj;
 
 ScDbNameDlg::ScDbNameDlg(SfxBindings* pB, SfxChildWindow* pCW, weld::Window* pParent,
     ScViewData& rViewData)
@@ -155,7 +148,6 @@ ScDbNameDlg::ScDbNameDlg(SfxBindings* pB, SfxChildWindow* pCW, weld::Window* pPa
     , m_xModifyPB(m_xBuilder->weld_button("modify"))
     , m_xInvalidFT(m_xBuilder->weld_label("invalid"))
     , m_xFrameLabel(m_xAssignFrame->weld_label_widget())
-    , m_xExpander(m_xBuilder->weld_expander("more"))
 {
     m_xEdName->set_height_request_by_rows(4);
     m_xEdAssign->SetReferences(this, m_xFrameLabel.get());

@@ -22,13 +22,18 @@
 #include <cassert>
 #include <utility>
 
+#include <com/sun/star/io/BufferSizeExceededException.hpp>
+#include <com/sun/star/io/NotConnectedException.hpp>
+#include <com/sun/star/lang/IllegalArgumentException.hpp>
 #include <unotools/tempfile.hxx>
 #include <rtl/ustring.hxx>
+#include <o3tl/safeint.hxx>
 #include <osl/mutex.hxx>
 #include <osl/detail/file.h>
 #include <osl/file.hxx>
 #include <tools/time.hxx>
 #include <tools/debug.hxx>
+#include <tools/Guid.hxx>
 #include <comphelper/DirectoryHelper.hxx>
 
 #ifdef UNX
@@ -346,6 +351,34 @@ static OUString CreateTempName_Impl( const OUString* pParent, bool bKeep, bool b
                            false, false);
 }
 
+static OUString CreateTempNameFast()
+{
+    OUString aEyeCatcher = "lu";
+#ifdef UNX
+#ifdef DBG_UTIL
+    const char* eye = getenv("LO_TESTNAME");
+    if(eye)
+    {
+        aEyeCatcher = OUString(eye, strlen(eye), RTL_TEXTENCODING_ASCII_US);
+    }
+#else
+    static const pid_t pid = getpid();
+    static const OUString aPidString = OUString::number(pid);
+    aEyeCatcher += aPidString;
+#endif
+#elif defined(_WIN32)
+    static const int pid = _getpid();
+    static const OUString aPidString = OUString::number(pid);
+    aEyeCatcher += aPidString;
+#endif
+
+    OUString aName = ConstructTempDir_Impl( /*pParent*/nullptr, /*bCreateParentDirs*/false ) + aEyeCatcher;
+
+    tools::Guid aGuid(tools::Guid::Generate);
+
+    return aName + aGuid.getOUString() + ".tmp" ;
+}
+
 OUString CreateTempName()
 {
     OUString aName(CreateTempName_Impl( nullptr, false ));
@@ -368,21 +401,39 @@ TempFileFast::TempFileFast(TempFileFast && other) noexcept :
 
 TempFileFast::~TempFileFast()
 {
+    CloseStream();
 }
 
 SvStream* TempFileFast::GetStream( StreamMode eMode )
 {
     if (!mxStream)
     {
-        OUString aName = CreateTempName_Impl( /*pParent*/nullptr, /*bKeep*/true, /*bDirectory*/false );
+        OUString aName = CreateTempNameFast();
+#ifdef _WIN32
+        mxStream.reset(new SvFileStream(aName, eMode | StreamMode::TEMPORARY | StreamMode::DELETE_ON_CLOSE));
+#else
         mxStream.reset(new SvFileStream(aName, eMode | StreamMode::TEMPORARY));
+#endif
     }
     return mxStream.get();
 }
 
 void TempFileFast::CloseStream()
 {
-    mxStream.reset();
+    if (mxStream)
+    {
+#if !defined _WIN32
+        OUString aName = mxStream->GetFileName();
+#endif
+        mxStream.reset();
+#ifdef _WIN32
+        // On Windows, the file is opened with FILE_FLAG_DELETE_ON_CLOSE, so it will delete as soon as the handle closes.
+        // On other platforms, we need to explicitly delete it.
+#else
+        if (!aName.isEmpty() && (osl::FileBase::getFileURLFromSystemPath(aName, aName) == osl::FileBase::E_None))
+            File::remove(aName);
+#endif
+    }
 }
 
 OUString CreateTempURL( const OUString* pParent, bool bDirectory )
@@ -526,6 +577,231 @@ OUString GetTempNameBaseDirectory()
 {
     return ConstructTempDir_Impl(nullptr, false);
 }
+
+
+TempFileFastService::TempFileFastService()
+: mbInClosed( false )
+, mbOutClosed( false )
+{
+    mpTempFile.emplace();
+    mpStream = mpTempFile->GetStream(StreamMode::READWRITE);
+}
+
+TempFileFastService::~TempFileFastService ()
+{
+}
+
+// XInputStream
+
+sal_Int32 SAL_CALL TempFileFastService::readBytes( css::uno::Sequence< sal_Int8 >& aData, sal_Int32 nBytesToRead )
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbInClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    checkConnected();
+    if (nBytesToRead < 0)
+        throw css::io::BufferSizeExceededException( OUString(), static_cast< css::uno::XWeak * >(this));
+
+    if (aData.getLength() < nBytesToRead)
+        aData.realloc(nBytesToRead);
+
+    sal_uInt32 nRead = mpStream->ReadBytes(static_cast<void*>(aData.getArray()), nBytesToRead);
+    checkError();
+
+    if (nRead < o3tl::make_unsigned(aData.getLength()))
+        aData.realloc( nRead );
+
+    return nRead;
+}
+
+sal_Int32 SAL_CALL TempFileFastService::readSomeBytes( css::uno::Sequence< sal_Int8 >& aData, sal_Int32 nMaxBytesToRead )
+{
+    {
+        std::unique_lock aGuard( maMutex );
+        if ( mbInClosed )
+            throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+        checkConnected();
+        checkError();
+
+        if (nMaxBytesToRead < 0)
+            throw css::io::BufferSizeExceededException( OUString(), static_cast < css::uno::XWeak * >( this ) );
+
+        if (mpStream->eof())
+        {
+            aData.realloc(0);
+            return 0;
+        }
+    }
+    return readBytes(aData, nMaxBytesToRead);
+}
+
+void SAL_CALL TempFileFastService::skipBytes( sal_Int32 nBytesToSkip )
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbInClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    checkConnected();
+    checkError();
+    mpStream->SeekRel(nBytesToSkip);
+    checkError();
+}
+
+sal_Int32 SAL_CALL TempFileFastService::available()
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbInClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    checkConnected();
+
+    sal_Int64 nAvailable = mpStream->remainingSize();
+    checkError();
+
+    return std::min<sal_Int64>(SAL_MAX_INT32, nAvailable);
+}
+
+void SAL_CALL TempFileFastService::closeInput()
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbInClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    mbInClosed = true;
+
+    if ( mbOutClosed )
+    {
+        // stream will be deleted by TempFile implementation
+        mpStream = nullptr;
+        mpTempFile.reset();
+    }
+}
+
+// XOutputStream
+
+void SAL_CALL TempFileFastService::writeBytes( const css::uno::Sequence< sal_Int8 >& aData )
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbOutClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    checkConnected();
+    sal_uInt32 nWritten = mpStream->WriteBytes(aData.getConstArray(), aData.getLength());
+    checkError();
+    if  ( nWritten != static_cast<sal_uInt32>(aData.getLength()))
+        throw css::io::BufferSizeExceededException( OUString(),static_cast < css::uno::XWeak * > ( this ) );
+}
+
+void SAL_CALL TempFileFastService::flush()
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbOutClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    checkConnected();
+    mpStream->Flush();
+    checkError();
+}
+
+void SAL_CALL TempFileFastService::closeOutput()
+{
+    std::unique_lock aGuard( maMutex );
+    if ( mbOutClosed )
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+
+    mbOutClosed = true;
+    if (mpStream)
+    {
+        // so that if you then open the InputStream, you can read the content
+        mpStream->FlushBuffer();
+        mpStream->Seek(0);
+    }
+
+    if ( mbInClosed )
+    {
+        // stream will be deleted by TempFile implementation
+        mpStream = nullptr;
+        mpTempFile.reset();
+    }
+}
+
+void TempFileFastService::checkError() const
+{
+    if (!mpStream || mpStream->SvStream::GetError () != ERRCODE_NONE )
+        throw css::io::NotConnectedException ( OUString(), const_cast < css::uno::XWeak * > ( static_cast < const css::uno::XWeak * > (this ) ) );
+}
+
+void TempFileFastService::checkConnected()
+{
+    if (!mpStream)
+        throw css::io::NotConnectedException ( OUString(), static_cast < css::uno::XWeak * > (this ) );
+}
+
+// XSeekable
+
+void SAL_CALL TempFileFastService::seek( sal_Int64 nLocation )
+{
+    std::unique_lock aGuard( maMutex );
+    checkConnected();
+    checkError();
+    if ( nLocation < 0 )
+        throw css::lang::IllegalArgumentException();
+
+    sal_Int64 nNewLoc = mpStream->Seek(static_cast<sal_uInt32>(nLocation) );
+    if ( nNewLoc != nLocation )
+        throw css::lang::IllegalArgumentException();
+    checkError();
+}
+
+sal_Int64 SAL_CALL TempFileFastService::getPosition()
+{
+    std::unique_lock aGuard( maMutex );
+    checkConnected();
+
+    sal_uInt32 nPos = mpStream->Tell();
+    checkError();
+    return static_cast<sal_Int64>(nPos);
+}
+
+sal_Int64 SAL_CALL TempFileFastService::getLength()
+{
+    std::unique_lock aGuard( maMutex );
+    checkConnected();
+
+    checkError();
+
+    sal_Int64 nEndPos = mpStream->TellEnd();
+
+    return nEndPos;
+}
+
+// XStream
+
+css::uno::Reference< css::io::XInputStream > SAL_CALL TempFileFastService::getInputStream()
+{
+    return this;
+}
+
+css::uno::Reference< css::io::XOutputStream > SAL_CALL TempFileFastService::getOutputStream()
+{
+    return this;
+}
+
+// XTruncate
+
+void SAL_CALL TempFileFastService::truncate()
+{
+    std::unique_lock aGuard( maMutex );
+    checkConnected();
+    // SetStreamSize() call does not change the position
+    mpStream->Seek( 0 );
+    mpStream->SetStreamSize( 0 );
+    checkError();
+}
+
+
 
 }
 

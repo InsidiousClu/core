@@ -161,37 +161,7 @@ void Font::SetFamily( FontFamily eFamily )
 void Font::SetCharSet( rtl_TextEncoding eCharSet )
 {
     if (const_cast<const ImplType&>(mpImplFont)->GetCharSet() != eCharSet)
-    {
         mpImplFont->SetCharSet( eCharSet );
-
-        if ( eCharSet == RTL_TEXTENCODING_SYMBOL )
-            mpImplFont->SetSymbolFlag( true );
-        else
-            mpImplFont->SetSymbolFlag( false );
-    }
-}
-
-bool Font::IsSymbolFont() const
-{
-    return mpImplFont->IsSymbolFont();
-}
-
-void Font::SetSymbolFlag( bool bSymbol )
-{
-    if (const_cast<const ImplType&>(mpImplFont)->mbSymbolFlag != bSymbol)
-    {
-        mpImplFont->SetSymbolFlag( bSymbol );
-
-        if ( IsSymbolFont() )
-        {
-            mpImplFont->SetCharSet( RTL_TEXTENCODING_SYMBOL );
-        }
-        else
-        {
-            if ( std::as_const(mpImplFont)->GetCharSet() == RTL_TEXTENCODING_SYMBOL )
-                mpImplFont->SetCharSet( RTL_TEXTENCODING_DONTKNOW );
-        }
-    }
 }
 
 void Font::SetLanguageTag( const LanguageTag& rLanguageTag )
@@ -444,7 +414,7 @@ void Font::GetFontAttributes( FontAttributes& rAttrs ) const
     rAttrs.SetItalic( mpImplFont->GetItalicNoAsk() );
     rAttrs.SetWeight( mpImplFont->GetWeightNoAsk() );
     rAttrs.SetWidthType( WIDTH_DONTKNOW );
-    rAttrs.SetSymbolFlag( mpImplFont->GetCharSet() == RTL_TEXTENCODING_SYMBOL );
+    rAttrs.SetMicrosoftSymbolEncoded( mpImplFont->GetCharSet() == RTL_TEXTENCODING_SYMBOL );
 }
 
 // tdf#127471 for corrections on EMF/WMF we need the AvgFontWidth in Windows-specific notation
@@ -514,6 +484,11 @@ SvStream& ReadImplFont( SvStream& rIStm, ImplFont& rImplFont, tools::Long& rnNor
         {
             SAL_WARN("vcl.gdi", "suspicious average width of: " << rImplFont.maAverageFontSize.Width());
             rImplFont.maAverageFontSize.setWidth(8192);
+        }
+        if (rImplFont.maAverageFontSize.Height() > 8192)
+        {
+            SAL_WARN("vcl.gdi", "suspicious average height of: " << rImplFont.maAverageFontSize.Height());
+            rImplFont.maAverageFontSize.setHeight(8192);
         }
     }
 
@@ -990,7 +965,6 @@ ImplFont::ImplFont() :
     meCharSet( RTL_TEXTENCODING_DONTKNOW ),
     maLanguageTag( LANGUAGE_DONTKNOW ),
     maCJKLanguageTag( LANGUAGE_DONTKNOW ),
-    mbSymbolFlag( false ),
     mbOutline( false ),
     mbConfigLookup( false ),
     mbShadow( false ),
@@ -1024,7 +998,6 @@ ImplFont::ImplFont( const ImplFont& rImplFont ) :
     meCharSet( rImplFont.meCharSet ),
     maLanguageTag( rImplFont.maLanguageTag ),
     maCJKLanguageTag( rImplFont.maCJKLanguageTag ),
-    mbSymbolFlag( rImplFont.mbSymbolFlag ),
     mbOutline( rImplFont.mbOutline ),
     mbConfigLookup( rImplFont.mbConfigLookup ),
     mbShadow( rImplFont.mbShadow ),

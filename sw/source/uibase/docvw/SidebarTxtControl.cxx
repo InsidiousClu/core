@@ -54,6 +54,7 @@
 #include <view.hxx>
 #include <wrtsh.hxx>
 #include <AnnotationWin.hxx>
+#include <IDocumentDeviceAccess.hxx>
 #include <redline.hxx>
 #include <memory>
 
@@ -116,7 +117,7 @@ void SidebarTextControl::SetDrawingArea(weld::DrawingArea* pDrawingArea)
     // for layout in the sidebar.
     Size aPaperSize(mrPostItMgr.GetSidebarWidth(), pEditEngine->GetPaperSize().Height());
     pEditEngine->SetPaperSize(aPaperSize);
-    pEditEngine->SetRefDevice(&rDevice);
+    pEditEngine->SetRefDevice(mrDocView.GetWrtShell().getIDocumentDeviceAccess().getReferenceDevice(false));
 
     pEditView->SetOutputArea(tools::Rectangle(Point(0, 0), aOutputSize));
     pEditView->SetBackgroundColor(aBgColor);
@@ -331,11 +332,7 @@ bool SidebarTextControl::KeyInput( const KeyEvent& rKeyEvt )
                 bDone = pEditView && pEditView->PostKeyEvent(rKeyEvt);
             }
             else
-            {
-                std::unique_ptr<weld::Builder> xBuilder(Application::CreateBuilder(GetDrawingArea(), "modules/swriter/ui/inforeadonlydialog.ui"));
-                std::unique_ptr<weld::MessageDialog> xQuery(xBuilder->weld_message_dialog("InfoReadonlyDialog"));
-                xQuery->run();
-            }
+                mrDocView.GetWrtShell().InfoReadOnlyDialog();
         }
         if (bDone)
             mrSidebarWin.ResizeIfNecessary( aOldHeight, mrSidebarWin.GetPostItTextHeight() );

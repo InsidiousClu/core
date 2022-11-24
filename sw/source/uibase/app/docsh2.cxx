@@ -221,10 +221,12 @@ static void lcl_processCompatibleSfxHint( const uno::Reference< script::vba::XVB
     switch( pSfxEventHint->GetEventId() )
     {
         case SfxEventHintId::CreateDoc:
-            xVbaEvents->processVbaEvent( DOCUMENT_NEW, aArgs );
+            xVbaEvents->processVbaEvent(AUTO_NEW, aArgs);
+            xVbaEvents->processVbaEvent(DOCUMENT_NEW, aArgs);
         break;
         case SfxEventHintId::OpenDoc:
-            xVbaEvents->processVbaEvent( DOCUMENT_OPEN, aArgs );
+            xVbaEvents->processVbaEvent(AUTO_OPEN, aArgs);
+            xVbaEvents->processVbaEvent(DOCUMENT_OPEN, aArgs);
         break;
         default: break;
     }
@@ -385,7 +387,8 @@ bool SwDocShell::PrepareClose( bool bUI )
         {
             using namespace com::sun::star::script::vba::VBAEventId;
             uno::Sequence< uno::Any > aNoArgs;
-            xVbaEvents->processVbaEvent( DOCUMENT_CLOSE, aNoArgs );
+            xVbaEvents->processVbaEvent(AUTO_CLOSE, aNoArgs);
+            xVbaEvents->processVbaEvent(DOCUMENT_CLOSE, aNoArgs);
         }
     }
     return bRet;
@@ -878,11 +881,18 @@ void SwDocShell::Execute(SfxRequest& rReq)
 
         case SID_MAIL_PREPAREEXPORT:
         {
+            const SfxPoolItem* pNoUpdate;
+
             //pWrtShell is not set in page preview
             if (m_pWrtShell)
                 m_pWrtShell->StartAllAction();
-            m_xDoc->getIDocumentFieldsAccess().UpdateFields( false );
-            m_xDoc->getIDocumentLinksAdministration().EmbedAllLinks();
+
+            if (!pArgs || (pArgs && !pArgs->HasItem(FN_PARAM_1, &pNoUpdate)))
+            {
+                m_xDoc->getIDocumentFieldsAccess().UpdateFields( false );
+                m_xDoc->getIDocumentLinksAdministration().EmbedAllLinks();
+            }
+
             m_IsRemovedInvisibleContent
                 = officecfg::Office::Security::HiddenContent::RemoveHiddenContent::get();
             if (m_IsRemovedInvisibleContent)

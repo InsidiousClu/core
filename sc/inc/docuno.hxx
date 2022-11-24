@@ -310,6 +310,9 @@ public:
     /// @see vcl::ITiledRenderable::getDocumentSize().
     virtual Size getDocumentSize() override;
 
+    /// @see vcl::ITiledRenderable::getDataArea().
+    virtual Size getDataArea(long nPart) override;
+
     /// @see vcl::ITiledRenderable::setPart().
     virtual void setPart(int nPart, bool bAllowChangeFocus = true) override;
 
@@ -519,7 +522,7 @@ private:
     SCCOL                   nEndCol;
 
     rtl::Reference<ScTableColumnObj> GetObjectByIndex_Impl(sal_Int32 nIndex) const;
-    rtl::Reference<ScTableColumnObj> GetObjectByName_Impl(const OUString& aName) const;
+    rtl::Reference<ScTableColumnObj> GetObjectByName_Impl(std::u16string_view aName) const;
 
 public:
                             ScTableColumnsObj(ScDocShell* pDocSh, SCTAB nT,

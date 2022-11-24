@@ -126,6 +126,15 @@ class SdtHelper final : public virtual SvRefBase
     /// <w:sdtPr>'s <w15:color w:val="...">.
     OUString m_aColor;
 
+    /// <w:sdtPr>'s <w:alias w:val="...">.
+    OUString m_aAlias;
+
+    /// <w:sdtPr>'s <w:tag w:val="...">.
+    OUString m_aTag;
+
+    /// <w:sdtPr>'s <w:id w:val="...">.
+    sal_Int32 m_nId = 0;
+
 public:
     explicit SdtHelper(DomainMapper_Impl& rDM_Impl,
                        css::uno::Reference<css::uno::XComponentContext> xContext);
@@ -204,6 +213,15 @@ public:
 
     void SetColor(const OUString& rColor);
     const OUString& GetColor() const;
+
+    void SetAlias(const OUString& rAlias);
+    const OUString& GetAlias() const;
+
+    void SetTag(const OUString& rTag);
+    const OUString& GetTag() const;
+
+    void SetId(sal_Int32 nId);
+    sal_Int32 GetId() const;
 
     std::optional<OUString> getValueFromDataBinding();
 };

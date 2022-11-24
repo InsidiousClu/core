@@ -87,7 +87,7 @@ public:
         utl::TempFileNamed aTempDir(nullptr, true);
         aTempDir.EnableKillingFile();
         const OUString aWorkDir = aTempDir.GetURL();
-        const OUString aURI( m_directories.getURLFromSrc(mpTestDocumentPath) + OUString::createFromAscii(datasource) );
+        const OUString aURI( createFileURL(OUString::createFromAscii(datasource)) );
         const OUString aPrefix = column ? OUString::createFromAscii( column ) : "LOMM_";
         const OUString aDBName = registerDBsource( aURI, aWorkDir );
         initMailMergeJobAndArgs( filename, tablename, aDBName, aPrefix, aWorkDir, filter, selection, column != nullptr );
@@ -150,7 +150,7 @@ public:
 
         mMMargs.emplace_back( UNO_NAME_OUTPUT_TYPE, uno::Any( filter ? text::MailMergeType::FILE : text::MailMergeType::SHELL ) );
         mMMargs.emplace_back( UNO_NAME_DOCUMENT_URL, uno::Any(
-                                         ( OUString( m_directories.getURLFromSrc(mpTestDocumentPath) + OUString::createFromAscii(filename)) ) ) );
+                                         ( createFileURL(OUString::createFromAscii(filename)) ) ) );
         mMMargs.emplace_back( UNO_NAME_DATA_SOURCE_NAME, uno::Any( aDBName ) );
         mMMargs.emplace_back( UNO_NAME_OUTPUT_URL, uno::Any( aWorkDir ) );
         if (filter)
@@ -216,7 +216,7 @@ public:
         // Windows before MM uses it, MM won't work, as it's already open.
         // Don't move the load before the mail merge execution!
         // (see gb_CppunitTest_use_instdir_configuration)
-        load(mpTestDocumentPath, maMMTest2Filename);
+        createSwDoc(maMMTest2Filename);
 
         if (mnCurOutputType == text::MailMergeType::SHELL)
         {
@@ -357,14 +357,14 @@ DECLARE_SHELL_MAILMERGE_TEST(testTd78611_shell, "tdf78611.odt", "10-testing-addr
     // All header paragraphs should have numbering.
 
     // check first page
-    CPPUNIT_ASSERT_EQUAL( OUString("1"), parseDump("/root/page[1]/body/txt[6]/Special", "rText"));
-    CPPUNIT_ASSERT_EQUAL( OUString("1.1"), parseDump("/root/page[1]/body/txt[8]/Special", "rText"));
-    CPPUNIT_ASSERT_EQUAL( OUString("1.2"), parseDump("/root/page[1]/body/txt[10]/Special", "rText"));
+    CPPUNIT_ASSERT_EQUAL( OUString("1"), parseDump("/root/page[1]/body/txt[6]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
+    CPPUNIT_ASSERT_EQUAL( OUString("1.1"), parseDump("/root/page[1]/body/txt[8]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
+    CPPUNIT_ASSERT_EQUAL( OUString("1.2"), parseDump("/root/page[1]/body/txt[10]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
 
     // check some other pages
-    CPPUNIT_ASSERT_EQUAL( OUString("1"), parseDump("/root/page[3]/body/txt[6]/Special", "rText"));
-    CPPUNIT_ASSERT_EQUAL( OUString("1.1"), parseDump("/root/page[5]/body/txt[8]/Special", "rText"));
-    CPPUNIT_ASSERT_EQUAL( OUString("1.2"), parseDump("/root/page[7]/body/txt[10]/Special", "rText"));
+    CPPUNIT_ASSERT_EQUAL( OUString("1"), parseDump("/root/page[3]/body/txt[6]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
+    CPPUNIT_ASSERT_EQUAL( OUString("1.1"), parseDump("/root/page[5]/body/txt[8]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
+    CPPUNIT_ASSERT_EQUAL( OUString("1.2"), parseDump("/root/page[7]/body/txt[10]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
 }
 
 
@@ -374,9 +374,9 @@ DECLARE_FILE_MAILMERGE_TEST(testTd78611_file, "tdf78611.odt", "10-testing-addres
     for (int doc = 0; doc < 10; ++doc)
     {
         loadMailMergeDocument( doc );
-        CPPUNIT_ASSERT_EQUAL( OUString("1"), parseDump("/root/page[1]/body/txt[6]/Special", "rText"));
-        CPPUNIT_ASSERT_EQUAL( OUString("1.1"), parseDump("/root/page[1]/body/txt[8]/Special", "rText"));
-        CPPUNIT_ASSERT_EQUAL( OUString("1.2"), parseDump("/root/page[1]/body/txt[10]/Special", "rText"));
+        CPPUNIT_ASSERT_EQUAL( OUString("1"), parseDump("/root/page[1]/body/txt[6]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
+        CPPUNIT_ASSERT_EQUAL( OUString("1.1"), parseDump("/root/page[1]/body/txt[8]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
+        CPPUNIT_ASSERT_EQUAL( OUString("1.2"), parseDump("/root/page[1]/body/txt[10]/SwParaPortion/SwLineLayout/SwFieldPortion", "expand"));
     }
 }
 
@@ -402,7 +402,7 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf122156_file, "linked-with-condition.odt", "5-
                             "names")
 {
     // A document with a linked section hidden on an "empty field" condition
-    // For separate documents, the sections are hidden, but not removed
+    // For separate documents, the sections are removed
     executeMailMerge();
     {
         loadMailMergeDocument(0);
@@ -410,10 +410,7 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf122156_file, "linked-with-condition.odt", "5-
                                                                       uno::UNO_QUERY_THROW);
         uno::Reference<container::XIndexAccess> xSections(xSectionsSupplier->getTextSections(),
                                                           uno::UNO_QUERY_THROW);
-        CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
-        uno::Reference<beans::XPropertySet> xSect(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
-        // Record 1 has empty "Title" field => section is not shown
-        CPPUNIT_ASSERT_EQUAL(false, getProperty<bool>(xSect, "IsCurrentlyVisible"));
+        CPPUNIT_ASSERT_EQUAL(sal_Int32(0), xSections->getCount());
     }
     {
         loadMailMergeDocument(1);
@@ -424,7 +421,7 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf122156_file, "linked-with-condition.odt", "5-
         CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
         uno::Reference<beans::XPropertySet> xSect(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
         // Record 2 has non-empty "Title" field => section is shown
-        CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect, "IsCurrentlyVisible"));
+        CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect, "IsVisible"));
     }
     {
         loadMailMergeDocument(2);
@@ -435,7 +432,7 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf122156_file, "linked-with-condition.odt", "5-
         CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
         uno::Reference<beans::XPropertySet> xSect(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
         // Record 3 has non-empty "Title" field => section is shown
-        CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect, "IsCurrentlyVisible"));
+        CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect, "IsVisible"));
     }
     {
         loadMailMergeDocument(3);
@@ -443,10 +440,7 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf122156_file, "linked-with-condition.odt", "5-
                                                                       uno::UNO_QUERY_THROW);
         uno::Reference<container::XIndexAccess> xSections(xSectionsSupplier->getTextSections(),
                                                           uno::UNO_QUERY_THROW);
-        CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
-        uno::Reference<beans::XPropertySet> xSect(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
-        // Record 4 has empty "Title" field => section is not shown
-        CPPUNIT_ASSERT_EQUAL(false, getProperty<bool>(xSect, "IsCurrentlyVisible"));
+        CPPUNIT_ASSERT_EQUAL(sal_Int32(0), xSections->getCount());
     }
     {
         loadMailMergeDocument(4);
@@ -457,7 +451,7 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf122156_file, "linked-with-condition.odt", "5-
         CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
         uno::Reference<beans::XPropertySet> xSect(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
         // Record 5 has non-empty "Title" field => section is shown
-        CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect, "IsCurrentlyVisible"));
+        CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect, "IsVisible"));
     }
 }
 
@@ -539,6 +533,7 @@ DECLARE_SHELL_MAILMERGE_TEST(testTdf81750_shell, "tdf81750.odt", "10-testing-add
 
 DECLARE_FILE_MAILMERGE_TEST(testTdf123057_file, "pagecounttest.ott", "db_pagecounttest.ods", "Sheet1")
 {
+    uno::Reference<beans::XPropertySet> xSect0, xSect1;
     executeMailMerge(true);
 
     for (int doc = 0; doc < 4; ++doc)
@@ -549,58 +544,38 @@ DECLARE_FILE_MAILMERGE_TEST(testTdf123057_file, "pagecounttest.ott", "db_pagecou
         uno::Reference<text::XTextSectionsSupplier> xSectionsSupplier(mxComponent, uno::UNO_QUERY_THROW);
         uno::Reference<container::XIndexAccess> xSections(xSectionsSupplier->getTextSections(), uno::UNO_QUERY_THROW);
 
-        CPPUNIT_ASSERT_EQUAL(sal_Int32(2), xSections->getCount());
-        uno::Reference<beans::XPropertySet> xSect0(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
-        uno::Reference<beans::XPropertySet> xSect1(xSections->getByIndex(1), uno::UNO_QUERY_THROW);
-
-        OUString sFieldPageCount;
-        uno::Reference<text::XTextFieldsSupplier> xTextFieldsSupplier(mxComponent, uno::UNO_QUERY);
-        uno::Reference<container::XEnumerationAccess> xFieldsAccess(xTextFieldsSupplier->getTextFields());
-        uno::Reference<container::XEnumeration> xFields(xFieldsAccess->createEnumeration());
-
-        if (xFields.is())
-        {
-            while (xFields->hasMoreElements())
-            {
-                uno::Any aField = xFields->nextElement();
-                uno::Reference<lang::XServiceInfo> xServiceInfo(aField, uno::UNO_QUERY);
-                if (xServiceInfo->supportsService("com.sun.star.text.textfield.PageCount"))
-                {
-                    uno::Reference<text::XTextContent> xField(aField, uno::UNO_QUERY);
-                    sFieldPageCount = xField->getAnchor()->getString();
-                }
-            }
-        }
-
         switch (doc)
         {
         case 0:
+            CPPUNIT_ASSERT_EQUAL(sal_Int32(2), xSections->getCount());
+            xSect0.set(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
+            xSect1.set(xSections->getByIndex(1), uno::UNO_QUERY_THROW);
+
             // both sections visible, page num is 2
             CPPUNIT_ASSERT_EQUAL(2, getPages());
-            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect0, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect1, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(OUString("2"), sFieldPageCount);
+            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect0, "IsVisible"));
+            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect1, "IsVisible"));
             break;
         case 1:
-            // second section hidden, page num is 1
+            CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
+            xSect0.set(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
+
+            // second section removed, page num is 1
             CPPUNIT_ASSERT_EQUAL(1, getPages());
-            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect0, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(false, getProperty<bool>(xSect1, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(OUString("1"), sFieldPageCount);
+            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect0, "IsVisible"));
             break;
         case 2:
-            // first section hidden, page num is 1
+            CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xSections->getCount());
+            xSect0.set(xSections->getByIndex(0), uno::UNO_QUERY_THROW);
+
+            // first section removed, page num is 1
             CPPUNIT_ASSERT_EQUAL(1, getPages());
-            CPPUNIT_ASSERT_EQUAL(false, getProperty<bool>(xSect0, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect1, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(OUString("1"), sFieldPageCount);
+            CPPUNIT_ASSERT_EQUAL(true, getProperty<bool>(xSect0, "IsVisible"));
             break;
         case 3:
-            // both sections hidden, page num is 1
+            CPPUNIT_ASSERT_EQUAL(sal_Int32(0), xSections->getCount());
+            // both sections removed, page num is 1
             CPPUNIT_ASSERT_EQUAL(1, getPages());
-            CPPUNIT_ASSERT_EQUAL(false, getProperty<bool>(xSect0, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(false, getProperty<bool>(xSect1, "IsCurrentlyVisible"));
-            CPPUNIT_ASSERT_EQUAL(OUString("1"), sFieldPageCount);
             break;
         }
     }

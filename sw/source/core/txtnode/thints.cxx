@@ -1159,7 +1159,7 @@ SwTextAttr* MakeTextAttr(
         break;
     case RES_TXTATR_CONTENTCONTROL:
         pNew = SwTextContentControl::CreateTextContentControl(
-            pTextNode, static_cast<SwFormatContentControl&>(rNew), nStt, nEnd,
+            rDoc, pTextNode, static_cast<SwFormatContentControl&>(rNew), nStt, nEnd,
             bIsCopy == CopyOrNewType::Copy);
         break;
     default:
@@ -1390,10 +1390,9 @@ bool SwTextNode::InsertHint( SwTextAttr * const pAttr, const SetAttrMode nMode )
                         (RndStdIds::FLY_AS_CHAR == pAnchor->GetAnchorId()) &&
                         pAnchor->GetContentAnchor() &&
                         pAnchor->GetContentAnchor()->GetNode() == *this &&
-                        pAnchor->GetContentAnchor()->nContent == aIdx )
+                        pAnchor->GetContentAnchor()->GetContentIndex() == aIdx.GetIndex() )
                     {
-                        --const_cast<SwContentIndex&>(
-                            pAnchor->GetContentAnchor()->nContent);
+                        const_cast<SwPosition*>(pAnchor->GetContentAnchor())->AdjustContent(-1);
                     }
                 }
                 pFly->SetAnchor( this );
@@ -1983,9 +1982,8 @@ bool SwTextNode::SetAttr(
                     (GetDoc().GetDfltCharFormat() ==
                      static_cast<const SwFormatCharFormat*>(pItem)->GetCharFormat()))
                 {
-                    SwContentIndex aIndex( this, nStt );
-                    RstTextAttr( aIndex, nEnd - nStt, RES_TXTATR_CHARFMT );
-                    DontExpandFormat( aIndex.GetIndex() );
+                    RstTextAttr( nStt, nEnd - nStt, RES_TXTATR_CHARFMT );
+                    DontExpandFormat( nStt );
                 }
                 else
                 {

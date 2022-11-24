@@ -294,7 +294,7 @@ SwUndoDelete::SwUndoDelete(
         rPam.Exchange();
 
     if( !pSttTextNd && !pEndTextNd )
-        --rPam.GetPoint()->nNode;
+        rPam.GetPoint()->Adjust(SwNodeOffset(-1));
     rPam.DeleteMark();          // the SPoint is in the selection
 
     if( !pEndTextNd )
@@ -432,9 +432,6 @@ SwUndoDelete::SwUndoDelete(
         m_nNdDiff -= rPam.GetPoint()->GetNodeIndex();
     }
 
-    if( !rPam.GetPointNode().IsContentNode() )
-        rPam.GetPoint()->nContent.Assign( nullptr, 0 );
-
     // is a history necessary here at all?
     if( m_pHistory && !m_pHistory->Count() )
         m_pHistory.reset();
@@ -533,7 +530,7 @@ bool SwUndoDelete::CanGrouping( SwDoc& rDoc, const SwPaM& rDelPam )
 
     if( pStt->GetNode() != pEnd->GetNode() ||
         pStt->GetContentIndex()+1 != pEnd->GetContentIndex() ||
-        pEnd->nNode != m_nSttNode )
+        pEnd->GetNodeIndex() != m_nSttNode )
         return false;
 
     // Distinguish between BackSpace and Delete because the Undo array needs to
@@ -716,21 +713,21 @@ static OUString lcl_DenotedPortion(std::u16string_view rStr, sal_Int32 nStart, s
     return aResult;
 }
 
-OUString DenoteSpecialCharacters(const OUString & rStr, bool bQuoted)
+OUString DenoteSpecialCharacters(std::u16string_view aStr, bool bQuoted)
 {
     OUStringBuffer aResult;
 
-    if (!rStr.isEmpty())
+    if (!aStr.empty())
     {
         bool bStart = false;
         sal_Int32 nStart = 0;
         sal_Unicode cLast = 0;
 
-        for( sal_Int32 i = 0; i < rStr.getLength(); i++)
+        for( size_t i = 0; i < aStr.size(); i++)
         {
-            if (lcl_IsSpecialCharacter(rStr[i]))
+            if (lcl_IsSpecialCharacter(aStr[i]))
             {
-                if (cLast != rStr[i])
+                if (cLast != aStr[i])
                     bStart = true;
 
             }
@@ -742,16 +739,16 @@ OUString DenoteSpecialCharacters(const OUString & rStr, bool bQuoted)
 
             if (bStart)
             {
-                aResult.append(lcl_DenotedPortion(rStr, nStart, i, bQuoted));
+                aResult.append(lcl_DenotedPortion(aStr, nStart, i, bQuoted));
 
                 nStart = i;
                 bStart = false;
             }
 
-            cLast = rStr[i];
+            cLast = aStr[i];
         }
 
-        aResult.append(lcl_DenotedPortion(rStr, nStart, rStr.getLength(), bQuoted));
+        aResult.append(lcl_DenotedPortion(aStr, nStart, aStr.size(), bQuoted));
     }
     else
         aResult = SwRewriter::GetPlaceHolder(UndoArg2);
@@ -941,7 +938,7 @@ void SwUndoDelete::UndoImpl(::sw::UndoRedoContext & rContext)
                         lcl_ReAnchorAtContentFlyFrames(*rDoc.GetSpzFrameFormats(), aPos, nOldIdx);
                 }
                 else
-                    ++aPos.nNode;
+                    aPos.Adjust(SwNodeOffset(+1));
             }
         }
         if( m_nSectDiff )
@@ -959,12 +956,12 @@ void SwUndoDelete::UndoImpl(::sw::UndoRedoContext & rContext)
                 ++nDiff;
             }
             SwNodeIndex aMvIdx(rDoc.GetNodes(), nMoveIndex);
-            SwNodeRange aRg( aPos.nNode, SwNodeOffset(0) - nDiff, aPos.nNode, SwNodeOffset(1) - nDiff );
-            --aPos.nNode;
+            SwNodeRange aRg( aPos.GetNode(), SwNodeOffset(0) - nDiff, aPos.GetNode(), SwNodeOffset(1) - nDiff );
+            aPos.Adjust(SwNodeOffset(-1));
             if( !m_bJoinNext )
                 pMovedNode = &aPos.GetNode();
             rDoc.GetNodes().MoveNodes(aRg, rDoc.GetNodes(), aMvIdx.GetNode());
-            ++aPos.nNode;
+            aPos.Adjust(SwNodeOffset(+1));
         }
 
         if( bNodeMove )
@@ -983,7 +980,7 @@ void SwUndoDelete::UndoImpl(::sw::UndoRedoContext & rContext)
                 if( m_bJoinNext )
                 {
                     nMoveIndex = m_nEndNode - m_nNdDiff;
-                    aPos.nNode = nMoveIndex + m_nReplaceDummy;
+                    aPos.Assign( nMoveIndex + m_nReplaceDummy );
                 }
                 else
                 {
@@ -991,7 +988,7 @@ void SwUndoDelete::UndoImpl(::sw::UndoRedoContext & rContext)
                     nMoveIndex = aPos.GetNodeIndex() + m_nReplaceDummy + 1;
                 }
                 SwNodeIndex aMvIdx(rDoc.GetNodes(), nMoveIndex);
-                SwNodeRange aRg( aPos.nNode, SwNodeOffset(0), aPos.nNode, SwNodeOffset(1) );
+                SwNodeRange aRg( aPos.GetNode(), SwNodeOffset(0), aPos.GetNode(), SwNodeOffset(1) );
                 pMovedNode = &aPos.GetNode();
                 // tdf#131684 without deleting frames
                 rDoc.GetNodes().MoveNodes(aRg, rDoc.GetNodes(), aMvIdx.GetNode(), false);
@@ -1298,7 +1295,7 @@ void SwUndoDelete::RedoImpl(::sw::UndoRedoContext & rContext)
         assert(!"dead code");
         // The Pam was incremented by one at Point (== end) to provide space
         // for UNDO. This now needs to be reverted!
-        --rPam.End()->nNode;
+        rPam.End()->Adjust(SwNodeOffset(-1));
         if( rPam.GetPoint()->GetNode() == rPam.GetMark()->GetNode() )
             *rPam.GetMark() = *rPam.GetPoint();
         rDoc.getIDocumentContentOperations().DelFullPara( rPam );

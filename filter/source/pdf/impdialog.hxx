@@ -59,7 +59,6 @@ class ImpPDFTabLinksPage;
 class ImpPDFTabDialog final : public SfxTabDialogController
 {
     css::uno::Reference<css::lang::XComponent> mrDoc;
-    weld::Window* mpParent;
 
     FilterConfigItem            maConfigItem;
     FilterConfigItem            maConfigI18N;
@@ -185,7 +184,6 @@ class ImpPDFTabGeneralPage : public SfxTabPage
     std::unique_ptr<weld::RadioButton> mxRbRange;
     std::unique_ptr<weld::RadioButton> mxRbSelection;
     std::unique_ptr<weld::Entry> mxEdPages;
-    std::unique_ptr<weld::Label> mxSelectedSheets;
     std::unique_ptr<weld::RadioButton> mxRbLosslessCompression;
     std::unique_ptr<weld::RadioButton> mxRbJPEGCompression;
     std::unique_ptr<weld::Widget> mxQualityFrame;

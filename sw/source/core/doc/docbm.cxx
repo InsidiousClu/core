@@ -48,6 +48,7 @@
 #include <libxml/xmlstring.h>
 #include <libxml/xmlwriter.h>
 #include <comphelper/lok.hxx>
+#include <strings.hrc>
 
 constexpr OUStringLiteral S_ANNOTATION_BOOKMARK = u"____";
 
@@ -618,10 +619,10 @@ namespace sw::mark
                 pMark = std::make_unique<TextFieldmark>(rPaM, rName);
                 break;
             case IDocumentMarkAccess::MarkType::CHECKBOX_FIELDMARK:
-                pMark = std::make_unique<CheckboxFieldmark>(rPaM);
+                pMark = std::make_unique<CheckboxFieldmark>(rPaM, rName);
                 break;
             case IDocumentMarkAccess::MarkType::DROPDOWN_FIELDMARK:
-                pMark = std::make_unique<DropDownFieldmark>(rPaM);
+                pMark = std::make_unique<DropDownFieldmark>(rPaM, rName);
                 break;
             case IDocumentMarkAccess::MarkType::DATE_FIELDMARK:
                 pMark = std::make_unique<DateFieldmark>(rPaM);
@@ -1218,6 +1219,23 @@ namespace sw::mark
         }
     };
 
+    // Call DeregisterFromDoc() lazily, because it can call selection change listeners, which
+    // may mutate the marks container
+    struct LazyDdeBookmarkDeleter : public IDocumentMarkAccess::ILazyDeleter
+    {
+        std::unique_ptr<DdeBookmark> m_pDdeBookmark;
+        SwDoc& m_rDoc;
+        LazyDdeBookmarkDeleter(DdeBookmark *const pDdeBookmark, SwDoc& rDoc)
+            : m_pDdeBookmark(pDdeBookmark), m_rDoc(rDoc)
+        {
+            assert(pDdeBookmark);
+        }
+        virtual ~LazyDdeBookmarkDeleter() override
+        {
+            m_pDdeBookmark->DeregisterFromDoc(m_rDoc);
+        }
+    };
+
     }
 
     std::unique_ptr<IDocumentMarkAccess::ILazyDeleter>
@@ -1284,13 +1302,15 @@ namespace sw::mark
                 // no special marks container
                 break;
         }
-        DdeBookmark* const pDdeBookmark = dynamic_cast<DdeBookmark*>(pMark);
-        if (pDdeBookmark)
-            pDdeBookmark->DeregisterFromDoc(m_rDoc);
         //Effective STL Item 27, get a non-const iterator aI at the same
         //position as const iterator ppMark was
         auto aI = m_vAllMarks.begin();
         std::advance(aI, std::distance<container_t::const_iterator>(aI, ppMark.get()));
+        DdeBookmark* const pDdeBookmark = dynamic_cast<DdeBookmark*>(pMark);
+        if (pDdeBookmark)
+        {
+            ret.reset(new LazyDdeBookmarkDeleter(pDdeBookmark, m_rDoc));
+        }
 
         m_vAllMarks.erase(aI);
         // If we don't have a lazy deleter
@@ -1717,9 +1737,10 @@ namespace sw::mark
         sal_Int32 nCnt = 1;
         MarkBasenameMapUniqueOffset_t::const_iterator aIter = m_aMarkBasenameMapUniqueOffset.find(rName);
         if(aIter != m_aMarkBasenameMapUniqueOffset.end()) nCnt = aIter->second;
+        OUString aPrefix = SwResId(STR_MARK_COPY).replaceFirst("%1", rName);
         while(nCnt < SAL_MAX_INT32)
         {
-            sTmp = rName + OUString::number(nCnt);
+            sTmp = aPrefix + OUString::number(nCnt);
             nCnt++;
             if (lcl_FindMarkByName(sTmp, m_vAllMarks.begin(), m_vAllMarks.end()) == m_vAllMarks.end())
             {

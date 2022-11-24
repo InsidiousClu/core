@@ -28,6 +28,7 @@
 #define ANIMATION_TIMEOUT_ON_CLICK 2147483647L
 
 class AnimationRenderer;
+struct AnimationData;
 
 class VCL_DLLPUBLIC Animation
 {
@@ -91,7 +92,7 @@ public:
 public:
     SAL_DLLPRIVATE static void ImplIncAnimCount() { mnAnimCount++; }
     SAL_DLLPRIVATE static void ImplDecAnimCount() { mnAnimCount--; }
-    SAL_DLLPRIVATE sal_uLong ImplGetCurPos() const { return mnPos; }
+    SAL_DLLPRIVATE sal_uLong ImplGetCurPos() const { return mnFrameIndex; }
 
 private:
     SAL_DLLPRIVATE static sal_uLong mnAnimCount;
@@ -105,9 +106,15 @@ private:
     Size maGlobalSize;
     sal_uInt32 mnLoopCount;
     sal_uInt32 mnLoops;
-    size_t mnPos;
+    size_t mnFrameIndex;
     bool mbIsInAnimation;
     bool mbLoopTerminated;
+
+    SAL_DLLPRIVATE std::vector<std::unique_ptr<AnimationData>> CreateAnimationDataItems();
+    SAL_DLLPRIVATE void PopulateRenderers();
+    SAL_DLLPRIVATE void RenderNextFrameInAllRenderers();
+    SAL_DLLPRIVATE void PruneMarkedRenderers();
+    SAL_DLLPRIVATE bool IsAnyRendererActive();
 
     SAL_DLLPRIVATE void ImplRestartTimer(sal_uLong nTimeout);
     DECL_DLLPRIVATE_LINK(ImplTimeoutHdl, Timer*, void);

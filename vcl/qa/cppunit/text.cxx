@@ -62,6 +62,17 @@ public:
     void testImplLayoutArgsBiDiRtl();
     void testImplLayoutArgsRightAlign();
     void testImplLayoutArgs_PrepareFallback_precalculatedglyphs();
+    void testGetStringWithCenterEllpsis();
+    void testGetStringWithEndEllpsis();
+    void testGetStringWithNewsEllpsis();
+    void testGetTextBreak();
+    void testGetSingleLineTextRect();
+    void testGetSingleLineTextRectWithEndEllipsis();
+    void testGetRightBottomAlignedSingleLineTextRect();
+    void testGetMultiLineTextRect();
+    void testGetMultiLineTextRectWithEndEllipsis();
+    void testGetRightBottomAlignedMultiLineTextRect();
+    void testGetRotatedSingleLineTextRect();
 
     CPPUNIT_TEST_SUITE(VclTextTest);
     CPPUNIT_TEST(testSimpleText);
@@ -74,6 +85,17 @@ public:
     CPPUNIT_TEST(testImplLayoutArgsBiDiRtl);
     CPPUNIT_TEST(testImplLayoutArgsRightAlign);
     CPPUNIT_TEST(testImplLayoutArgs_PrepareFallback_precalculatedglyphs);
+    CPPUNIT_TEST(testGetStringWithCenterEllpsis);
+    CPPUNIT_TEST(testGetStringWithEndEllpsis);
+    CPPUNIT_TEST(testGetStringWithNewsEllpsis);
+    CPPUNIT_TEST(testGetTextBreak);
+    CPPUNIT_TEST(testGetSingleLineTextRect);
+    CPPUNIT_TEST(testGetSingleLineTextRectWithEndEllipsis);
+    CPPUNIT_TEST(testGetRightBottomAlignedSingleLineTextRect);
+    CPPUNIT_TEST(testGetMultiLineTextRect);
+    CPPUNIT_TEST(testGetMultiLineTextRectWithEndEllipsis);
+    CPPUNIT_TEST(testGetRightBottomAlignedMultiLineTextRect);
+    CPPUNIT_TEST(testGetRotatedSingleLineTextRect);
     CPPUNIT_TEST_SUITE_END();
 };
 
@@ -572,6 +594,183 @@ void VclTextTest::testImplLayoutArgs_PrepareFallback_precalculatedglyphs()
     CPPUNIT_ASSERT_EQUAL(18, nMinRunPos);
     CPPUNIT_ASSERT_EQUAL(22, nEndRunPos);
     CPPUNIT_ASSERT(!bRTL);
+}
+
+void VclTextTest::testGetStringWithCenterEllpsis()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("DejaVu Sans", "Book", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"a b c d ...v w x y z"),
+        device->GetEllipsisString(u"a b c d e f g h i j k l m n o p q r s t u v w x y z", 100,
+                                  DrawTextFlags::CenterEllipsis));
+}
+
+void VclTextTest::testGetStringWithEndEllpsis()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("DejaVu Sans", "Book", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(OUString(u"a"), device->GetEllipsisString(u"abcde. f g h i j ...", 10,
+                                                                   DrawTextFlags::EndEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"a b c d e f g h i j ..."),
+        device->GetEllipsisString(u"a b c d e f g h i j k l m n o p q r s t u v w x y z", 100,
+                                  DrawTextFlags::EndEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(OUString(u"a"), device->GetEllipsisString(u"abcde. f g h i j ...", 1,
+                                                                   DrawTextFlags::EndEllipsis
+                                                                       | DrawTextFlags::Clip));
+}
+
+void VclTextTest::testGetStringWithNewsEllpsis()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("DejaVu Sans", "Book", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(OUString(u"a"), device->GetEllipsisString(u"abcde. f g h i j ...", 10,
+                                                                   DrawTextFlags::NewsEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"a b .... x y z"),
+        device->GetEllipsisString(u"a b c d. e f g. h i j k l m n o p q r s t u v w. x y z", 100,
+                                  DrawTextFlags::NewsEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"a b .... x y z"),
+        device->GetEllipsisString(u"a b c d. e f g h i j k l m n o p q r s t u v w. x y z", 100,
+                                  DrawTextFlags::NewsEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"a b c d e f g h i j ..."),
+        device->GetEllipsisString(u"a b c d e f g h i j k l m n o p q r s t u v w. x y z", 100,
+                                  DrawTextFlags::NewsEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"a..... x y z"),
+        device->GetEllipsisString(u"a. b c d e f g h i j k l m n o p q r s t u v w. x y z", 100,
+                                  DrawTextFlags::NewsEllipsis));
+
+    CPPUNIT_ASSERT_EQUAL(
+        OUString(u"ab. cde..."),
+        device->GetEllipsisString(u"ab. cde. x y z", 50, DrawTextFlags::NewsEllipsis));
+}
+
+void VclTextTest::testGetTextBreak()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("DejaVu Sans", "Book", Size(0, 11)));
+
+    const OUString sTestStr(u"textline_ text_");
+    const auto nLen = sTestStr.getLength();
+    const auto nTextWidth = device->GetTextWidth("text");
+
+    CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(4),
+                         device->GetTextBreak(sTestStr, nTextWidth, 0, nLen));
+    CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(7),
+                         device->GetTextBreak(sTestStr, nTextWidth, 3, nLen));
+    CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(9),
+                         device->GetTextBreak(sTestStr, nTextWidth, 6, nLen));
+    CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(12),
+                         device->GetTextBreak(sTestStr, nTextWidth, 8, nLen));
+    CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(14),
+                         device->GetTextBreak(sTestStr, nTextWidth, 11, nLen));
+    CPPUNIT_ASSERT_EQUAL(static_cast<sal_Int32>(-1),
+                         device->GetTextBreak(sTestStr, nTextWidth, 13, nLen));
+}
+
+void VclTextTest::testGetSingleLineTextRect()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(
+        tools::Rectangle(Point(), Size(75, 12)),
+        device->GetTextRect(tools::Rectangle(Point(), Point(100, 100)), "This is test text"));
+}
+
+void VclTextTest::testGetSingleLineTextRectWithEndEllipsis()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(
+        tools::Rectangle(Point(), Size(52, 12)),
+        device->GetTextRect(tools::Rectangle(Point(), Point(50, 50)), "This is test text",
+                            DrawTextFlags::WordBreak | DrawTextFlags::EndEllipsis));
+}
+
+void VclTextTest::testGetRightBottomAlignedSingleLineTextRect()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(926, 989), Size(75, 12)),
+                         device->GetTextRect(tools::Rectangle(Point(), Point(1000, 1000)),
+                                             "This is test text",
+                                             DrawTextFlags::Right | DrawTextFlags::Bottom));
+}
+
+void VclTextTest::testGetRotatedSingleLineTextRect()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    vcl::Font aFont(device->GetFont());
+    aFont.SetOrientation(45_deg10);
+    device->SetFont(aFont);
+
+    CPPUNIT_ASSERT_EQUAL(
+        tools::Rectangle(Point(0, -3), Size(75, 18)),
+        device->GetTextRect(tools::Rectangle(Point(), Point(100, 100)), "This is test text"));
+}
+
+void VclTextTest::testGetMultiLineTextRect()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(), Size(75, 12)),
+                         device->GetTextRect(tools::Rectangle(Point(), Point(100, 100)),
+                                             "This is test text",
+                                             DrawTextFlags::WordBreak | DrawTextFlags::MultiLine));
+}
+
+void VclTextTest::testGetMultiLineTextRectWithEndEllipsis()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(), Size(52, 48)),
+                         device->GetTextRect(tools::Rectangle(Point(), Point(50, 50)),
+                                             "This is test text xyzabc123abcdefghijk",
+                                             DrawTextFlags::WordBreak | DrawTextFlags::EndEllipsis
+                                                 | DrawTextFlags::MultiLine));
+}
+
+void VclTextTest::testGetRightBottomAlignedMultiLineTextRect()
+{
+    ScopedVclPtr<VirtualDevice> device = VclPtr<VirtualDevice>::Create(DeviceFormat::DEFAULT);
+    device->SetOutputSizePixel(Size(1000, 1000));
+    device->SetFont(vcl::Font("Liberation Sans", Size(0, 11)));
+
+    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(926, 989), Size(75, 12)),
+                         device->GetTextRect(tools::Rectangle(Point(), Point(1000, 1000)),
+                                             "This is test text",
+                                             DrawTextFlags::Right | DrawTextFlags::Bottom
+                                                 | DrawTextFlags::MultiLine));
 }
 
 CPPUNIT_TEST_SUITE_REGISTRATION(VclTextTest);

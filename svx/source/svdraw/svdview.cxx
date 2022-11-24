@@ -438,7 +438,7 @@ SdrHitKind SdrView::PickAnything(const Point& rLogicPos, SdrViewEvent& rVEvt) co
     // check for URL field
     if (eHit==SdrHitKind::UnmarkedObject)
     {
-        SdrTextObj* pTextObj=dynamic_cast<SdrTextObj*>( pHitObj );
+        SdrTextObj* pTextObj=DynCastSdrTextObj( pHitObj );
         if (pTextObj!=nullptr && pTextObj->HasText())
         {
             // use the primitive-based HitTest which is more accurate anyways. It
@@ -518,7 +518,7 @@ SdrHitKind SdrView::PickAnything(const Point& rLogicPos, SdrViewEvent& rVEvt) co
         tools::Rectangle aBoundRect(pHitObj->GetCurrentBoundRect());
 
         // Force to SnapRect when Fontwork
-        if( auto pTextObj = dynamic_cast<const SdrTextObj*>(pHitObj) )
+        if( auto pTextObj = DynCastSdrTextObj(pHitObj) )
             if( pTextObj->IsFontwork() )
                 aBoundRect = pHitObj->GetSnapRect();
 
@@ -544,7 +544,7 @@ SdrHitKind SdrView::PickAnything(const Point& rLogicPos, SdrViewEvent& rVEvt) co
                 SdrObjectPrimitiveHit(*pHitObj, aLocalLogicPosition, 0, *pPV, &pPV->GetVisibleLayers(), true));
 
             // TextEdit attached to an object in a locked layer
-            if (pPV->GetLockedLayers().IsSet(pHitObj->GetLayer()))
+            if (bTEHit && pPV->GetLockedLayers().IsSet(pHitObj->GetLayer()))
             {
                 bTEHit=false;
             }
@@ -1041,7 +1041,7 @@ PointerStyle SdrView::GetPreferredPointer(const Point& rMousePos, const OutputDe
         case SdrHitKind::TextEdit :
         case SdrHitKind::TextEditObj:
         {
-            SdrTextObj* pText = dynamic_cast< SdrTextObj* >(aVEvt.mpObj);
+            SdrTextObj* pText = DynCastSdrTextObj(aVEvt.mpObj);
             if(pText && pText->HasText())
             {
                 OutlinerParaObject* pParaObj = pText->GetOutlinerParaObject();
@@ -1074,7 +1074,7 @@ PointerStyle SdrView::GetPreferredPointer(const Point& rMousePos, const OutputDe
                 bool b3DObjSelected = false;
                 for (size_t a=0; !b3DObjSelected && a<GetMarkedObjectCount(); ++a) {
                     SdrObject* pObj = GetMarkedObjectByIndex(a);
-                    if(dynamic_cast<const E3dObject* >(pObj) !=  nullptr)
+                    if(DynCastE3dObject(pObj))
                         b3DObjSelected = true;
                 }
                 // If we have a 3D object, go on despite !IsShearAllowed,

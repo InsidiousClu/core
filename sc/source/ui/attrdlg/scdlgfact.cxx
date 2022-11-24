@@ -137,6 +137,11 @@ short AbstractScDeleteCellDlg_Impl::Execute()
     return m_xDlg->run();
 }
 
+bool AbstractScDeleteCellDlg_Impl::StartExecuteAsync(AsyncContext& rCtx)
+{
+    return ScDeleteCellDlg::runAsync(m_xDlg, rCtx.maEndDialogFn);
+}
+
 //for dataform
 short AbstractScDataFormDlg_Impl::Execute()
 {
@@ -174,6 +179,11 @@ short AbstractScInsertCellDlg_Impl::Execute()
     return m_xDlg->run();
 }
 
+bool AbstractScInsertCellDlg_Impl::StartExecuteAsync(AsyncContext& rCtx)
+{
+    return ScInsertCellDlg::runAsync(m_xDlg, rCtx.maEndDialogFn);
+}
+
 short AbstractScInsertContentsDlg_Impl::Execute()
 {
     return m_xDlg->run();
@@ -192,6 +202,11 @@ short AbstractScSelEntryDlg_Impl::Execute()
 short AbstractScMetricInputDlg_Impl::Execute()
 {
     return m_xDlg->run();
+}
+
+bool AbstractScMetricInputDlg_Impl::StartExecuteAsync(AsyncContext& rCtx)
+{
+    return ScMetricInputDlg::runAsync(m_xDlg, rCtx.maEndDialogFn);
 }
 
 short AbstractScMoveTableDlg_Impl::Execute()
@@ -1139,7 +1154,7 @@ VclPtr<AbstractScMetricInputDlg> ScAbstractDialogFactory_Impl::CreateScMetricInp
                                                                 tools::Long            nMaximum ,
                                                                 tools::Long            nMinimum )
 {
-    return VclPtr<AbstractScMetricInputDlg_Impl>::Create(std::make_unique<ScMetricInputDlg>(pParent, sDialogName, nCurrent ,nDefault, eFUnit,
+    return VclPtr<AbstractScMetricInputDlg_Impl>::Create(std::make_shared<ScMetricInputDlg>(pParent, sDialogName, nCurrent ,nDefault, eFUnit,
         nDecimals, nMaximum , nMinimum));
 }
 

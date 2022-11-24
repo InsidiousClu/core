@@ -50,6 +50,14 @@ LogicalFontInstance::~LogicalFontInstance()
 
     if (m_pHbFont)
         hb_font_destroy(m_pHbFont);
+
+    if (m_pHbFontUntransformed)
+        hb_font_destroy(m_pHbFontUntransformed);
+
+#if HB_VERSION_ATLEAST(4, 0, 0)
+    if (m_pHbDrawFuncs)
+        hb_draw_funcs_destroy(m_pHbDrawFuncs);
+#endif
 }
 
 hb_font_t* LogicalFontInstance::InitHbFont()
@@ -57,11 +65,45 @@ hb_font_t* LogicalFontInstance::InitHbFont()
     auto pFace = GetFontFace();
     hb_face_t* pHbFace = pFace->GetHbFace();
     assert(pHbFace);
-    hb_font_t* pHbFont = hb_font_create(pHbFace);
     auto nUPEM = pFace->UnitsPerEm();
+
+    hb_font_t* pHbFont = hb_font_create(pHbFace);
     hb_font_set_scale(pHbFont, nUPEM, nUPEM);
     hb_ot_font_set_funcs(pHbFont);
+
+    auto aVariations = pFace->GetVariations(*this);
+    if (!aVariations.empty())
+        hb_font_set_variations(pHbFont, aVariations.data(), aVariations.size());
+
+#if HB_VERSION_ATLEAST(3, 3, 0)
+    // If we are applying artificial italic, instruct HarfBuzz to do the same
+    // so that mark positioning is also transformed.
+    if (NeedsArtificialItalic())
+        hb_font_set_synthetic_slant(pHbFont, ARTIFICIAL_ITALIC_SKEW);
+#endif
+
     ImplInitHbFont(pHbFont);
+
+    return pHbFont;
+}
+
+hb_font_t* LogicalFontInstance::GetHbFontUntransformed() const
+{
+    auto* pHbFont = const_cast<LogicalFontInstance*>(this)->GetHbFont();
+
+#if HB_VERSION_ATLEAST(3, 3, 0)
+    if (NeedsArtificialItalic()) // || NeedsArtificialBold()
+    {
+        if (!m_pHbFontUntransformed)
+        {
+            m_pHbFontUntransformed = hb_font_create_sub_font(pHbFont);
+            // Unset slant set on parent font.
+            // Does not actually work: https://github.com/harfbuzz/harfbuzz/issues/3890
+            hb_font_set_synthetic_slant(m_pHbFontUntransformed, 0);
+        }
+        return m_pHbFontUntransformed;
+    }
+#endif
     return pHbFont;
 }
 
@@ -205,6 +247,76 @@ bool LogicalFontInstance::NeedOffsetCorrection(sal_Int32 nYOffset)
     }
 
     return bRet;
+}
+
+bool LogicalFontInstance::NeedsArtificialBold() const
+{
+    return m_aFontSelData.GetWeight() > WEIGHT_MEDIUM && m_pFontFace->GetWeight() <= WEIGHT_MEDIUM;
+}
+
+bool LogicalFontInstance::NeedsArtificialItalic() const
+{
+    return m_aFontSelData.GetItalic() != ITALIC_NONE && m_pFontFace->GetItalic() == ITALIC_NONE;
+}
+
+namespace
+{
+void move_to_func(hb_draw_funcs_t*, void* /*pDrawData*/, hb_draw_state_t*, float to_x, float to_y,
+                  void* pUserData)
+{
+    auto pPoly = static_cast<basegfx::B2DPolygon*>(pUserData);
+    pPoly->append(basegfx::B2DPoint(to_x, -to_y));
+}
+
+void line_to_func(hb_draw_funcs_t*, void* /*pDrawData*/, hb_draw_state_t*, float to_x, float to_y,
+                  void* pUserData)
+{
+    auto pPoly = static_cast<basegfx::B2DPolygon*>(pUserData);
+    pPoly->append(basegfx::B2DPoint(to_x, -to_y));
+}
+
+void cubic_to_func(hb_draw_funcs_t*, void* /*pDrawData*/, hb_draw_state_t*, float control1_x,
+                   float control1_y, float control2_x, float control2_y, float to_x, float to_y,
+                   void* pUserData)
+{
+    auto pPoly = static_cast<basegfx::B2DPolygon*>(pUserData);
+    pPoly->appendBezierSegment(basegfx::B2DPoint(control1_x, -control1_y),
+                               basegfx::B2DPoint(control2_x, -control2_y),
+                               basegfx::B2DPoint(to_x, -to_y));
+}
+
+void close_path_func(hb_draw_funcs_t*, void* pDrawData, hb_draw_state_t*, void* pUserData)
+{
+    auto pPolyPoly = static_cast<basegfx::B2DPolyPolygon*>(pDrawData);
+    auto pPoly = static_cast<basegfx::B2DPolygon*>(pUserData);
+    pPolyPoly->append(*pPoly);
+    pPoly->clear();
+}
+}
+
+bool LogicalFontInstance::GetGlyphOutlineUntransformed(sal_GlyphId nGlyph,
+                                                       basegfx::B2DPolyPolygon& rPolyPoly) const
+{
+#if HB_VERSION_ATLEAST(4, 0, 0)
+    if (!m_pHbDrawFuncs)
+    {
+        m_pHbDrawFuncs = hb_draw_funcs_create();
+        auto pUserData = const_cast<basegfx::B2DPolygon*>(&m_aDrawPolygon);
+        hb_draw_funcs_set_move_to_func(m_pHbDrawFuncs, move_to_func, pUserData, nullptr);
+        hb_draw_funcs_set_line_to_func(m_pHbDrawFuncs, line_to_func, pUserData, nullptr);
+        hb_draw_funcs_set_cubic_to_func(m_pHbDrawFuncs, cubic_to_func, pUserData, nullptr);
+        // B2DPolyPolygon does not support quadratic curves, HarfBuzz will
+        // convert them to cubic curves for us if we don’t set a callback
+        // function.
+        //hb_draw_funcs_set_quadratic_to_func(m_pHbDrawFuncs, quadratic_to_func, pUserData, nullptr);
+        hb_draw_funcs_set_close_path_func(m_pHbDrawFuncs, close_path_func, pUserData, nullptr);
+    }
+
+    hb_font_get_glyph_shape(GetHbFontUntransformed(), nGlyph, m_pHbDrawFuncs, &rPolyPoly);
+    return true;
+#else
+    return false;
+#endif
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

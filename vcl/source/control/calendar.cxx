@@ -260,6 +260,9 @@ void Calendar::ImplFormat()
             nDay %= 7;
         }
 
+        // header position for the last day of week
+        mnDayOfWeekAry[7] = mnMonthWidth;
+
         mbCalc = false;
     }
 
@@ -705,9 +708,9 @@ void Calendar::ImplDraw(vcl::RenderContext& rRenderContext)
             Point aStartPos(nDayX, nDeltaY);
             rRenderContext.DrawLine(aStartPos, Point(nDayX + (7 * mnDayWidth), nDeltaY));
             std::vector<sal_Int32> aTmp;
-            for (int k=0; k<6; ++k)
+            for (int k=0; k<7; ++k)
                 aTmp.push_back(mnDayOfWeekAry[k+1]);
-            rRenderContext.DrawTextArray(Point(nDayX + mnDayOfWeekAry[0], nDayY), maDayOfWeekText, aTmp);
+            rRenderContext.DrawTextArray(Point(nDayX + mnDayOfWeekAry[0], nDayY), maDayOfWeekText, aTmp, {}, 0, aTmp.size());
 
             // display days
             sal_uInt16 nDaysInMonth = aDate.GetDaysInMonth();
@@ -861,7 +864,7 @@ void Calendar::ImplUpdate( bool bCalcNew )
     mbFormat = true;
 }
 
-void Calendar::ImplScroll( bool bPrev )
+void Calendar::ImplScrollCalendar( bool bPrev )
 {
     Date aNewFirstMonth = GetFirstMonth();
     if ( bPrev )
@@ -940,7 +943,7 @@ void Calendar::ImplTracking( const Point& rPos, bool bRepeat )
 
         if ( bRepeat && (mbPrevIn || mbNextIn) )
         {
-            ImplScroll( mbPrevIn );
+            ImplScrollCalendar( mbPrevIn );
         }
     }
     else
@@ -989,9 +992,9 @@ void Calendar::ImplEndTracking( bool bCancel )
             Date aFirstSelDate( *mpSelectTable->begin() );
             Date aLastSelDate( *mpSelectTable->rbegin() );
             if ( aLastSelDate < GetFirstMonth() )
-                ImplScroll( true );
+                ImplScrollCalendar( true );
             else if ( GetLastMonth() < aFirstSelDate )
-                ImplScroll( false );
+                ImplScrollCalendar( false );
         }
     }
 
@@ -1023,7 +1026,7 @@ void Calendar::MouseButtonDown( const MouseEvent& rMEvt )
                 if ( mbPrevIn || mbNextIn )
                 {
                     mbSpinDown = true;
-                    ImplScroll( mbPrevIn );
+                    ImplScrollCalendar( mbPrevIn );
                     // it should really read BUTTONREPEAT, therefore do not
                     // change it to SCROLLREPEAT, check with TH,
                     // why it could be different (71775)
@@ -1221,7 +1224,7 @@ void Calendar::Command( const CommandEvent& rCEvt )
             {
                 while ( nNotchDelta < 0 )
                 {
-                    ImplScroll( true );
+                    ImplScrollCalendar( true );
                     nNotchDelta++;
                 }
             }
@@ -1229,7 +1232,7 @@ void Calendar::Command( const CommandEvent& rCEvt )
             {
                 while ( nNotchDelta > 0 )
                 {
-                    ImplScroll( false );
+                    ImplScrollCalendar( false );
                     nNotchDelta--;
                 }
             }

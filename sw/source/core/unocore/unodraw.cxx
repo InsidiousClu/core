@@ -367,7 +367,7 @@ uno::Reference< drawing::XShape > SwFmDrawPage::CreateShape( SdrObject *pObj ) c
             xShapeTunnel = nullptr;
             uno::Reference< uno::XInterface > xCreate(xRet, uno::UNO_QUERY);
             xRet = nullptr;
-            if ( pObj->IsGroupObject() && (!pObj->Is3DObj() || (dynamic_cast<const E3dScene*>( pObj) !=  nullptr)) )
+            if ( pObj->IsGroupObject() && (!pObj->Is3DObj() || DynCastE3dScene(pObj)) )
                 pShape = new SwXGroupShape(xCreate, nullptr);
             else
                 pShape = new SwXShape(xCreate, nullptr);
@@ -1239,7 +1239,7 @@ void SwXShape::setPropertyValue(const OUString& rPropertyName, const uno::Any& a
                     else if( text::TextContentAnchorType_AT_PAGE != eNewAnchor &&
                             (RndStdIds::FLY_AT_PAGE == eOldAnchorId))
                     {
-                        SwFormatAnchor aNewAnchor( dynamic_cast< const SwFormatAnchor& >( aSet.Get( RES_ANCHOR ) ) );
+                        SwFormatAnchor aNewAnchor( aSet.Get( RES_ANCHOR ) );
                         //if the fly has been anchored at page then it needs to be connected
                         //to the content position
                         SwPaM aPam(pDoc->GetNodes().GetEndOfContent());
@@ -1283,8 +1283,7 @@ void SwXShape::setPropertyValue(const OUString& rPropertyName, const uno::Any& a
                             aPam.GetPoint()->GetContentIndex(), 0 );
                         aPam.GetPoint()->AdjustContent(-1); // InsertItem moved it
                         SwFormatAnchor aNewAnchor(
-                            dynamic_cast<const SwFormatAnchor&>(
-                                aSet.Get(RES_ANCHOR)));
+                                aSet.Get(RES_ANCHOR));
                         aNewAnchor.SetAnchor( aPam.GetPoint() );
                         aSet.Put( aNewAnchor );
                     }
@@ -1462,12 +1461,12 @@ uno::Any SwXShape::getPropertyValue(const OUString& rPropertyName)
                     {
                         if ( aAnchor.GetContentAnchor() )
                         {
-                            const uno::Reference< text::XTextRange > xTextRange
+                            const rtl::Reference<SwXTextRange> xTextRange
                                 = SwXTextRange::CreateXTextRange(
                                                     *pFormat->GetDoc(),
                                                     *aAnchor.GetContentAnchor(),
                                                     nullptr );
-                            aRet <<= xTextRange;
+                            aRet <<= uno::Reference<text::XTextRange>(xTextRange);
                         }
                         else
                         {
@@ -2041,10 +2040,10 @@ void SwXShape::attach(const uno::Reference< text::XTextRange > & xTextRange)
     }
 }
 
-uno::Reference< text::XTextRange >  SwXShape::getAnchor()
+uno::Reference< text::XTextRange > SwXShape::getAnchor()
 {
     SolarMutexGuard aGuard;
-    uno::Reference< text::XTextRange >  aRef;
+    uno::Reference< text::XTextRange > aRef;
     SwFrameFormat* pFormat = GetFrameFormat();
     if(pFormat)
     {
@@ -2066,7 +2065,7 @@ uno::Reference< text::XTextRange >  SwXShape::getAnchor()
         }
     }
     else
-        aRef = m_pImpl->GetTextRange();
+        aRef = m_pImpl->GetTextRange().get();
     return aRef;
 }
 

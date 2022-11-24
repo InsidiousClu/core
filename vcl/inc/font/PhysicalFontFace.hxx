@@ -174,8 +174,9 @@ public:
     bool IsColorFont() const { return HasColorLayers() || HasColorBitmaps(); }
 
     bool HasColorLayers() const;
-    const ColorPalette& GetColorPalette(size_t) const;
     std::vector<ColorLayer> GetGlyphColorLayers(sal_GlyphId) const;
+
+    const std::vector<ColorPalette>& GetColorPalettes() const;
 
     bool HasColorBitmaps() const;
     RawFontData GetGlyphColorBitmap(sal_GlyphId, tools::Rectangle&) const;
@@ -194,13 +195,15 @@ public:
         return nullptr;
     }
 
+    virtual const std::vector<hb_variation_t>& GetVariations(const LogicalFontInstance&) const;
+
 protected:
     mutable hb_face_t* mpHbFace;
     mutable hb_font_t* mpHbUnscaledFont;
     mutable FontCharMapRef mxCharMap;
-    mutable vcl::FontCapabilities maFontCapabilities;
-    mutable bool mbFontCapabilitiesRead;
-    mutable std::vector<ColorPalette> maColorPalettes;
+    mutable std::optional<vcl::FontCapabilities> mxFontCapabilities;
+    mutable std::optional<std::vector<ColorPalette>> mxColorPalettes;
+    mutable std::optional<std::vector<hb_variation_t>> mxVariations;
 
     explicit PhysicalFontFace(const FontAttributes&);
 

@@ -23,7 +23,6 @@
 #include <tools/urlobj.hxx>
 #include <tools/poly.hxx>
 #include <comphelper/diagnose_ex.hxx>
-#include <unotools/resmgr.hxx>
 #include <utility>
 #include <vcl/canvastools.hxx>
 #include <vcl/mapmod.hxx>
@@ -109,6 +108,8 @@ PDFExport::PDFExport( const Reference< XComponent >& rxSrcDoc,
     mbRemoveTransparencies      ( false ),
 
     mbIsRedactMode              ( false ),
+    maWatermarkColor            ( COL_LIGHTGREEN ),
+    maWatermarkFontName         ( "Helvetica" ),
 
     mbHideViewerToolbar         ( false ),
     mbHideViewerMenubar         ( false ),
@@ -560,6 +561,30 @@ bool PDFExport::Export( const OUString& rFile, const Sequence< PropertyValue >& 
                     rProp.Value >>= mbAddStream;
                 else if ( rProp.Name == "Watermark" )
                     rProp.Value >>= msWatermark;
+                else if ( rProp.Name == "WatermarkColor" )
+                {
+                    sal_Int32 nColor{};
+                    if (rProp.Value >>= nColor)
+                    {
+                        maWatermarkColor = Color(ColorTransparency, nColor);
+                    }
+                }
+                else if (rProp.Name == "WatermarkFontHeight")
+                {
+                    sal_Int32 nFontHeight{};
+                    if (rProp.Value >>= nFontHeight)
+                    {
+                        moWatermarkFontHeight = nFontHeight;
+                    }
+                }
+                else if (rProp.Name == "WatermarkFontName")
+                {
+                    OUString aFontName{};
+                    if (rProp.Value >>= aFontName)
+                    {
+                        maWatermarkFontName = aFontName;
+                    }
+                }
                 else if ( rProp.Name == "TiledWatermark" )
                     rProp.Value >>= msTiledWatermark;
                 // now all the security related properties...
@@ -981,11 +1006,10 @@ bool PDFExport::Export( const OUString& rFile, const Sequence< PropertyValue >& 
 
                 if ( mxStatusIndicator.is() )
                 {
-                    std::locale loc(Translate::Create("flt"));
                     sal_Int32 nTotalPageCount = aRangeEnum.size();
                     if ( bExportPages && bExportNotesPages )
                         nTotalPageCount *= 2;
-                    mxStatusIndicator->start(Translate::get(PDF_PROGRESS_BAR, loc), nTotalPageCount);
+                    mxStatusIndicator->start(FilterResId(PDF_PROGRESS_BAR), nTotalPageCount);
                 }
 
                 bRet = nPageCount > 0;
@@ -1153,7 +1177,7 @@ void PDFExport::ImplExportPage( vcl::PDFWriter& rWriter, vcl::PDFExtOutDevData& 
 
 void PDFExport::ImplWriteWatermark( vcl::PDFWriter& rWriter, const Size& rPageSize )
 {
-    vcl::Font aFont( "Helvetica", Size( 0, 3*rPageSize.Height()/4 ) );
+    vcl::Font aFont( maWatermarkFontName, Size( 0, moWatermarkFontHeight ? *moWatermarkFontHeight : 3*rPageSize.Height()/4 ) );
     aFont.SetItalic( ITALIC_NONE );
     aFont.SetWidthType( WIDTH_NORMAL );
     aFont.SetWeight( WEIGHT_NORMAL );
@@ -1171,19 +1195,26 @@ void PDFExport::ImplWriteWatermark( vcl::PDFWriter& rWriter, const Size& rPageSi
     pDev->SetFont( aFont );
     pDev->SetMapMode( MapMode( MapUnit::MapPoint ) );
     int w = 0;
-    while( ( w = pDev->GetTextWidth( msWatermark ) ) > nTextWidth )
+    if (moWatermarkFontHeight)
     {
-        if (w == 0)
-            break;
-        tools::Long nNewHeight = aFont.GetFontHeight() * nTextWidth / w;
-        if( nNewHeight == aFont.GetFontHeight() )
+        w = pDev->GetTextWidth(msWatermark);
+    }
+    else
+    {
+        while( ( w = pDev->GetTextWidth( msWatermark ) ) > nTextWidth )
         {
-            nNewHeight--;
-            if( nNewHeight <= 0 )
+            if (w == 0)
                 break;
+            tools::Long nNewHeight = aFont.GetFontHeight() * nTextWidth / w;
+            if( nNewHeight == aFont.GetFontHeight() )
+            {
+                nNewHeight--;
+                if( nNewHeight <= 0 )
+                    break;
+            }
+            aFont.SetFontHeight( nNewHeight );
+            pDev->SetFont( aFont );
         }
-        aFont.SetFontHeight( nNewHeight );
-        pDev->SetFont( aFont );
     }
     tools::Long nTextHeight = pDev->GetTextHeight();
     // leave some maneuvering room for rounding issues, also
@@ -1194,7 +1225,7 @@ void PDFExport::ImplWriteWatermark( vcl::PDFWriter& rWriter, const Size& rPageSi
     rWriter.Push();
     rWriter.SetMapMode( MapMode( MapUnit::MapPoint ) );
     rWriter.SetFont( aFont );
-    rWriter.SetTextColor( COL_LIGHTGREEN );
+    rWriter.SetTextColor(maWatermarkColor);
     Point aTextPoint;
     tools::Rectangle aTextRect;
     if( rPageSize.Width() > rPageSize.Height() )

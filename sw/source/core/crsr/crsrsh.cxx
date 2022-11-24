@@ -55,7 +55,8 @@
 #include <unotextrange.hxx>
 #include <vcl/svapp.hxx>
 #include <vcl/settings.hxx>
-#include <IGrammarContact.hxx>
+#include <GrammarContact.hxx>
+#include <OnlineAccessibilityCheck.hxx>
 #include <comphelper/flagguard.hxx>
 #include <strings.hrc>
 #include <IDocumentLayoutAccess.hxx>
@@ -1502,9 +1503,13 @@ void SwCursorShell::UpdateCursorPos()
                                      &aTmpState );
         pShellCursor->DeleteMark();
     }
-    IGrammarContact *pGrammarContact = GetDoc() ? GetDoc()->getGrammarContact() : nullptr;
-    if( pGrammarContact )
-        pGrammarContact->updateCursorPosition( *m_pCurrentCursor->GetPoint() );
+    auto* pDoc = GetDoc();
+    if (pDoc)
+    {
+        pDoc->getGrammarContact()->updateCursorPosition(*m_pCurrentCursor->GetPoint());
+        pDoc->getOnlineAccessibilityCheck()->update(*m_pCurrentCursor->GetPoint());
+    }
+
     --mnStartAction;
     if( aOldSz != GetDocSize() )
         SizeChgNotify();
@@ -3353,31 +3358,13 @@ void SwCursorShell::SetReadOnlyAvailable( bool bFlag )
 
 bool SwCursorShell::HasReadonlySel(bool const isReplace) const
 {
+    // Treat selections that span over start or end of paragraph of an outline node
+    // with folded outline content as read-only.
     if (GetViewOptions()->IsShowOutlineContentVisibilityButton())
     {
-        // Treat selections that span over start or end of paragraph of an outline node
-        // with folded outline content as read-only.
         SwWrtShell* pWrtSh = GetDoc()->GetDocShell()->GetWrtShell();
-        if (pWrtSh)
-        {
-            for(const SwPaM& rPaM : GetCursor()->GetRingContainer())
-            {
-                SwPaM aPaM(*rPaM.GetMark(), *rPaM.GetPoint());
-                aPaM.Normalize();
-                SwNodeIndex aPointIdx(aPaM.GetPoint()->GetNode());
-                SwNodeIndex aMarkIdx(aPaM.GetMark()->GetNode());
-                if (aPointIdx == aMarkIdx)
-                    continue;
-                // If any nodes in PaM are folded outline content nodes, then set read-only.
-                SwOutlineNodes::size_type nPos;
-                for (SwNodeIndex aIdx = aPointIdx; aIdx <= aMarkIdx; aIdx++)
-                {
-                    if (GetDoc()->GetNodes().GetOutLineNds().Seek_Entry(&(aIdx.GetNode()), &nPos) &&
-                            !pWrtSh->GetAttrOutlineContentVisible(nPos))
-                        return true;
-                }
-            }
-        }
+        if (pWrtSh && pWrtSh->HasFoldedOutlineContentSelected())
+            return true;
     }
     bool bRet = false;
     // If protected area is to be ignored, then selections are never read-only.
@@ -3743,7 +3730,7 @@ static void lcl_FillTextRange( uno::Reference<text::XTextRange>& rRange,
     // create SwPosition for nEndIndex
     SwPosition aEndPos( rNode, nBegin + nLen );
 
-    const uno::Reference<text::XTextRange> xRange =
+    const rtl::Reference<SwXTextRange> xRange =
         SwXTextRange::CreateXTextRange(rNode.GetDoc(), aStartPos, &aEndPos);
 
     rRange = xRange;

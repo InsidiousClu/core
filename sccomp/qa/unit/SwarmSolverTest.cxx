@@ -14,15 +14,14 @@
 #include <com/sun/star/sheet/XSpreadsheet.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
 
-#include <test/calc_unoapi_test.hxx>
+#include <test/unoapi_test.hxx>
 
 using namespace css;
 
 namespace
 {
-class SwarmSolverTest : public CalcUnoApiTest
+class SwarmSolverTest : public UnoApiTest
 {
-    uno::Reference<lang::XComponent> mxComponent;
     void testUnconstrained();
     void testVariableBounded();
     void testVariableConstrained();
@@ -31,11 +30,9 @@ class SwarmSolverTest : public CalcUnoApiTest
 
 public:
     SwarmSolverTest()
-        : CalcUnoApiTest("sccomp/qa/unit/data")
+        : UnoApiTest("sccomp/qa/unit/data")
     {
     }
-
-    virtual void tearDown() override;
 
     CPPUNIT_TEST_SUITE(SwarmSolverTest);
     CPPUNIT_TEST(testUnconstrained);
@@ -46,19 +43,9 @@ public:
     CPPUNIT_TEST_SUITE_END();
 };
 
-void SwarmSolverTest::tearDown()
-{
-    if (mxComponent.is())
-        closeDocument(mxComponent);
-}
-
 void SwarmSolverTest::testUnconstrained()
 {
-    CPPUNIT_ASSERT(!mxComponent.is());
-
-    OUString aFileURL;
-    createFileURL(u"Simple.ods", aFileURL);
-    mxComponent = loadFromDesktop(aFileURL);
+    loadFromURL(u"Simple.ods");
 
     uno::Reference<sheet::XSpreadsheetDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<container::XIndexAccess> xIndex(xDocument->getSheets(), uno::UNO_QUERY_THROW);
@@ -101,11 +88,7 @@ void SwarmSolverTest::testUnconstrained()
 
 void SwarmSolverTest::testVariableBounded()
 {
-    CPPUNIT_ASSERT(!mxComponent.is());
-
-    OUString aFileURL;
-    createFileURL(u"Simple.ods", aFileURL);
-    mxComponent = loadFromDesktop(aFileURL);
+    loadFromURL(u"Simple.ods");
 
     uno::Reference<sheet::XSpreadsheetDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<container::XIndexAccess> xIndex(xDocument->getSheets(), uno::UNO_QUERY_THROW);
@@ -150,11 +133,7 @@ void SwarmSolverTest::testVariableBounded()
 
 void SwarmSolverTest::testVariableConstrained()
 {
-    CPPUNIT_ASSERT(!mxComponent.is());
-
-    OUString aFileURL;
-    createFileURL(u"Simple.ods", aFileURL);
-    mxComponent = loadFromDesktop(aFileURL);
+    loadFromURL(u"Simple.ods");
 
     uno::Reference<sheet::XSpreadsheetDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<container::XIndexAccess> xIndex(xDocument->getSheets(), uno::UNO_QUERY_THROW);
@@ -202,11 +181,7 @@ void SwarmSolverTest::testVariableConstrained()
 
 void SwarmSolverTest::testTwoVariables()
 {
-    CPPUNIT_ASSERT(!mxComponent.is());
-
-    OUString aFileURL;
-    createFileURL(u"TwoVariables.ods", aFileURL);
-    mxComponent = loadFromDesktop(aFileURL);
+    loadFromURL(u"TwoVariables.ods");
 
     uno::Reference<sheet::XSpreadsheetDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<container::XIndexAccess> xIndex(xDocument->getSheets(), uno::UNO_QUERY_THROW);
@@ -258,11 +233,7 @@ void SwarmSolverTest::testTwoVariables()
 
 void SwarmSolverTest::testMultipleVariables()
 {
-    CPPUNIT_ASSERT(!mxComponent.is());
-
-    OUString aFileURL;
-    createFileURL(u"MultiVariable.ods", aFileURL);
-    mxComponent = loadFromDesktop(aFileURL);
+    loadFromURL(u"MultiVariable.ods");
 
     uno::Reference<sheet::XSpreadsheetDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<container::XIndexAccess> xIndex(xDocument->getSheets(), uno::UNO_QUERY_THROW);

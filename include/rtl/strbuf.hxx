@@ -180,6 +180,17 @@ public:
         rtl_stringbuffer_newFromStr_WithLength( &pData, value, length );
     }
 
+#if __cplusplus > 202002L // C++23 P2266R3 "Simpler implicit move"
+    template< typename T >
+    OStringBuffer( T&& value, typename libreoffice_internal::NonConstCharArrayDetector< T, libreoffice_internal::Dummy >::Type = libreoffice_internal::Dummy())
+        : pData(NULL)
+    {
+        sal_Int32 length = rtl_str_getLength( value );
+        nCapacity = length + 16;
+        rtl_stringbuffer_newFromStr_WithLength( &pData, value, length );
+    }
+#endif
+
     /**
       Constructs a string buffer so that it represents the same
         sequence of characters as the string literal.
@@ -246,9 +257,9 @@ public:
      @overload
      @internal
     */
-    template< typename T >
-    OStringBuffer( OStringNumber< T >&& n )
-        : OStringBuffer( OString( n ))
+    template< typename T, std::size_t N >
+    OStringBuffer( StringNumberBase< char, T, N >&& n )
+        : OStringBuffer( n.buf, n.length)
     {}
 #endif
 
@@ -334,8 +345,8 @@ public:
     }
 
     /** @overload @internal */
-    template<typename T>
-    OStringBuffer & operator =(OStringNumber<T> && n)
+    template<typename T, std::size_t N>
+    OStringBuffer & operator =(StringNumberBase<char, T, N> && n)
     {
         *this = OStringBuffer( std::move ( n ));
         return *this;
@@ -618,8 +629,8 @@ public:
      @overload
      @internal
     */
-    template< typename T >
-    OStringBuffer& append( OStringNumber< T >&& c )
+    template< typename T, std::size_t N >
+    OStringBuffer& append( StringNumberBase< char, T, N >&& c )
     {
         return append( c.buf, c.length );
     }
@@ -1106,11 +1117,8 @@ private:
 template<> struct ToStringHelper<OStringBuffer> {
     static std::size_t length(OStringBuffer const & s) { return s.getLength(); }
 
-    static char * addData(char * buffer, OStringBuffer const & s) SAL_RETURNS_NONNULL
+    char * operator()(char * buffer, OStringBuffer const & s) const SAL_RETURNS_NONNULL
     { return addDataHelper(buffer, s.getStr(), s.getLength()); }
-
-    static constexpr bool allowOStringConcat = true;
-    static constexpr bool allowOUStringConcat = false;
 };
 #endif
 

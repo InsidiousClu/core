@@ -926,6 +926,20 @@ void VclMetafileProcessor2D::processBasePrimitive2D(const primitive2d::BasePrimi
                 static_cast<const primitive2d::StructureTagPrimitive2D&>(rCandidate));
             break;
         }
+        case PRIMITIVE2D_ID_TEXTHIERARCHYEDITPRIMITIVE2D:
+        {
+            // This primitive is created if a text edit is active and contains it's
+            // current content, not from model data itself.
+            // Pixel renderers need to suppress that content, it gets displayed by the active
+            // TextEdit in the EditView. Suppression is done by decomposing to nothing.
+            // MetaFile renderers have to show it, so that the edited text is part of the
+            // MetaFile, e.g. needed for presentation previews and exports.
+            // So take action here and process it's content:
+            // Note: Former error was #i97628#
+            process(static_cast<const primitive2d::TextHierarchyEditPrimitive2D&>(rCandidate)
+                        .getContent());
+            break;
+        }
         case PRIMITIVE2D_ID_EPSPRIMITIVE2D:
         {
             RenderEpsPrimitive2D(static_cast<const primitive2d::EpsPrimitive2D&>(rCandidate));
@@ -1254,7 +1268,8 @@ void VclMetafileProcessor2D::processTextHierarchyFieldPrimitive2D(
                                       static_cast<sal_Int32>(ceil(aViewRange.getMaxX())),
                                       static_cast<sal_Int32>(ceil(aViewRange.getMaxY())));
     vcl::PDFExtOutDevBookmarkEntry aBookmark;
-    aBookmark.nLinkId = mpPDFExtOutDevData->CreateLink(aRectLogic);
+    OUString const content(rFieldPrimitive.getValue("Representation"));
+    aBookmark.nLinkId = mpPDFExtOutDevData->CreateLink(aRectLogic, content);
     aBookmark.aBookmark = aURL;
     std::vector<vcl::PDFExtOutDevBookmarkEntry>& rBookmarks = mpPDFExtOutDevData->GetBookmarks();
     rBookmarks.push_back(aBookmark);
@@ -2320,9 +2335,9 @@ void VclMetafileProcessor2D::processTransparencePrimitive2D(
 
             // create view information and pixel renderer. Reuse known ViewInformation
             // except new transformation and range
-            const geometry::ViewInformation2D aViewInfo(
-                getViewInformation2D().getObjectTransformation(), aViewTransform, aViewRange,
-                getViewInformation2D().getVisualizedPage(), getViewInformation2D().getViewTime());
+            geometry::ViewInformation2D aViewInfo(getViewInformation2D());
+            aViewInfo.setViewTransformation(aViewTransform);
+            aViewInfo.setViewport(aViewRange);
 
             VclPixelProcessor2D aBufferProcessor(aViewInfo, *aBufferDevice);
 
@@ -2349,13 +2364,71 @@ void VclMetafileProcessor2D::processStructureTagPrimitive2D(
     // structured tag primitive
     const vcl::PDFWriter::StructElement& rTagElement(rStructureTagCandidate.getStructureElement());
     bool bTagUsed((vcl::PDFWriter::NonStructElement != rTagElement));
+    sal_Int32 nPreviousElement(-1);
 
     if (mpPDFExtOutDevData && bTagUsed)
     {
         // foreground object: tag as regular structure element
         if (!rStructureTagCandidate.isBackground())
         {
+            if (rStructureTagCandidate.GetAnchorStructureElementId() != -1)
+            {
+                auto const nTemp = mpPDFExtOutDevData->GetCurrentStructureElement();
+                bool const bSuccess = mpPDFExtOutDevData->SetCurrentStructureElement(
+                    rStructureTagCandidate.GetAnchorStructureElementId());
+                if (bSuccess)
+                {
+                    nPreviousElement = nTemp;
+                }
+                else
+                {
+                    SAL_WARN("drawinglayer", "anchor structure element not found?");
+                }
+            }
             mpPDFExtOutDevData->BeginStructureElement(rTagElement);
+            switch (rTagElement)
+            {
+                case vcl::PDFWriter::H1:
+                case vcl::PDFWriter::H2:
+                case vcl::PDFWriter::H3:
+                case vcl::PDFWriter::H4:
+                case vcl::PDFWriter::H5:
+                case vcl::PDFWriter::H6:
+                case vcl::PDFWriter::Paragraph:
+                case vcl::PDFWriter::Heading:
+                case vcl::PDFWriter::Caption:
+                case vcl::PDFWriter::BlockQuote:
+                case vcl::PDFWriter::Table:
+                case vcl::PDFWriter::TableRow:
+                case vcl::PDFWriter::Formula:
+                case vcl::PDFWriter::Figure:
+                    mpPDFExtOutDevData->SetStructureAttribute(vcl::PDFWriter::Placement,
+                                                              vcl::PDFWriter::Block);
+                    break;
+                case vcl::PDFWriter::TableData:
+                case vcl::PDFWriter::TableHeader:
+                    mpPDFExtOutDevData->SetStructureAttribute(vcl::PDFWriter::Placement,
+                                                              vcl::PDFWriter::Inline);
+                    break;
+                default:
+                    break;
+            }
+            switch (rTagElement)
+            {
+                case vcl::PDFWriter::Table:
+                case vcl::PDFWriter::Formula:
+                case vcl::PDFWriter::Figure:
+                {
+                    auto const range(rStructureTagCandidate.getB2DRange(getViewInformation2D()));
+                    tools::Rectangle const aLogicRect(
+                        basegfx::fround(range.getMinX()), basegfx::fround(range.getMinY()),
+                        basegfx::fround(range.getMaxX()), basegfx::fround(range.getMaxY()));
+                    mpPDFExtOutDevData->SetStructureBoundingBox(aLogicRect);
+                    break;
+                }
+                default:
+                    break;
+            }
         }
         // background object
         else
@@ -2376,6 +2449,14 @@ void VclMetafileProcessor2D::processStructureTagPrimitive2D(
     {
         // write end tag
         mpPDFExtOutDevData->EndStructureElement();
+        if (nPreviousElement != -1)
+        {
+#ifndef NDEBUG
+            bool const bSuccess =
+#endif
+                mpPDFExtOutDevData->SetCurrentStructureElement(nPreviousElement);
+            assert(bSuccess);
+        }
     }
 }
 

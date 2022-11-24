@@ -72,6 +72,7 @@
 #include <cppuhelper/supportsservice.hxx>
 #include <cppuhelper/typeprovider.hxx>
 #include <tools/UnitConversion.hxx>
+#include <fmtanchr.hxx>
 
 using namespace ::com::sun::star;
 using namespace ::com::sun::star::uno;
@@ -535,7 +536,24 @@ SwXTextView::createTextRangeByPixelPosition(const awt::Point& rPixelPosition)
     SwWrtShell& rSh = m_pView->GetWrtShell();
     SwPosition aPosition(*rSh.GetCurrentShellCursor().GetPoint());
     rSh.GetLayout()->GetModelPositionForViewPoint(&aPosition, aLogicPoint);
-    uno::Reference<text::XTextRange> xRet
+
+    if (aPosition.GetNode().IsGrfNode())
+    {
+        // The point is closest to a graphic node, look up its format.
+        const SwFrameFormat* pGraphicFormat = aPosition.GetNode().GetFlyFormat();
+        if (pGraphicFormat)
+        {
+            // Get the anchor of this format.
+            const SwFormatAnchor& rAnchor = pGraphicFormat->GetAnchor();
+            const SwPosition* pAnchor = rAnchor.GetContentAnchor();
+            if (pAnchor)
+            {
+                aPosition = *pAnchor;
+            }
+        }
+    }
+
+    rtl::Reference<SwXTextRange> xRet
         = SwXTextRange::CreateXTextRange(*rSh.GetDoc(), aPosition, /*pMark=*/nullptr);
 
     return xRet;
@@ -812,7 +830,7 @@ uno::Any SAL_CALL SwXTextView::getPropertyValue(
             const SwViewOption *pOpt = m_pView->GetWrtShell().GetViewOptions();
             if (!pOpt)
                 throw RuntimeException();
-            aRet <<= bool(pOpt->GetCoreOptions() & ViewOptFlags1::OnlineSpell);
+            aRet <<= pOpt->IsOnlineSpell();
         }
         break;
         default :
@@ -1345,7 +1363,7 @@ uno::Reference< text::XText >  SwXTextViewCursor::getText()
     return xRet;
 }
 
-uno::Reference< text::XTextRange >  SwXTextViewCursor::getStart()
+uno::Reference< text::XTextRange > SwXTextViewCursor::getStart()
 {
     SolarMutexGuard aGuard;
     uno::Reference< text::XTextRange >  xRet;
@@ -1363,10 +1381,10 @@ uno::Reference< text::XTextRange >  SwXTextViewCursor::getStart()
     return xRet;
 }
 
-uno::Reference< text::XTextRange >  SwXTextViewCursor::getEnd()
+uno::Reference< text::XTextRange > SwXTextViewCursor::getEnd()
 {
     SolarMutexGuard aGuard;
-    uno::Reference< text::XTextRange >  xRet;
+    rtl::Reference<SwXTextRange> xRet;
     if(!m_pView)
         throw uno::RuntimeException();
 

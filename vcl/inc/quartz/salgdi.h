@@ -58,53 +58,49 @@ class FontAttributes;
 class XorEmulation;
 
 // CoreText-specific physically available font face
-class CoreTextFontFace : public vcl::font::PhysicalFontFace
+class CoreTextFontFace final : public vcl::font::PhysicalFontFace
 {
 public:
-                                    CoreTextFontFace( const FontAttributes&, sal_IntPtr nFontID );
-    virtual                         ~CoreTextFontFace() override;
+                                    CoreTextFontFace( const FontAttributes&, CTFontDescriptorRef xRef );
+                                    ~CoreTextFontFace() override;
 
     sal_IntPtr                      GetFontId() const override;
 
-    int                             GetFontTable( uint32_t nTagCode, unsigned char* ) const;
+    CTFontDescriptorRef             GetFontDescriptorRef() const { return mxFontDescriptor; }
 
     rtl::Reference<LogicalFontInstance> CreateFontInstance(const vcl::font::FontSelectPattern&) const override;
 
-    virtual hb_blob_t*              GetHbTable(hb_tag_t nTag) const override;
+    hb_blob_t* GetHbTable(hb_tag_t nTag) const override;
+
+    const std::vector<hb_variation_t>& GetVariations(const LogicalFontInstance&) const override;
 
 private:
-    const sal_IntPtr                mnFontId;
+    CTFontDescriptorRef             mxFontDescriptor;
 };
 
-class CoreTextStyle final : public LogicalFontInstance
+class CoreTextFont final : public LogicalFontInstance
 {
     friend rtl::Reference<LogicalFontInstance> CoreTextFontFace::CreateFontInstance(const vcl::font::FontSelectPattern&) const;
 
 public:
-    ~CoreTextStyle() override;
+    ~CoreTextFont() override;
 
     void       GetFontMetric( ImplFontMetricDataRef const & );
     bool GetGlyphOutline(sal_GlyphId, basegfx::B2DPolyPolygon&, bool) const override;
 
-    CFMutableDictionaryRef  GetStyleDict( void ) const { return mpStyleDict; }
+    CTFontRef GetCTFont() const { return mpCTFont; }
 
     /// <1.0: font is squeezed, >1.0 font is stretched, else 1.0
     float mfFontStretch;
     /// text rotation in radian
     float mfFontRotation;
-    /// faux bold - true, if font doesn't have proper bold variants
-    bool mbFauxBold;
 
 private:
-    explicit CoreTextStyle(const vcl::font::PhysicalFontFace&, const vcl::font::FontSelectPattern&);
+    explicit CoreTextFont(const CoreTextFontFace&, const vcl::font::FontSelectPattern&);
 
-    virtual void ImplInitHbFont(hb_font_t*) override;
     bool ImplGetGlyphBoundRect(sal_GlyphId, tools::Rectangle&, bool) const override;
 
-    void SetFontVariationsOnHBFont(hb_font_t*) const;
-
-    /// CoreText text style object
-    CFMutableDictionaryRef  mpStyleDict;
+    CTFontRef mpCTFont;
 };
 
 // TODO: move into cross-platform headers
@@ -457,7 +453,7 @@ class AquaSalGraphics : public SalGraphicsAutoDelegateToImpl
     sal_Int32                               mnRealDPIY;
 
     // Device Font settings
-    rtl::Reference<CoreTextStyle>           mpTextStyle[MAX_FALLBACK];
+    rtl::Reference<CoreTextFont>            mpFont[MAX_FALLBACK];
 
 public:
                             AquaSalGraphics();

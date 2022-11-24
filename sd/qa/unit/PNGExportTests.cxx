@@ -10,38 +10,25 @@
 
 #include <sal/config.h>
 
-#include "sdmodeltestbase.hxx"
+#include <test/unoapi_test.hxx>
 
 #include <com/sun/star/drawing/GraphicExportFilter.hpp>
+#include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
 #include <com/sun/star/frame/Desktop.hpp>
 #include <comphelper/propertyvalue.hxx>
 #include <vcl/BitmapReadAccess.hxx>
 #include <vcl/filter/PngImageReader.hxx>
 
-class SdPNGExportTest : public SdModelTestBase
-{
-protected:
-    uno::Reference<lang::XComponent> mxComponent;
+using namespace ::com::sun::star;
 
+class SdPNGExportTest : public UnoApiTest
+{
 public:
-    virtual void setUp() override;
-    virtual void tearDown() override;
+    SdPNGExportTest()
+        : UnoApiTest("/sd/qa/unit/data/")
+    {
+    }
 };
-
-void SdPNGExportTest::setUp()
-{
-    test::BootstrapFixture::setUp();
-
-    mxDesktop.set(frame::Desktop::create(mxComponentContext));
-}
-
-void SdPNGExportTest::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    test::BootstrapFixture::tearDown();
-}
 
 static void assertColorsAreSimilar(const std::string& message, const BitmapColor& expected,
                                    const BitmapColor& actual, int nDelta)
@@ -55,18 +42,14 @@ static void assertColorsAreSimilar(const std::string& message, const BitmapColor
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf105998)
 {
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/odp/tdf105998.odp"));
+    loadFromURL(u"odp/tdf105998.odp");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
         = drawing::GraphicExportFilter::create(xContext);
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG"))
     };
 
@@ -77,7 +60,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf105998)
     xGraphicExporter->setSourceDocument(xShape);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
 
@@ -120,18 +103,14 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf105998)
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf126319)
 {
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/odg/tdf126319.odg"));
+    loadFromURL(u"odg/tdf126319.odg");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
         = drawing::GraphicExportFilter::create(xContext);
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG"))
     };
 
@@ -142,7 +121,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf126319)
     xGraphicExporter->setSourceDocument(xShape);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
 
@@ -191,8 +170,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf126319)
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf136632)
 {
     // Reuse existing file
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/odp/tdf105998.odp"));
+    loadFromURL(u"odp/tdf105998.odp");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
@@ -201,11 +179,8 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf136632)
     uno::Sequence<beans::PropertyValue> aFilterData{ comphelper::makePropertyValue("Translucent",
                                                                                    sal_Int32(0)) };
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG")),
         comphelper::makePropertyValue("FilterData", aFilterData)
     };
@@ -217,7 +192,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf136632)
     xGraphicExporter->setSourceDocument(xShape);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
     AlphaMask aAlpha = aBMPEx.GetAlpha();
@@ -229,8 +204,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf136632)
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113163)
 {
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/pptx/tdf113163.pptx"));
+    loadFromURL(u"pptx/tdf113163.pptx");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
@@ -241,11 +215,8 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113163)
         comphelper::makePropertyValue("PixelHeight", sal_Int32(100))
     };
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG")),
         comphelper::makePropertyValue("FilterData", aFilterData)
     };
@@ -256,7 +227,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113163)
     xGraphicExporter->setSourceDocument(xPage);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
 
@@ -283,8 +254,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113163)
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf147119)
 {
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/odg/tdf147119.odg"));
+    loadFromURL(u"odg/tdf147119.odg");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
@@ -296,11 +266,8 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf147119)
         comphelper::makePropertyValue("Translucent", sal_Int32(1)),
     };
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG")),
         comphelper::makePropertyValue("FilterData", aFilterData)
     };
@@ -311,7 +278,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf147119)
     xGraphicExporter->setSourceDocument(xPage);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
 
@@ -336,8 +303,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf147119)
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113197)
 {
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/odp/tdf113197.odp"));
+    loadFromURL(u"odp/tdf113197.odp");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
@@ -348,11 +314,8 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113197)
         comphelper::makePropertyValue("PixelHeight", sal_Int32(100)),
     };
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG")),
         comphelper::makePropertyValue("FilterData", aFilterData)
     };
@@ -363,7 +326,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113197)
     xGraphicExporter->setSourceDocument(xPage);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
 
@@ -391,8 +354,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf113197)
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf93124)
 {
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"/sd/qa/unit/data/ppt/tdf93124.ppt"));
+    loadFromURL(u"ppt/tdf93124.ppt");
     uno::Reference<uno::XComponentContext> xContext = getComponentContext();
     CPPUNIT_ASSERT(xContext.is());
     uno::Reference<drawing::XGraphicExportFilter> xGraphicExporter
@@ -403,11 +365,8 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf93124)
         comphelper::makePropertyValue("PixelHeight", sal_Int32(180))
     };
 
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-
     uno::Sequence<beans::PropertyValue> aDescriptor{
-        comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+        comphelper::makePropertyValue("URL", maTempFile.GetURL()),
         comphelper::makePropertyValue("FilterName", OUString("PNG")),
         comphelper::makePropertyValue("FilterData", aFilterData)
     };
@@ -418,7 +377,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf93124)
     xGraphicExporter->setSourceDocument(xPage);
     xGraphicExporter->filter(aDescriptor);
 
-    SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+    SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
     vcl::PngImageReader aPNGReader(aFileStream);
     BitmapEx aBMPEx = aPNGReader.read();
 
@@ -446,14 +405,12 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf93124)
 
 CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf99729)
 {
-    const OUString filenames[]
-        = { "/sd/qa/unit/data/odp/tdf99729-new.odp", "/sd/qa/unit/data/odp/tdf99729-legacy.odp" };
+    const OUString filenames[] = { "odp/tdf99729-new.odp", "odp/tdf99729-legacy.odp" };
     int nonwhitecounts[] = { 0, 0 };
     for (size_t i = 0; i < SAL_N_ELEMENTS(filenames); ++i)
     {
         // 1st check for new behaviour - having AnchoredTextOverflowLegacy compatibility flag set to false in settings.xml
-        mxComponent = loadFromDesktop(m_directories.getURLFromSrc(filenames[i]),
-                                      "com.sun.star.presentation.PresentationDocument");
+        loadFromURL(filenames[i]);
 
         uno::Reference<uno::XComponentContext> xContext = getComponentContext();
         CPPUNIT_ASSERT(xContext.is());
@@ -466,11 +423,8 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf99729)
             comphelper::makePropertyValue("PixelHeight", sal_Int32(240))
         };
 
-        utl::TempFileNamed aTempFile;
-        aTempFile.EnableKillingFile();
-
         uno::Sequence<beans::PropertyValue> aDescriptor{
-            comphelper::makePropertyValue("URL", aTempFile.GetURL()),
+            comphelper::makePropertyValue("URL", maTempFile.GetURL()),
             comphelper::makePropertyValue("FilterName", OUString("PNG")),
             comphelper::makePropertyValue("FilterData", aFilterData)
         };
@@ -482,7 +436,7 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf99729)
         xGraphicExporter->setSourceDocument(xPage);
         xGraphicExporter->filter(aDescriptor);
 
-        SvFileStream aFileStream(aTempFile.GetURL(), StreamMode::READ);
+        SvFileStream aFileStream(maTempFile.GetURL(), StreamMode::READ);
         vcl::PngImageReader aPNGReader(aFileStream);
         BitmapEx aBMPEx = aPNGReader.read();
         Bitmap aBMP = aBMPEx.GetBitmap();
@@ -497,7 +451,6 @@ CPPUNIT_TEST_FIXTURE(SdPNGExportTest, testTdf99729)
                     ++nonwhitecounts[i];
             }
         }
-        mxComponent->dispose();
     }
     // The numbers 1-9 should be above the Text Box in rectangle 154,16 - 170,112.
     // If text alignment is wrong, the rectangle will be white.

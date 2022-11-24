@@ -75,6 +75,7 @@
 #include <editeng/escapementitem.hxx>
 #include <filter/msfilter/util.hxx>
 #include <sfx2/DocumentMetadataAccess.hxx>
+#include <unotools/localedatawrapper.hxx>
 #include <unotools/mediadescriptor.hxx>
 
 #include "TextEffectsHandler.hxx"
@@ -658,6 +659,15 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
         case NS_ooxml::LN_CT_Language_eastAsia: //90315
         case NS_ooxml::LN_CT_Language_bidi: //90316
         {
+            // store decimal symbol associated to the language of the document
+            if ( m_pImpl->IsDocDefaultsImport() && ( nName == NS_ooxml::LN_CT_Language_val ) )
+            {
+                LanguageTag aLanguageTag( sStringValue );
+                LocaleDataWrapper aLocaleWrapper( std::move(aLanguageTag) );
+                if ( aLocaleWrapper.getNumDecimalSep() == "," )
+                    m_pImpl->SetIsDecimalComma();
+
+            }
             if (nName == NS_ooxml::LN_CT_Language_eastAsia)
                 m_pImpl->appendGrabBag(m_pImpl->m_aSubInteropGrabBag, "eastAsia", sStringValue);
             else if (nName == NS_ooxml::LN_CT_Language_val)
@@ -801,22 +811,22 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
         case NS_ooxml::LN_CT_FramePr_hSpace:
         case NS_ooxml::LN_CT_FramePr_vSpace:
         {
-            ParagraphProperties* pParaProperties = nullptr;
+            ParagraphPropertiesPropertyMap* pParaProperties = nullptr;
             // handle frame properties at styles
             if( m_pImpl->GetTopContextType() == CONTEXT_STYLESHEET )
-                pParaProperties = dynamic_cast< ParagraphProperties*>( m_pImpl->GetTopContextOfType( CONTEXT_STYLESHEET ).get() );
+                pParaProperties = dynamic_cast< ParagraphPropertiesPropertyMap*>( m_pImpl->GetTopContextOfType( CONTEXT_STYLESHEET ).get() );
             else
-                pParaProperties = dynamic_cast< ParagraphProperties*>( m_pImpl->GetTopContextOfType( CONTEXT_PARAGRAPH ).get() );
+                pParaProperties = dynamic_cast< ParagraphPropertiesPropertyMap*>( m_pImpl->GetTopContextOfType( CONTEXT_PARAGRAPH ).get() );
 
             if( pParaProperties )
             {
                 switch( nName )
                 {
                     case NS_ooxml::LN_CT_FramePr_dropCap:
-                        pParaProperties->SetDropCap( nIntValue );
+                        pParaProperties->props().SetDropCap( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_lines:
-                        pParaProperties->SetLines( nIntValue );
+                        pParaProperties->props().SetLines( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_hAnchor:
                         switch(nIntValue)
@@ -827,7 +837,7 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                             case  NS_ooxml::LN_Value_doc_ST_HAnchor_page:   nIntValue = text::RelOrientation::PAGE_FRAME; break;
                             default:;
                         }
-                        pParaProperties->SethAnchor( nIntValue );
+                        pParaProperties->props().SethAnchor( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_vAnchor:
                         switch(nIntValue)
@@ -838,11 +848,12 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                             case  NS_ooxml::LN_Value_doc_ST_VAnchor_page: nIntValue = text::RelOrientation::PAGE_FRAME; break;
                             default:;
                         }
-                        pParaProperties->SetvAnchor( nIntValue );
+                        pParaProperties->props().SetvAnchor( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_x:
-                        pParaProperties->Setx( ConversionHelper::convertTwipToMM100(nIntValue ));
-                        pParaProperties->SetxAlign( text::HoriOrientation::NONE );
+                        pParaProperties->props().Setx(
+                            ConversionHelper::convertTwipToMM100(nIntValue ));
+                        pParaProperties->props().SetxAlign( text::HoriOrientation::NONE );
                     break;
                     case NS_ooxml::LN_CT_FramePr_xAlign:
                         switch( nIntValue )
@@ -854,11 +865,12 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                             case  NS_ooxml::LN_Value_doc_ST_XAlign_left    : nIntValue = text::HoriOrientation::LEFT; break;
                             default:    nIntValue = text::HoriOrientation::NONE;
                         }
-                        pParaProperties->SetxAlign( nIntValue );
+                        pParaProperties->props().SetxAlign( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_y:
-                        pParaProperties->Sety( ConversionHelper::convertTwipToMM100(nIntValue ));
-                        pParaProperties->SetyAlign( text::VertOrientation::NONE );
+                        pParaProperties->props().Sety(
+                            ConversionHelper::convertTwipToMM100(nIntValue ));
+                        pParaProperties->props().SetyAlign( text::VertOrientation::NONE );
                     break;
                     case NS_ooxml::LN_CT_FramePr_yAlign:
                         switch( nIntValue )
@@ -881,7 +893,7 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                                 {
                                     ParagraphPropertyMap* pParaContext = dynamic_cast< ParagraphPropertyMap* >( pContext.get() );
                                     if (pParaContext)
-                                        pParaContext->SetFrameMode(false);
+                                        pParaContext->props().SetFrameMode(false);
                                 }
                                 nIntValue = text::VertOrientation::NONE;
                                 break;
@@ -890,7 +902,7 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                                 nIntValue = text::VertOrientation::NONE;
                                 break;
                         }
-                        pParaProperties->SetyAlign( nIntValue );
+                        pParaProperties->props().SetyAlign( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_hRule:
                          switch( nIntValue )
@@ -906,7 +918,7 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                             default:;
                                 nIntValue = text::SizeType::VARIABLE;
                          }
-                        pParaProperties->SethRule( nIntValue );
+                        pParaProperties->props().SethRule( nIntValue );
                     break;
                     case NS_ooxml::LN_CT_FramePr_wrap:
                     {
@@ -919,26 +931,30 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                             "wrap not around, not_Beside, through, none or auto?");
                         if( sal::static_int_cast<Id>(nIntValue) == NS_ooxml::LN_Value_doc_ST_Wrap_through ||
                             sal::static_int_cast<Id>(nIntValue) == NS_ooxml::LN_Value_doc_ST_Wrap_auto )
-                            pParaProperties->SetWrap ( text::WrapTextMode_DYNAMIC ) ;
+                            pParaProperties->props().SetWrap ( text::WrapTextMode_DYNAMIC ) ;
                         else if (sal::static_int_cast<Id>(nIntValue) == NS_ooxml::LN_Value_doc_ST_Wrap_around)
-                            pParaProperties->SetWrap(text::WrapTextMode_PARALLEL);
+                            pParaProperties->props().SetWrap(text::WrapTextMode_PARALLEL);
                         else if (sal::static_int_cast<Id>(nIntValue) == NS_ooxml::LN_Value_doc_ST_Wrap_none)
-                            pParaProperties->SetWrap ( text::WrapTextMode_THROUGH ) ;
+                            pParaProperties->props().SetWrap ( text::WrapTextMode_THROUGH ) ;
                         else
-                            pParaProperties->SetWrap ( text::WrapTextMode_NONE ) ;
+                            pParaProperties->props().SetWrap ( text::WrapTextMode_NONE ) ;
                     }
                     break;
                     case NS_ooxml::LN_CT_FramePr_w:
-                        pParaProperties->Setw(ConversionHelper::convertTwipToMM100(nIntValue));
+                        pParaProperties->props().Setw(
+                            ConversionHelper::convertTwipToMM100(nIntValue));
                     break;
                     case NS_ooxml::LN_CT_FramePr_h:
-                        pParaProperties->Seth(ConversionHelper::convertTwipToMM100(nIntValue));
+                        pParaProperties->props().Seth(
+                            ConversionHelper::convertTwipToMM100(nIntValue));
                     break;
                     case NS_ooxml::LN_CT_FramePr_hSpace:
-                        pParaProperties->SethSpace( ConversionHelper::convertTwipToMM100(nIntValue ));
+                        pParaProperties->props().SethSpace(
+                            ConversionHelper::convertTwipToMM100(nIntValue ));
                     break;
                     case NS_ooxml::LN_CT_FramePr_vSpace:
-                        pParaProperties->SetvSpace( ConversionHelper::convertTwipToMM100(nIntValue ));
+                        pParaProperties->props().SetvSpace(
+                            ConversionHelper::convertTwipToMM100(nIntValue ));
                     break;
                     default:;
                 }
@@ -1099,6 +1115,7 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                 switch (m_pImpl->m_pSdtHelper->getControlType())
                 {
                     case SdtControlType::richText:
+                    case SdtControlType::plainText:
                     case SdtControlType::checkBox:
                     case SdtControlType::dropDown:
                     case SdtControlType::comboBox:
@@ -1108,11 +1125,6 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
                         break;
                     default:
                         break;
-                }
-
-                if (m_pImpl->m_pSdtHelper->getControlType() == SdtControlType::plainText)
-                {
-                    m_pImpl->PopSdt();
                 }
             }
 
@@ -1326,7 +1338,7 @@ void DomainMapper::lcl_attribute(Id nName, Value & val)
             if (ParagraphPropertyMap* pParaContext
                 = dynamic_cast<ParagraphPropertyMap*>(m_pImpl->GetTopContext().get()))
             {
-                pParaContext->SetParaId(sStringValue);
+                pParaContext->props().SetParaId(sStringValue);
             }
             break;
         default:
@@ -1422,7 +1434,7 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
                 //style sheets cannot have a numbering rule attached
                 StyleSheetPropertyMap* pStyleSheetPropertyMap = dynamic_cast< StyleSheetPropertyMap* >( rContext.get() );
                 if (pStyleSheetPropertyMap)
-                    pStyleSheetPropertyMap->SetListId( nIntValue );
+                    pStyleSheetPropertyMap->props().SetListId( nIntValue );
             }
             if( pList )
             {
@@ -1434,7 +1446,7 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
                     if (pContext)
                     {
                         assert(dynamic_cast<ParagraphPropertyMap*>(pContext.get()));
-                        static_cast<ParagraphPropertyMap*>(pContext.get())->SetListId(pList->GetId());
+                        static_cast<ParagraphPropertyMap*>(pContext.get())->props().SetListId(pList->GetId());
                     }
 
                     // Indentation can came from:
@@ -2253,7 +2265,7 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
 
             ParagraphPropertyMap* pParaContext = dynamic_cast< ParagraphPropertyMap* >( pContext.get() );
             if (pParaContext)
-                pParaContext->SetFrameMode();
+                pParaContext->props().SetFrameMode();
 
             if (!IsInHeaderFooter())
                 m_pImpl->m_bIsActualParagraphFramed = true;
@@ -2744,8 +2756,23 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
     case NS_ooxml::LN_CT_SdtDropDownList_listItem:
     {
         writerfilter::Reference<Properties>::Pointer_t pProperties = rSprm.getProps();
+
+        size_t nDropDownDisplayTexts = m_pImpl->m_pSdtHelper->getDropDownDisplayTexts().size();
+        size_t nDropDownItems = m_pImpl->m_pSdtHelper->getDropDownItems().size();
+
         if (pProperties)
             pProperties->resolve(*this);
+
+        if (m_pImpl->m_pSdtHelper->getDropDownDisplayTexts().size() != nDropDownDisplayTexts + 1)
+        {
+            // w:displayText="..." is optional, add empty value if it was not provided.
+            m_pImpl->m_pSdtHelper->getDropDownDisplayTexts().push_back(OUString());
+        }
+        if (m_pImpl->m_pSdtHelper->getDropDownItems().size() != nDropDownItems + 1)
+        {
+            // w:value="..." is optional, add empty value if it was not provided.
+            m_pImpl->m_pSdtHelper->getDropDownItems().push_back(OUString());
+        }
     }
     break;
     case NS_ooxml::LN_CT_SdtPr_placeholder:
@@ -2814,6 +2841,7 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
     case NS_ooxml::LN_CT_SdtPr_alias:
     case NS_ooxml::LN_CT_SdtPlaceholder_docPart:
     case NS_ooxml::LN_CT_SdtPr_color:
+    case NS_ooxml::LN_CT_SdtPr_tag:
     {
         if (!m_pImpl->GetSdtStarts().empty())
         {
@@ -2824,6 +2852,24 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
                 {
                     pProperties->resolve(*this);
                 }
+                break;
+            }
+
+            if (nSprmId == NS_ooxml::LN_CT_SdtPr_alias)
+            {
+                m_pImpl->m_pSdtHelper->SetAlias(sStringValue);
+                break;
+            }
+
+            if (nSprmId == NS_ooxml::LN_CT_SdtPr_tag)
+            {
+                m_pImpl->m_pSdtHelper->SetTag(sStringValue);
+                break;
+            }
+
+            if (nSprmId == NS_ooxml::LN_CT_SdtPr_id)
+            {
+                m_pImpl->m_pSdtHelper->SetId(nIntValue);
                 break;
             }
 
@@ -2855,6 +2901,14 @@ void DomainMapper::sprmWithProps( Sprm& rSprm, const PropertyMapPtr& rContext )
                 {
                     pProperties->resolve(*this);
                 }
+                break;
+            }
+        }
+        else
+        {
+            if (nSprmId == NS_ooxml::LN_CT_SdtPr_tag)
+            {
+                // Tag is only handled here in case of inline SDT.
                 break;
             }
         }
@@ -3970,7 +4024,7 @@ void DomainMapper::lcl_utext(const sal_uInt8 * data_, size_t len)
                 // to the next paragraph in sw SplitNode and then be applied to
                 // every following paragraph
                 xContext->Erase(PROP_NUMBERING_RULES);
-                static_cast<ParagraphPropertyMap*>(xContext.get())->SetListId(-1);;
+                static_cast<ParagraphPropertyMap*>(xContext.get())->props().SetListId(-1);;
                 xContext->Erase(PROP_NUMBERING_LEVEL);
             }
             finishParagraph(bRemove, bNoNumbering);

@@ -72,8 +72,6 @@ public:
     rtl_TextEncoding    GetCharSet() const;
     FontEmphasisMark    GetEmphasisMarkStyle() const;
 
-    bool                IsSymbolFont() const;
-
     void                SetFamilyName( const OUString& rFamilyName );
     void                SetStyleName( const OUString& rStyleName );
     void                SetFamily( FontFamily );
@@ -84,8 +82,6 @@ public:
     void                SetWidthType( FontWidth );
     void                SetAlignment( TextAlign );
     void                SetCharSet( rtl_TextEncoding );
-
-    void                SetSymbolFlag( bool );
 
     // Device dependent functions
     int                 GetQuality() const;

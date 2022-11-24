@@ -318,12 +318,12 @@ void MSWordStyles::BuildStylesTable()
     }
 }
 
-OString MSWordStyles::CreateStyleId(const OUString &rName)
+OString MSWordStyles::CreateStyleId(std::u16string_view aName)
 {
-    OStringBuffer aStyleIdBuf(rName.getLength());
-    for (int i = 0; i < rName.getLength(); ++i)
+    OStringBuffer aStyleIdBuf(aName.size());
+    for (size_t i = 0; i < aName.size(); ++i)
     {
-        sal_Unicode nChar = rName[i];
+        sal_Unicode nChar = aName[i];
         if (('0' <= nChar && nChar <= '9') ||
             ('a' <= nChar && nChar <= 'z') ||
             ('A' <= nChar && nChar <= 'Z'))
@@ -1678,7 +1678,7 @@ void MSWordExportBase::SectionProperties( const WW8_SepInfo& rSepInfo, WW8_PdAtt
             //i120133: The Section width should consider section indent value.
             if (rSectionLR.GetLeft()+rSectionLR.GetRight()!=0)
             {
-                const SwFormatCol& rCol = dynamic_cast<const SwFormatCol&>(rSepInfo.pSectionFormat->GetFormatAttr(RES_COL));
+                const SwFormatCol& rCol = rSepInfo.pSectionFormat->GetFormatAttr(RES_COL);
                 SwFormatCol aCol(rCol);
                 aCol.SetAdjustValue(rSectionLR.GetLeft()+rSectionLR.GetRight());
                 aSet.Put(aCol);
@@ -2273,8 +2273,8 @@ bool WW8_WrPlcSubDoc::WriteGenericText( WW8Export& rWrt, sal_uInt8 nTTyp,
                         rWrt.GetOCXExp().ExportControl(rWrt, dynamic_cast<const SdrUnoObj&>(rObj));
                         rWrt.m_nTextTyp = nOldTyp;
                     }
-                    else if( dynamic_cast<const SdrTextObj*>( &rObj) !=  nullptr )
-                        rWrt.WriteSdrTextObj(dynamic_cast<const SdrTextObj&>(rObj), nTTyp);
+                    else if( auto pText = DynCastSdrTextObj(&rObj) )
+                        rWrt.WriteSdrTextObj(*pText, nTTyp);
                     else
                     {
                         const SwFrameFormat* pFormat = ::FindFrameFormat( &rObj );
@@ -2522,7 +2522,7 @@ void WW8_WrPlcSubDoc::WriteGenericPlc( WW8Export& rWrt, sal_uInt8 nTTyp,
                     // is it a writer or sdr - textbox?
                     const SdrObject* pObj = static_cast<SdrObject const *>(m_aContent[ i ]);
                     sal_Int32 nCnt = 1;
-                    if (dynamic_cast< const SdrTextObj *>( pObj ))
+                    if (DynCastSdrTextObj( pObj ))
                     {
                         // find the "highest" SdrObject of this
                         const SwFrameFormat& rFormat = *::FindFrameFormat( pObj );

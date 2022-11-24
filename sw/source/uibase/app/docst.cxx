@@ -596,12 +596,14 @@ IMPL_LINK_NOARG(ApplyStyle, ApplyHdl, LinkParamNone*, void)
     }
     else
     {
-        if(SfxStyleFamily::Page == m_nFamily)
+        if(SfxStyleFamily::Page == m_nFamily || SfxStyleFamily::Frame == m_nFamily)
         {
             static const sal_uInt16 aInval[] = {
                 SID_IMAGE_ORIENTATION,
                 SID_ATTR_CHAR_FONT,
-                FN_INSERT_CTRL, FN_INSERT_OBJ_CTRL, 0};
+                FN_INSERT_CTRL, FN_INSERT_OBJ_CTRL,
+                FN_TABLE_INSERT_COL_BEFORE,
+                FN_TABLE_INSERT_COL_AFTER, 0};
             pView->GetViewFrame()->GetBindings().Invalidate(aInval);
         }
         SfxItemSet aTmpSet( *m_pDlg->GetOutputItemSet() );
@@ -1131,8 +1133,6 @@ void SwDocShell::Hide(const OUString &rName, SfxStyleFamily nFamily, bool bHidde
 SfxStyleFamily SwDocShell::ApplyStyles(const OUString &rName, SfxStyleFamily nFamily,
                                SwWrtShell* pShell, const sal_uInt16 nMode )
 {
-    MakeAllOutlineContentTemporarilyVisible a(GetDoc());
-
     SwDocStyleSheet* pStyle = static_cast<SwDocStyleSheet*>( m_xBasePool->Find( rName, nFamily ) );
 
     SAL_WARN_IF( !pStyle, "sw.ui", "Style not found" );
@@ -1157,6 +1157,11 @@ SfxStyleFamily SwDocShell::ApplyStyles(const OUString &rName, SfxStyleFamily nFa
         }
         case SfxStyleFamily::Para:
         {
+            // When outline-folding is enabled, MakeAllOutlineContentTemporarilyVisible makes
+            // application of a paragraph style that has an outline-level greater than the previous
+            // outline node become folded content of the previous outline node if the previous
+            // outline node's content is folded.
+            MakeAllOutlineContentTemporarilyVisible a(GetDoc());
             // #i62675#
             // clear also list attributes at affected text nodes, if paragraph
             // style has the list style attribute set.
@@ -1179,7 +1184,7 @@ SfxStyleFamily SwDocShell::ApplyStyles(const OUString &rName, SfxStyleFamily nFa
             // reset indent attribute on applying list style
             // continue list of list style
             const SwNumRule* pNumRule = pStyle->GetNumRule();
-            if (pNumRule->GetName() == "No List")
+            if (pNumRule->GetName() == SwResId(STR_POOLNUMRULE_NOLIST))
             {
                 SfxViewFrame::Current()->GetDispatcher()->Execute(FN_NUM_BULLET_OFF);
                 break;

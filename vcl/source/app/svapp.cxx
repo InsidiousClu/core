@@ -1168,6 +1168,11 @@ OutputDevice* Application::GetDefaultDevice()
     return ImplGetDefaultWindow()->GetOutDev();
 }
 
+basegfx::SystemDependentDataManager& Application::GetSystemDependentDataManager()
+{
+    return ImplGetSystemDependentDataManager();
+}
+
 vcl::Window* Application::GetFirstTopLevelWindow()
 {
     ImplSVData* pSVData = ImplGetSVData();
@@ -1825,6 +1830,8 @@ bool isUnipoll()
 
 void numberOfViewsChanged(int count)
 {
+    if (count == 0)
+        return;
     ImplSVData * pSVData = ImplGetSVData();
     auto& rCache = pSVData->maGDIData.maScaleCache;
     // Normally the cache size is set to 10, scale according to the number of users.

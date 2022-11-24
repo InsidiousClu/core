@@ -407,7 +407,7 @@ SalLayoutGlyphsCache::GetLayoutGlyphs(VclPtr<const OutputDevice> outputDevice, c
                 = makeGlyphsSubset(itWhole->second, outputDevice, text, nIndex, nLen);
             if (mLastTemporaryGlyphs.IsValid())
             {
-                mLastTemporaryKey = std::move(key);
+                mLastTemporaryKey = key;
 #ifdef DBG_UTIL
                 std::shared_ptr<const vcl::text::TextLayoutCache> tmpLayoutCache;
                 if (layoutCache == nullptr)
@@ -452,13 +452,13 @@ SalLayoutGlyphsCache::GetLayoutGlyphs(VclPtr<const OutputDevice> outputDevice, c
         {
             // TODO: Fallbacks do not work reliably (fallback font not included in the key),
             // so do not cache (but still return once, using the temporary without a key set).
-            if (glyphs.Impl(1) != nullptr)
+            if (!mbCacheGlyphsWhenDoingFallbackFonts && glyphs.Impl(1) != nullptr)
             {
                 mLastTemporaryGlyphs = std::move(glyphs);
                 mLastTemporaryKey.reset();
                 return &mLastTemporaryGlyphs;
             }
-            mCachedGlyphs.insert(std::make_pair(key, layout->GetGlyphs()));
+            mCachedGlyphs.insert(std::make_pair(key, std::move(glyphs)));
             assert(mCachedGlyphs.find(key)
                    == mCachedGlyphs.begin()); // newly inserted item is first
             return &mCachedGlyphs.begin()->second;
@@ -467,6 +467,13 @@ SalLayoutGlyphsCache::GetLayoutGlyphs(VclPtr<const OutputDevice> outputDevice, c
     // Failure, cache it too as invalid glyphs.
     mCachedGlyphs.insert(std::make_pair(key, SalLayoutGlyphs()));
     return nullptr;
+}
+
+void SalLayoutGlyphsCache::SetCacheGlyphsWhenDoingFallbackFonts(bool bOK)
+{
+    mbCacheGlyphsWhenDoingFallbackFonts = bOK;
+    if (!bOK)
+        clear();
 }
 
 SalLayoutGlyphsCache::CachedGlyphsKey::CachedGlyphsKey(
@@ -493,8 +500,8 @@ SalLayoutGlyphsCache::CachedGlyphsKey::CachedGlyphsKey(
 
     const vcl::font::FontSelectPattern& rFSD = fi->GetFontSelectPattern();
     disabledLigatures = rFSD.GetPitch() == PITCH_FIXED;
-    artificialItalic = rFSD.GetItalic() != ITALIC_NONE && fontMetric.GetItalic() == ITALIC_NONE;
-    artificialBold = rFSD.GetWeight() > WEIGHT_MEDIUM && fontMetric.GetWeight() <= WEIGHT_MEDIUM;
+    artificialItalic = fi->NeedsArtificialItalic();
+    artificialBold = fi->NeedsArtificialBold();
 
     hashValue = 0;
     o3tl::hash_combine(hashValue, vcl::text::FirstCharsStringHash()(text));

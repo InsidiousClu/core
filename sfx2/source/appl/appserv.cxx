@@ -77,6 +77,7 @@
 #include <sfx2/request.hxx>
 #include <sfx2/dispatch.hxx>
 #include <sfx2/bindings.hxx>
+#include <sfx2/minfitem.hxx>
 #include <sfx2/msg.hxx>
 #include <sfx2/objface.hxx>
 #include <sfx2/objsh.hxx>
@@ -400,13 +401,20 @@ void SfxApplication::MiscExec_Impl( SfxRequest& rReq )
 
             const SfxStringItem* pStringItem = rReq.GetArg<SfxStringItem>(SID_CONFIG);
 
-            SfxItemSetFixed<SID_CONFIG, SID_CONFIG> aSet( GetPool() );
+            SfxItemSetFixed<SID_CONFIG, SID_CONFIG, SID_MACROINFO, SID_MACROINFO> aSet( GetPool() );
 
             if ( pStringItem )
             {
                 aSet.Put( SfxStringItem(
                     SID_CONFIG, pStringItem->GetValue() ) );
             }
+
+#if HAVE_FEATURE_SCRIPTING
+            // Preselect a macro:
+            if (auto const item = rReq.GetArg<SfxMacroInfoItem>(SID_MACROINFO)) {
+                aSet.Put(*item);
+            }
+#endif
 
             Reference <XFrame> xFrame(GetRequestFrame(rReq));
             ScopedVclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateCustomizeTabDialog(rReq.GetFrameWeld(),
@@ -630,6 +638,17 @@ void SfxApplication::MiscExec_Impl( SfxRequest& rReq )
             break;
         }
 #endif
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case SID_WIDGET_TEST_DIALOG:
+        {
+            SfxAbstractDialogFactory* pFact = SfxAbstractDialogFactory::Create();
+            VclPtr<VclAbstractDialog> pDlg(pFact->CreateWidgetTestDialog(rReq.GetFrameWeld()));
+            pDlg->StartExecuteAsync([pDlg](sal_Int32 /*nResult*/){
+                pDlg->disposeOnce();
+            });
+            bDone = true;
+            break;
+        }
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case SID_ABOUT:

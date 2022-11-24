@@ -150,7 +150,7 @@ bool SdrEditView::ImpDelLayerCheck(SdrObjList const * pOL, SdrLayerID nDelID) co
         SdrObjList* pSubOL = pObj->GetSubList();
 
         // explicitly test for group objects and 3d scenes
-        if(pSubOL && (dynamic_cast<const SdrObjGroup*>(pObj) != nullptr || dynamic_cast< const E3dScene* >(pObj) !=  nullptr))
+        if(pSubOL && (dynamic_cast<const SdrObjGroup*>(pObj) != nullptr || DynCastE3dScene(pObj)))
         {
             if(!ImpDelLayerCheck(pSubOL, nDelID))
             {
@@ -185,7 +185,7 @@ void SdrEditView::ImpDelLayerDelObjs(SdrObjList* pOL, SdrLayerID nDelID)
 
 
         // explicitly test for group objects and 3d scenes
-        if(pSubOL && (dynamic_cast<const SdrObjGroup*>( pObj) != nullptr || dynamic_cast<const E3dScene* >(pObj) !=  nullptr))
+        if(pSubOL && (dynamic_cast<const SdrObjGroup*>( pObj) != nullptr || DynCastE3dScene(pObj)))
         {
             if(ImpDelLayerCheck(pSubOL, nDelID))
             {
@@ -249,7 +249,7 @@ void SdrEditView::DeleteLayer(const OUString& rName)
                 SdrObjList* pSubOL = pObj->GetSubList();
 
                 // explicitly test for group objects and 3d scenes
-                if(pSubOL && (dynamic_cast<const SdrObjGroup*>(pObj) != nullptr || dynamic_cast<const E3dScene* >(pObj) !=  nullptr))
+                if(pSubOL && (dynamic_cast<const SdrObjGroup*>(pObj) != nullptr || DynCastE3dScene(pObj)))
                 {
                     if(ImpDelLayerCheck(pSubOL, nDelID))
                     {
@@ -754,7 +754,7 @@ std::vector<SdrObject*> SdrEditView::DeleteMarkedList(SdrMarkList const& rMark)
                 SdrObjList*  pOL = pObj->getParentSdrObjListFromSdrObject();
                 const size_t nOrdNum(pObj->GetOrdNumDirect());
 
-                bool bIs3D = dynamic_cast< E3dObject* >(pObj);
+                bool bIs3D = DynCastE3dObject(pObj);
                 // set up a scene updater if object is a 3d object
                 if(bIs3D)
                 {
@@ -1025,11 +1025,11 @@ void SdrEditView::ReplaceObjectAtView(SdrObject* pOldObj, SdrPageView& rPV, SdrO
     if(IsTextEdit())
     {
 #ifdef DBG_UTIL
-        if(auto pTextObj = dynamic_cast< SdrTextObj* >(pOldObj))
+        if(auto pTextObj = DynCastSdrTextObj(pOldObj))
             if (pTextObj->IsTextEditActive())
                 OSL_ENSURE(false, "OldObject is in TextEdit mode, this has to be ended before replacing it using SdrEndTextEdit (!)");
 
-        if(auto pTextObj = dynamic_cast< SdrTextObj* >(pNewObj))
+        if(auto pTextObj = DynCastSdrTextObj(pNewObj))
             if (pTextObj->IsTextEditActive())
                 OSL_ENSURE(false, "NewObject is in TextEdit mode, this has to be ended before replacing it using SdrEndTextEdit (!)");
 #endif

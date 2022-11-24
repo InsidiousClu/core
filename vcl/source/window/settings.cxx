@@ -25,6 +25,8 @@
 #include <vcl/window.hxx>
 #include <vcl/settings.hxx>
 
+#include <officecfg/Office/Common.hxx>
+
 #include <unotools/configmgr.hxx>
 #include <unotools/confignode.hxx>
 
@@ -219,43 +221,21 @@ void Window::ImplUpdateGlobalSettings( AllSettings& rSettings, bool bCallHdl ) c
     aFont.SetFontHeight( defFontheight );
     aStyleSettings.SetGroupFont( aFont );
 
-    rSettings.SetStyleSettings( aStyleSettings );
-
-    bool bForceHCMode = false;
-
-    // auto detect HC mode; if the system already set it to "yes"
-    // (see above) then accept that
-    if (!rSettings.GetStyleSettings().GetHighContrastMode() && !utl::ConfigManager::IsFuzzing())
-    {
-        bool bAutoHCMode = true;
-        utl::OConfigurationNode aNode = utl::OConfigurationTreeRoot::tryCreateWithComponentContext(
-            comphelper::getProcessComponentContext(),
-            "org.openoffice.Office.Common/Accessibility" );    // note: case sensitive !
-        if ( aNode.isValid() )
-        {
-            css::uno::Any aValue = aNode.getNodeValue( "AutoDetectSystemHC" );
-            bool bTmp = false;
-            if( aValue >>= bTmp )
-                bAutoHCMode = bTmp;
-        }
-        if( bAutoHCMode )
-        {
-            if( rSettings.GetStyleSettings().GetFaceColor().IsDark() ||
-                rSettings.GetStyleSettings().GetWindowColor().IsDark() )
-                bForceHCMode = true;
-        }
-    }
-
     static const char* pEnvHC = getenv( "SAL_FORCE_HC" );
-    if( pEnvHC && *pEnvHC )
-        bForceHCMode = true;
-
-    if( bForceHCMode )
-    {
-        aStyleSettings = rSettings.GetStyleSettings();
+    const bool bForceHCMode = pEnvHC && *pEnvHC;
+    if (bForceHCMode)
         aStyleSettings.SetHighContrastMode( true );
-        rSettings.SetStyleSettings( aStyleSettings );
+    else
+    {
+        sal_Int32 nHighContrastMode = officecfg::Office::Common::Accessibility::HighContrast::get();
+        if (nHighContrastMode != 0) // 0 Automatic, 1 Disable, 2 Enable
+        {
+            const bool bEnable = nHighContrastMode == 2;
+            aStyleSettings.SetHighContrastMode(bEnable);
+        }
     }
+
+    rSettings.SetStyleSettings( aStyleSettings );
 
     if ( bCallHdl )
         GetpApp()->OverrideSystemSettings( rSettings );

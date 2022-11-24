@@ -102,7 +102,7 @@ namespace
     // #120879# - helper method to identify a bookmark name to match the internal TOC bookmark naming convention
     bool IsTOCBookmarkName(std::u16string_view rName)
     {
-        return o3tl::starts_with(rName, u"_Toc") || o3tl::starts_with(rName, OUStringConcatenation(IDocumentMarkAccess::GetCrossRefHeadingBookmarkNamePrefix()+"_Toc"));
+        return o3tl::starts_with(rName, u"_Toc") || o3tl::starts_with(rName, Concat2View(IDocumentMarkAccess::GetCrossRefHeadingBookmarkNamePrefix()+"_Toc"));
     }
 
     OUString EnsureTOCBookmarkName(const OUString& rName)
@@ -302,27 +302,27 @@ static void lcl_ConvertSequenceName(OUString& rSequenceName)
 
 // FindParaStart() finds 1st Parameter that follows '\' and cToken
 // and returns start of this parameter or -1
-static sal_Int32 FindParaStart( const OUString& rStr, sal_Unicode cToken, sal_Unicode cToken2 )
+static sal_Int32 FindParaStart( std::u16string_view aStr, sal_Unicode cToken, sal_Unicode cToken2 )
 {
     bool bStr = false; // ignore inside a string
 
-    for( sal_Int32 nBuf = 0; nBuf+1 < rStr.getLength(); nBuf++ )
+    for( size_t nBuf = 0; nBuf+1 < aStr.size(); nBuf++ )
     {
-        if( rStr[ nBuf ] == '"' )
+        if( aStr[ nBuf ] == '"' )
             bStr = !bStr;
 
         if(    !bStr
-            && rStr[ nBuf ] == '\\'
-            && (    rStr[ nBuf + 1 ] == cToken
-                 || rStr[ nBuf + 1 ] == cToken2 ) )
+            && aStr[ nBuf ] == '\\'
+            && (    aStr[ nBuf + 1 ] == cToken
+                 || aStr[ nBuf + 1 ] == cToken2 ) )
         {
             nBuf += 2;
             // skip spaces between cToken and its parameters
-            while(    nBuf < rStr.getLength()
-                   && rStr[ nBuf ] == ' ' )
+            while(    nBuf < aStr.size()
+                   && aStr[ nBuf ] == ' ' )
                 nBuf++;
             // return start of parameters
-            return nBuf < rStr.getLength() ? nBuf : -1;
+            return nBuf < aStr.size() ? nBuf : -1;
         }
     }
     return -1;
@@ -331,31 +331,31 @@ static sal_Int32 FindParaStart( const OUString& rStr, sal_Unicode cToken, sal_Un
 // FindPara() finds the first parameter including '\' and cToken.
 // A new String will be allocated (has to be deallocated by the caller)
 // and everything that is part of the parameter will be returned.
-static OUString FindPara( const OUString& rStr, sal_Unicode cToken, sal_Unicode cToken2 )
+static OUString FindPara( std::u16string_view aStr, sal_Unicode cToken, sal_Unicode cToken2 )
 {
     sal_Int32 n2;                                          // end
-    sal_Int32 n = FindParaStart( rStr, cToken, cToken2 );  // start
+    sal_Int32 n = FindParaStart( aStr, cToken, cToken2 );  // start
     if( n == -1)
         return OUString();
 
-    if(    rStr[ n ] == '"'
-        || rStr[ n ] == 132 )
+    if(    aStr[ n ] == '"'
+        || aStr[ n ] == 132 )
     {                               // Quotationmark in front of parameter
         n++;                        // Skip quotationmark
         n2 = n;                     // search for the end starting from here
-        while(     n2 < rStr.getLength()
-                && rStr[ n2 ] != 147
-                && rStr[ n2 ] != '"' )
+        while(     n2 < sal_Int32(aStr.size())
+                && aStr[ n2 ] != 147
+                && aStr[ n2 ] != '"' )
             n2++;                   // search end of parameter
     }
     else
     {                           // no quotationmarks
         n2 = n;                     // search for the end starting from here
-        while(     n2 < rStr.getLength()
-                && rStr[ n2 ] != ' ' )
+        while(     n2 < sal_Int32(aStr.size())
+                && aStr[ n2 ] != ' ' )
             n2++;                   // search end of parameter
     }
-    return rStr.copy( n, n2-n );
+    return OUString(aStr.substr( n, n2-n ));
 }
 
 static SvxNumType GetNumTypeFromName(const OUString& rStr,
@@ -382,9 +382,9 @@ static SvxNumType GetNumTypeFromName(const OUString& rStr,
     return eTyp;
 }
 
-static SvxNumType GetNumberPara(const OUString& rStr, bool bAllowPageDesc = false)
+static SvxNumType GetNumberPara(std::u16string_view aStr, bool bAllowPageDesc = false)
 {
-    OUString s( FindPara( rStr, '*', '*' ) );     // Type of number
+    OUString s( FindPara( aStr, '*', '*' ) );     // Type of number
     SvxNumType aType = GetNumTypeFromName( s, bAllowPageDesc );
     return aType;
 }
@@ -430,7 +430,7 @@ static OUString GetWordDefaultDateStringAsUS(SvNumberFormatter* pFormatter, Lang
     return sParams;
 }
 
-SvNumFormatType SwWW8ImplReader::GetTimeDatePara(OUString const & rStr, sal_uInt32& rFormat,
+SvNumFormatType SwWW8ImplReader::GetTimeDatePara(std::u16string_view aStr, sal_uInt32& rFormat,
     LanguageType &rLang, int nWhichDefault, bool bHijri)
 {
     bool bRTL = false;
@@ -446,7 +446,7 @@ SvNumFormatType SwWW8ImplReader::GetTimeDatePara(OUString const & rStr, sal_uInt
     rLang = pLang ? pLang->GetValue() : LANGUAGE_ENGLISH_US;
 
     SvNumberFormatter* pFormatter = m_rDoc.GetNumberFormatter();
-    OUString sParams( FindPara( rStr, '@', '@' ) );// Date/Time
+    OUString sParams( FindPara( aStr, '@', '@' ) );// Date/Time
     if (sParams.isEmpty())
     {
         bool bHasTime = false;
@@ -503,6 +503,20 @@ void SwWW8ImplReader::UpdateFields()
     m_rDoc.SetInitDBFields(true);             // Also update fields in the database
 }
 
+// Sanity check the PaM to see if it makes sense wrt sw::CalcBreaks
+static bool SanityCheck(const SwPaM& rFieldPam)
+{
+    SwNodeOffset const nEndNode(rFieldPam.End()->GetNodeIndex());
+    SwNodes const& rNodes(rFieldPam.GetPoint()->GetNodes());
+    SwNode *const pFinalNode(rNodes[nEndNode]);
+    if (pFinalNode->IsTextNode())
+    {
+        SwTextNode & rTextNode(*pFinalNode->GetTextNode());
+        return (rTextNode.Len() >= rFieldPam.End()->GetContentIndex());
+    }
+    return true;
+}
+
 sal_uInt16 SwWW8ImplReader::End_Field()
 {
     sal_uInt16 nRet = 0;
@@ -530,10 +544,11 @@ sal_uInt16 SwWW8ImplReader::End_Field()
         if (bUseEnhFields && m_pPaM!=nullptr && m_pPaM->GetPoint()!=nullptr) {
             SwPosition aEndPos = *m_pPaM->GetPoint();
             SwPaM aFieldPam( m_aFieldStack.back().GetPtNode().GetNode(), m_aFieldStack.back().GetPtContent(), aEndPos.GetNode(), aEndPos.GetContentIndex());
+
             IDocumentMarkAccess* pMarksAccess = m_rDoc.getIDocumentMarkAccess( );
-            IFieldmark *pFieldmark = pMarksAccess->makeFieldBookmark(
+            IFieldmark *pFieldmark = SanityCheck(aFieldPam) ? pMarksAccess->makeFieldBookmark(
                         aFieldPam, m_aFieldStack.back().GetBookmarkName(), ODF_FORMTEXT,
-                        aFieldPam.Start() /*same pos as start!*/ );
+                        aFieldPam.Start() /*same pos as start!*/ ) : nullptr;
             OSL_ENSURE(pFieldmark!=nullptr, "hmmm; why was the bookmark not created?");
             if (pFieldmark!=nullptr) {
                 // adapt redline positions to inserted field mark start

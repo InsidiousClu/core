@@ -40,6 +40,7 @@
 #include <sfx2/frame.hxx>
 #include <undoblk.hxx>
 #include <unotools/tempfile.hxx>
+#include <scdll.hxx>
 #include <scitems.hxx>
 #include <stringutil.hxx>
 #include <tokenarray.hxx>
@@ -91,12 +92,6 @@ std::ostream& operator<<(std::ostream& rStrm, const ScRangeList& rList)
     return rStrm;
 }
 
-std::ostream& operator<<(std::ostream& rStrm, const Color& rColor)
-{
-    rStrm << "Color: R:" << static_cast<int>(rColor.GetRed()) << " G:" << static_cast<int>(rColor.GetGreen()) << " B: " << static_cast<int>(rColor.GetBlue());
-    return rStrm;
-}
-
 std::ostream& operator<<(std::ostream& rStrm, const OpCode& rCode)
 {
     rStrm << static_cast<sal_uInt16>(rCode);
@@ -124,7 +119,7 @@ bool testEqualsWithTolerance( tools::Long nVal1, tools::Long nVal2, tools::Long 
     return ( std::abs( nVal1 - nVal2 ) <= nTol );
 }
 
-void loadFile(const OUString& aFileName, std::string& aContent)
+void ScModelTestBase::loadFile(const OUString& aFileName, std::string& aContent)
 {
     OString aOFileName = OUStringToOString(aFileName, RTL_TEXTENCODING_UTF8);
 
@@ -149,7 +144,7 @@ void loadFile(const OUString& aFileName, std::string& aContent)
     aContent = aOStream.str();
 }
 
-void testFile(const OUString& aFileName, ScDocument& rDoc, SCTAB nTab, StringType aStringFormat)
+void ScModelTestBase::testFile(const OUString& aFileName, ScDocument& rDoc, SCTAB nTab, StringType aStringFormat)
 {
     csv_handler aHandler(&rDoc, nTab, aStringFormat);
     orcus::csv::parser_config aConfig;
@@ -174,7 +169,7 @@ void testFile(const OUString& aFileName, ScDocument& rDoc, SCTAB nTab, StringTyp
     }
 }
 
-void testCondFile(const OUString& aFileName, ScDocument* pDoc, SCTAB nTab)
+void ScModelTestBase::testCondFile(const OUString& aFileName, ScDocument* pDoc, SCTAB nTab)
 {
     conditional_format_handler aHandler(pDoc, nTab);
     orcus::csv::parser_config aConfig;
@@ -197,11 +192,10 @@ void testCondFile(const OUString& aFileName, ScDocument* pDoc, SCTAB nTab)
     }
 }
 
-void testFormats(ScBootstrapFixture* pTest, ScDocument* pDoc, sal_Int32 nFormat)
+void ScModelTestBase::testFormats(ScDocument* pDoc,std::u16string_view sFormat)
 {
     //test Sheet1 with csv file
-    OUString aCSVFileName;
-    pTest->createCSVPath("numberFormat.", aCSVFileName);
+    OUString aCSVFileName = createFilePath(u"contentCSV/numberFormat.csv");
     testFile(aCSVFileName, *pDoc, 0, StringType::PureString);
     //need to test the color of B3
     //it's not a font color!
@@ -229,7 +223,7 @@ void testFormats(ScBootstrapFixture* pTest, ScDocument* pDoc, sal_Int32 nFormat)
     pPattern->GetFont(aFont, SC_AUTOCOL_RAW);
     CPPUNIT_ASSERT_EQUAL_MESSAGE("font should be striked out with a single line", STRIKEOUT_SINGLE, aFont.GetStrikeout());
     //some tests on sheet2 only for ods
-    if (nFormat == FORMAT_ODS)
+    if (sFormat == u"calc8")
     {
         pPattern = pDoc->GetPattern(1,2,1);
         pPattern->GetFont(aFont, SC_AUTOCOL_RAW);
@@ -270,12 +264,12 @@ void testFormats(ScBootstrapFixture* pTest, ScDocument* pDoc, sal_Int32 nFormat)
     CPPUNIT_ASSERT_EQUAL_MESSAGE("cell content should be aligned block horizontally", SvxCellHorJustify::Block, eHorJustify);
 
     //test Sheet3 only for ods and xlsx
-    if ( nFormat == FORMAT_ODS || nFormat == FORMAT_XLSX )
+    if ( sFormat == u"calc8" || sFormat == u"Calc Office Open XML" )
     {
-        pTest->createCSVPath("conditionalFormatting.", aCSVFileName);
+        aCSVFileName = createFilePath(u"contentCSV/conditionalFormatting.csv");
         testCondFile(aCSVFileName, pDoc, 2);
         // test parent cell style import ( fdo#55198 )
-        if ( nFormat == FORMAT_XLSX )
+        if ( sFormat == u"Calc Office Open XML" )
         {
             pPattern = pDoc->GetPattern(1,1,3);
             ScStyleSheet* pStyleSheet = const_cast<ScStyleSheet*>(pPattern->GetStyleSheet());
@@ -312,7 +306,7 @@ void testFormats(ScBootstrapFixture* pTest, ScDocument* pDoc, sal_Int32 nFormat)
     CPPUNIT_ASSERT_EQUAL(ScRangeList(ScRange(1,1,2,3,1,2)), rRange3);
 }
 
-const SdrOle2Obj* getSingleOleObject(ScDocument& rDoc, sal_uInt16 nPage)
+const SdrOle2Obj* ScModelTestBase::getSingleOleObject(ScDocument& rDoc, sal_uInt16 nPage)
 {
     // Retrieve the chart object instance from the 2nd page (for the 2nd sheet).
     ScDrawLayer* pDrawLayer = rDoc.GetDrawLayer();
@@ -351,7 +345,7 @@ const SdrOle2Obj* getSingleOleObject(ScDocument& rDoc, sal_uInt16 nPage)
     return static_cast<const SdrOle2Obj*>(pObj);
 }
 
-const SdrOle2Obj* getSingleChartObject(ScDocument& rDoc, sal_uInt16 nPage)
+const SdrOle2Obj* ScModelTestBase::getSingleChartObject(ScDocument& rDoc, sal_uInt16 nPage)
 {
     const SdrOle2Obj* pObj = getSingleOleObject(rDoc, nPage);
 
@@ -413,7 +407,7 @@ static std::vector<OUString> getChartRangeRepresentations(const SdrOle2Obj& rCha
     return aRangeReps;
 }
 
-ScRangeList getChartRanges(ScDocument& rDoc, const SdrOle2Obj& rChartObj)
+ScRangeList ScModelTestBase::getChartRanges(ScDocument& rDoc, const SdrOle2Obj& rChartObj)
 {
     std::vector<OUString> aRangeReps = getChartRangeRepresentations(rChartObj);
     ScRangeList aRanges;
@@ -448,73 +442,6 @@ ScTokenArray* getTokens(ScDocument& rDoc, const ScAddress& rPos)
     }
 
     return pCell->GetCode();
-}
-
-bool checkFormula(ScDocument& rDoc, const ScAddress& rPos, const char* pExpected)
-{
-    ScTokenArray* pCode = getTokens(rDoc, rPos);
-    if (!pCode)
-    {
-        cerr << "Empty token array." << endl;
-        return false;
-    }
-
-    OUString aFormula = toString(rDoc, rPos, *pCode, rDoc.GetGrammar());
-    if (aFormula != OUString::createFromAscii(pExpected))
-    {
-        cerr << "Formula '" << pExpected << "' expected, but '" << aFormula << "' found" << endl;
-        return false;
-    }
-
-    return true;
-}
-
-bool checkFormulaPosition(ScDocument& rDoc, const ScAddress& rPos)
-{
-    OUString aStr(rPos.Format(ScRefFlags::VALID));
-    const ScFormulaCell* pFC = rDoc.GetFormulaCell(rPos);
-    if (!pFC)
-    {
-        cerr << "Formula cell expected at " << aStr << " but not found." << endl;
-        return false;
-    }
-
-    if (pFC->aPos != rPos)
-    {
-        OUString aStr2(pFC->aPos.Format(ScRefFlags::VALID));
-        cerr << "Formula cell at " << aStr << " has incorrect position of " << aStr2 << endl;
-        return false;
-    }
-
-    return true;
-}
-
-bool checkFormulaPositions(
-    ScDocument& rDoc, SCTAB nTab, SCCOL nCol, const SCROW* pRows, size_t nRowCount)
-{
-    ScAddress aPos(nCol, 0, nTab);
-    for (size_t i = 0; i < nRowCount; ++i)
-    {
-        SCROW nRow = pRows[i];
-        aPos.SetRow(nRow);
-
-        if (!checkFormulaPosition(rDoc, aPos))
-        {
-            OUString aStr(aPos.Format(ScRefFlags::VALID));
-            cerr << "Formula cell position failed at " << aStr << "." << endl;
-            return false;
-        }
-    }
-    return true;
-}
-
-std::unique_ptr<ScTokenArray> compileFormula(
-    ScDocument* pDoc, const OUString& rFormula,
-    formula::FormulaGrammar::Grammar eGram )
-{
-    ScAddress aPos(0,0,0);
-    ScCompiler aComp(*pDoc, aPos, eGram);
-    return aComp.CompileString(rFormula);
 }
 
 bool checkOutput(
@@ -555,34 +482,6 @@ bool checkOutput(
     return bResult;
 }
 
-void clearFormulaCellChangedFlag( ScDocument& rDoc, const ScRange& rRange )
-{
-    const ScAddress& s = rRange.aStart;
-    const ScAddress& e = rRange.aEnd;
-    for (SCTAB nTab = s.Tab(); nTab <= e.Tab(); ++nTab)
-    {
-        for (SCCOL nCol = s.Col(); nCol <= e.Col(); ++nCol)
-        {
-            for (SCROW nRow = s.Row(); nRow <= e.Row(); ++nRow)
-            {
-                ScAddress aPos(nCol, nRow, nTab);
-                ScFormulaCell* pFC = rDoc.GetFormulaCell(aPos);
-                if (pFC)
-                    pFC->SetChanged(false);
-            }
-        }
-    }
-}
-
-bool isFormulaWithoutError(ScDocument& rDoc, const ScAddress& rPos)
-{
-    ScFormulaCell* pFC = rDoc.GetFormulaCell(rPos);
-    if (!pFC)
-        return false;
-
-    return pFC->GetErrCode() == FormulaError::NONE;
-}
-
 OUString toString(
     ScDocument& rDoc, const ScAddress& rPos, ScTokenArray& rArray, formula::FormulaGrammar::Grammar eGram)
 {
@@ -592,10 +491,10 @@ OUString toString(
     return aBuf.makeStringAndClear();
 }
 
-ScDocShellRef ScBootstrapFixture::load( bool bReadWrite,
+ScDocShellRef ScBootstrapFixture::load(
     const OUString& rURL, const OUString& rFilter, const OUString &rUserData,
     const OUString& rTypeName, SfxFilterFlags nFilterFlags, SotClipboardFormatId nClipboardID,
-    sal_uIntPtr nFilterVersion, const OUString* pPassword )
+     sal_Int32 nFilterVersion, const OUString* pPassword )
 {
     auto pFilter = std::make_shared<SfxFilter>(
         rFilter,
@@ -605,7 +504,7 @@ ScDocShellRef ScBootstrapFixture::load( bool bReadWrite,
 
     ScDocShellRef xDocShRef = new ScDocShell;
     xDocShRef->GetDocument().EnableUserInteraction(false);
-    SfxMedium* pSrcMed = new SfxMedium(rURL, bReadWrite ? StreamMode::STD_READWRITE : StreamMode::STD_READ );
+    SfxMedium* pSrcMed = new SfxMedium(rURL, StreamMode::STD_READ );
     pSrcMed->SetFilter(pFilter);
     pSrcMed->UseInteractionHandler(false);
     SfxItemSet* pSet = pSrcMed->GetItemSet();
@@ -625,16 +524,13 @@ ScDocShellRef ScBootstrapFixture::load( bool bReadWrite,
     return xDocShRef;
 }
 
-ScDocShellRef ScBootstrapFixture::load(
-    const OUString& rURL, const OUString& rFilter, const OUString &rUserData,
-    const OUString& rTypeName, SfxFilterFlags nFilterFlags, SotClipboardFormatId nClipboardID,
-    sal_uIntPtr nFilterVersion, const OUString* pPassword )
+ScDocShellRef ScBootstrapFixture::loadDoc(
+    std::u16string_view rFileName, sal_Int32 nFormat, bool bCheckErrorCode )
 {
-    return load( false, rURL, rFilter, rUserData, rTypeName, nFilterFlags, nClipboardID,  nFilterVersion, pPassword );
-}
+    OUString aFileExtension = OUString::fromUtf8(aFileFormats[nFormat].pName);
+    OUString aFileName;
+    createFileURL( rFileName, aFileExtension, aFileName );
 
-ScDocShellRef ScBootstrapFixture::load(const OUString& rURL, sal_Int32 nFormat, bool bReadWrite)
-{
     OUString aFilterName(aFileFormats[nFormat].pFilterName, strlen(aFileFormats[nFormat].pFilterName), RTL_TEXTENCODING_UTF8) ;
     OUString aFilterType(aFileFormats[nFormat].pTypeName, strlen(aFileFormats[nFormat].pTypeName), RTL_TEXTENCODING_UTF8);
     SfxFilterFlags nFormatType = aFileFormats[nFormat].nFormatType;
@@ -642,64 +538,7 @@ ScDocShellRef ScBootstrapFixture::load(const OUString& rURL, sal_Int32 nFormat, 
     if (nFormatType != SfxFilterFlags::NONE)
         nClipboardId = SotClipboardFormatId::STARCALC_8;
 
-    return load(bReadWrite, rURL, aFilterName, OUString(), aFilterType, nFormatType, nClipboardId, static_cast<sal_uIntPtr>(nFormatType));
-}
-
-ScDocShellRef ScBootstrapFixture::loadEmptyDocument(const uno::Sequence<beans::PropertyValue>& rPropertyValues)
-{
-    uno::Reference< frame::XDesktop2 > xDesktop = frame::Desktop::create(::comphelper::getProcessComponentContext());
-    CPPUNIT_ASSERT(xDesktop.is());
-
-    uno::Reference< lang::XComponent > xComponent = xDesktop->loadComponentFromURL(
-        "private:factory/scalc",
-        "_blank",
-        0,
-        rPropertyValues);
-    CPPUNIT_ASSERT(xComponent.is());
-
-    // Get the document model
-    SfxObjectShell* pFoundShell = SfxObjectShell::GetShellFromComponent(xComponent);
-    CPPUNIT_ASSERT_MESSAGE("Failed to access document shell", pFoundShell);
-
-    return dynamic_cast<ScDocShell*>(pFoundShell);
-}
-
-ScDocShellRef ScBootstrapFixture::loadDocAndSetupModelViewController(std::u16string_view rFileName, sal_Int32 nFormat)
-{
-    uno::Reference< frame::XDesktop2 > xDesktop = frame::Desktop::create(comphelper::getProcessComponentContext());
-    CPPUNIT_ASSERT(xDesktop.is());
-
-    // create a frame
-    Reference< frame::XFrame > xTargetFrame = xDesktop->findFrame("_blank", 0);
-    CPPUNIT_ASSERT(xTargetFrame.is());
-
-    // 1. Open the document
-    ScDocShellRef xDocSh = loadDoc(rFileName, nFormat, true);
-
-    uno::Reference< frame::XModel2 > xModel2 = xDocSh->GetModel();
-    CPPUNIT_ASSERT(xModel2.is());
-
-    Reference< frame::XController2 > xController = xModel2->createDefaultViewController(xTargetFrame);
-    CPPUNIT_ASSERT(xController.is());
-
-    // introduce model/view/controller to each other
-    xController->attachModel(xModel2);
-    xModel2->connectController(xController);
-    xTargetFrame->setComponent(xController->getComponentWindow(), xController);
-    xController->attachFrame(xTargetFrame);
-    xModel2->setCurrentController(xController);
-
-    return xDocSh;
-}
-
-ScDocShellRef ScBootstrapFixture::loadDoc(
-    std::u16string_view rFileName, sal_Int32 nFormat, bool bReadWrite, bool bCheckErrorCode )
-{
-    OUString aFileExtension = OUString::fromUtf8(aFileFormats[nFormat].pName);
-    OUString aFileName;
-    createFileURL( rFileName, aFileExtension, aFileName );
-
-    ScDocShellRef xDocShRef = load(aFileName, nFormat, bReadWrite);
+    ScDocShellRef xDocShRef = load(aFileName, aFilterName, OUString(), aFilterType, nFormatType, nClipboardId, static_cast<sal_uIntPtr>(nFormatType));
     CPPUNIT_ASSERT_MESSAGE(OString("Failed to load " + OUStringToOString(rFileName, RTL_TEXTENCODING_UTF8)).getStr(), xDocShRef.is());
 
     if (bCheckErrorCode)
@@ -712,15 +551,6 @@ ScDocShellRef ScBootstrapFixture::loadDoc(
 
 ScBootstrapFixture::ScBootstrapFixture( const OUString& rsBaseString ) : m_aBaseString( rsBaseString ) {}
 ScBootstrapFixture::~ScBootstrapFixture() {}
-
-namespace {
-OUString EnsureSeparator(const OUStringBuffer& rFilePath)
-{
-    return (rFilePath.getLength() == 0) || (rFilePath[rFilePath.getLength() - 1] != '/') ?
-        OUString("/") :
-        OUString();
-}
-}
 
 void ScBootstrapFixture::createFileURL(
     std::u16string_view aFileBase, std::u16string_view aFileExtension, OUString& rFilePath)
@@ -735,156 +565,92 @@ void ScBootstrapFixture::createFileURL(
     rFilePath = url.GetMainURL(INetURLObject::DecodeMechanism::NONE);
 }
 
-void ScBootstrapFixture::createCSVPath(const char* aFileBase, OUString& rCSVPath)
+void ScBootstrapFixture::setUp()
 {
-    OUStringBuffer aBuffer( m_directories.getSrcRootPath());
-    aBuffer.append(EnsureSeparator(aBuffer));
-    aBuffer.append(m_aBaseString);
-    aBuffer.append(EnsureSeparator(aBuffer));
-    aBuffer.append("contentCSV/").appendAscii(aFileBase).append("csv");
-    rCSVPath = aBuffer.makeStringAndClear();
+    test::BootstrapFixture::setUp();
+
+    // This is a bit of a fudge, we do this to ensure that ScGlobals::ensure,
+    // which is a private symbol to us, gets called
+    m_xCalcComponent
+        = getMultiServiceFactory()->createInstance("com.sun.star.comp.Calc.SpreadsheetDocument");
+    CPPUNIT_ASSERT_MESSAGE("no calc component!", m_xCalcComponent.is());
 }
 
-void ScBootstrapFixture::createCSVPath(std::u16string_view aFileBase, OUString& rCSVPath)
+void ScBootstrapFixture::tearDown()
 {
-    OUStringBuffer aBuffer( m_directories.getSrcRootPath());
-    aBuffer.append(EnsureSeparator(aBuffer));
-    aBuffer.append(m_aBaseString);
-    aBuffer.append(EnsureSeparator(aBuffer));
-    aBuffer.append("contentCSV/");
-    aBuffer.append(aFileBase);
-    aBuffer.append("csv");
-    rCSVPath = aBuffer.makeStringAndClear();
+    uno::Reference< lang::XComponent >( m_xCalcComponent, UNO_QUERY_THROW )->dispose();
+    test::BootstrapFixture::tearDown();
 }
 
-ScDocShellRef ScBootstrapFixture::saveAndReload(
-    ScDocShell& rShell, const OUString &rFilter,
-    const OUString &rUserData, const OUString& rTypeName, SfxFilterFlags nFormatType,
-    std::shared_ptr<utl::TempFileNamed>* pTempFileOut,  const OUString* pPassword, bool bClose)
+void ScSimpleBootstrapFixture::setUp()
 {
-    auto pTempFile = std::make_shared<utl::TempFileNamed>();
-    SfxMedium aStoreMedium( pTempFile->GetURL(), StreamMode::STD_WRITE );
-    SotClipboardFormatId nExportFormat = SotClipboardFormatId::NONE;
-    if (nFormatType == ODS_FORMAT_TYPE)
-        nExportFormat = SotClipboardFormatId::STARCHART_8;
-    auto pExportFilter = std::make_shared<SfxFilter>(
-        rFilter,
-        OUString(), nFormatType, nExportFormat, rTypeName, OUString(),
-        rUserData, "private:factory/scalc*" );
-    pExportFilter->SetVersion(SOFFICE_FILEFORMAT_CURRENT);
-    aStoreMedium.SetFilter(pExportFilter);
+    BootstrapFixture::setUp();
 
-    if (pPassword)
-    {
-        SfxItemSet* pExportSet = aStoreMedium.GetItemSet();
-        uno::Sequence< beans::NamedValue > aEncryptionData = comphelper::OStorageHelper::CreatePackageEncryptionData( *pPassword );
-        pExportSet->Put(SfxUnoAnyItem(SID_ENCRYPTIONDATA, Any(aEncryptionData)));
+    ScDLL::Init();
 
-        uno::Reference< embed::XStorage > xMedStorage = aStoreMedium.GetStorage();
-        ::comphelper::OStorageHelper::SetCommonStorageEncryptionData( xMedStorage, aEncryptionData );
-    }
-    rShell.DoSaveAs( aStoreMedium );
-    if (bClose)
-        rShell.DoClose();
+    m_xDocShell
+        = new ScDocShell(SfxModelFlags::EMBEDDED_OBJECT | SfxModelFlags::DISABLE_EMBEDDED_SCRIPTS
+                         | SfxModelFlags::DISABLE_DOCUMENT_RECOVERY);
+    m_xDocShell->DoInitUnitTest();
 
-    //std::cout << "File: " << pTempFile->GetURL() << std::endl;
-
-    SotClipboardFormatId nFormat = SotClipboardFormatId::NONE;
-    if (nFormatType == ODS_FORMAT_TYPE)
-        nFormat = SotClipboardFormatId::STARCALC_8;
-
-    ScDocShellRef xDocSh = load(pTempFile->GetURL(), rFilter, rUserData, rTypeName, nFormatType, nFormat, SOFFICE_FILEFORMAT_CURRENT, pPassword );
-    if(nFormatType == XLSX_FORMAT_TYPE)
-        validate(pTempFile->GetFileName(), test::OOXML);
-    else if (nFormatType == ODS_FORMAT_TYPE)
-        validate(pTempFile->GetFileName(), test::ODF);
-    pTempFile->EnableKillingFile();
-    if(pTempFileOut)
-        *pTempFileOut = pTempFile;
-    return xDocSh;
+    m_pDoc = &m_xDocShell->GetDocument();
 }
 
-ScDocShellRef ScBootstrapFixture::saveAndReload( ScDocShell& rShell, sal_Int32 nFormat, std::shared_ptr<utl::TempFileNamed>* pTempFile )
+void ScSimpleBootstrapFixture::tearDown()
 {
-    OUString aFilterName(aFileFormats[nFormat].pFilterName, strlen(aFileFormats[nFormat].pFilterName), RTL_TEXTENCODING_UTF8) ;
-    OUString aFilterType(aFileFormats[nFormat].pTypeName, strlen(aFileFormats[nFormat].pTypeName), RTL_TEXTENCODING_UTF8);
-    ScDocShellRef xDocSh = saveAndReload(rShell, aFilterName, OUString(), aFilterType, aFileFormats[nFormat].nFormatType, pTempFile);
+    m_xDocShell->DoClose();
+    m_xDocShell.clear();
 
-    CPPUNIT_ASSERT(xDocSh.is());
-    return xDocSh;
+    test::BootstrapFixture::tearDown();
 }
 
-ScDocShellRef ScBootstrapFixture::saveAndReloadPassword( ScDocShell& rShell, sal_Int32 nFormat, std::shared_ptr<utl::TempFileNamed>* pTempFile )
+void ScModelTestBase::createScDoc(const char* pName, const char* pPassword)
 {
-    OUString aFilterName(aFileFormats[nFormat].pFilterName, strlen(aFileFormats[nFormat].pFilterName), RTL_TEXTENCODING_UTF8) ;
-    OUString aFilterType(aFileFormats[nFormat].pTypeName, strlen(aFileFormats[nFormat].pTypeName), RTL_TEXTENCODING_UTF8);
-    OUString aPass("test");
+    if (!pName)
+        load("private:factory/scalc");
+    else
+        loadFromURL(OUString::createFromAscii(pName), pPassword);
 
-    ScDocShellRef xDocSh = saveAndReload(rShell, aFilterName, OUString(), aFilterType, aFileFormats[nFormat].nFormatType, pTempFile, &aPass);
-
-    CPPUNIT_ASSERT(xDocSh.is());
-    return xDocSh;
+    uno::Reference<lang::XServiceInfo> xServiceInfo(mxComponent, uno::UNO_QUERY);
+    CPPUNIT_ASSERT(xServiceInfo->supportsService("com.sun.star.sheet.SpreadsheetDocument"));
 }
 
-ScDocShellRef ScBootstrapFixture::saveAndReloadNoClose( ScDocShell& rShell, sal_Int32 nFormat, std::shared_ptr<utl::TempFileNamed>* pTempFile )
+ScDocument* ScModelTestBase::getScDoc()
 {
-    OUString aFilterName(aFileFormats[nFormat].pFilterName, strlen(aFileFormats[nFormat].pFilterName), RTL_TEXTENCODING_UTF8) ;
-    OUString aFilterType(aFileFormats[nFormat].pTypeName, strlen(aFileFormats[nFormat].pTypeName), RTL_TEXTENCODING_UTF8);
-
-    ScDocShellRef xDocSh = saveAndReload(rShell, aFilterName, OUString(), aFilterType, aFileFormats[nFormat].nFormatType, pTempFile, nullptr, false);
-
-    CPPUNIT_ASSERT(xDocSh.is());
-    return xDocSh;
+    ScModelObj* pModelObj = dynamic_cast<ScModelObj*>(mxComponent.get());
+    CPPUNIT_ASSERT(pModelObj);
+    return pModelObj->GetDocument();
 }
 
-std::shared_ptr<utl::TempFileNamed> ScBootstrapFixture::exportTo( ScDocShell& rShell, sal_Int32 nFormat, bool bValidate )
+ScDocShell* ScModelTestBase::getScDocShell()
 {
-    OUString aFilterName(aFileFormats[nFormat].pFilterName, strlen(aFileFormats[nFormat].pFilterName), RTL_TEXTENCODING_UTF8) ;
-    OUString aFilterType(aFileFormats[nFormat].pTypeName, strlen(aFileFormats[nFormat].pTypeName), RTL_TEXTENCODING_UTF8);
-
-    auto pTempFile = std::make_shared<utl::TempFileNamed>();
-    pTempFile->EnableKillingFile();
-    SfxMedium aStoreMedium( pTempFile->GetURL(), StreamMode::STD_WRITE );
-    SotClipboardFormatId nExportFormat = SotClipboardFormatId::NONE;
-    SfxFilterFlags nFormatType = aFileFormats[nFormat].nFormatType;
-    if (nFormatType == ODS_FORMAT_TYPE)
-        nExportFormat = SotClipboardFormatId::STARCHART_8;
-    auto pExportFilter = std::make_shared<SfxFilter>(
-        aFilterName,
-        OUString(), nFormatType, nExportFormat, aFilterType, OUString(),
-        OUString(), "private:factory/scalc*" );
-    pExportFilter->SetVersion(SOFFICE_FILEFORMAT_CURRENT);
-    aStoreMedium.SetFilter(pExportFilter);
-    rShell.DoSaveAs( aStoreMedium );
-    rShell.DoClose();
-
-    if(bValidate)
-    {
-        if(nFormatType == XLSX_FORMAT_TYPE)
-            validate(pTempFile->GetFileName(), test::OOXML);
-        else if (nFormatType == ODS_FORMAT_TYPE)
-            validate(pTempFile->GetFileName(), test::ODF);
-    }
-
-    return pTempFile;
+    SfxObjectShell* pFoundShell = SfxObjectShell::GetShellFromComponent(mxComponent);
+    CPPUNIT_ASSERT_MESSAGE("Failed to access document shell", pFoundShell);
+    ScDocShell* pDocSh = dynamic_cast<ScDocShell*>(pFoundShell);
+    CPPUNIT_ASSERT(pDocSh);
+    return pDocSh;
 }
 
-void ScBootstrapFixture::miscRowHeightsTest( TestParam const * aTestValues, unsigned int numElems )
+ScTabViewShell* ScModelTestBase::getViewShell()
+{
+    ScDocShell* pDocSh = getScDocShell();
+    ScTabViewShell* pTabViewShell = pDocSh->GetBestViewShell(false);
+    CPPUNIT_ASSERT_MESSAGE("No ScTabViewShell", pTabViewShell);
+    return pTabViewShell;
+}
+
+void ScModelTestBase::miscRowHeightsTest( TestParam const * aTestValues, unsigned int numElems)
 {
     for ( unsigned int index=0; index<numElems; ++index )
     {
-        OUString sFileName = OUString::createFromAscii( aTestValues[ index ].sTestDoc );
-        SAL_INFO( "sc.qa", "aTestValues[" << index << "] " << sFileName );
-        int nImportType =  aTestValues[ index ].nImportType;
-        int nExportType =  aTestValues[ index ].nExportType;
-        ScDocShellRef xShell = loadDoc( sFileName, nImportType );
+        const std::u16string_view sFileName = aTestValues[ index ].sTestDoc;
+        const OUString sExportType =  aTestValues[ index ].sExportType;
+        loadFromURL(sFileName);
 
-        if ( nExportType != -1 )
-            xShell = saveAndReload(*xShell, nExportType );
+        if ( !sExportType.isEmpty() )
+            saveAndReload(sExportType);
 
-        CPPUNIT_ASSERT(xShell.is());
-
-        ScDocument& rDoc = xShell->GetDocument();
+        ScDocument* pDoc = getScDoc();
 
         for (int i=0; i<aTestValues[ index ].nRowData; ++i)
         {
@@ -898,42 +664,19 @@ void ScBootstrapFixture::miscRowHeightsTest( TestParam const * aTestValues, unsi
             for ( ; nRow <= nEndRow; ++nRow )
             {
                 SAL_INFO( "sc.qa", " checking row " << nRow << " for height " << nExpectedHeight );
-                int nHeight = convertTwipToMm100(rDoc.GetRowHeight(nRow, nTab, false));
+                int nHeight = convertTwipToMm100(pDoc->GetRowHeight(nRow, nTab, false));
                 if ( bCheckOpt )
                 {
-                    bool bOpt = !(rDoc.GetRowFlags( nRow, nTab ) & CRFlags::ManualSize);
+                    bool bOpt = !(pDoc->GetRowFlags( nRow, nTab ) & CRFlags::ManualSize);
                     CPPUNIT_ASSERT_EQUAL(aTestValues[ index ].pData[ i ].bOptimal, bOpt);
                 }
                 CPPUNIT_ASSERT_EQUAL(nExpectedHeight, nHeight);
             }
         }
-        xShell->DoClose();
     }
 }
 
-std::string to_std_string(const OUString& rStr)
-{
-    return std::string(rStr.toUtf8().getStr());
-}
-
-void checkFormula(ScDocument& rDoc, const ScAddress& rPos, const char* expected, const char* msg, CppUnit::SourceLine const & sourceLine)
-{
-    ScTokenArray* pCode = getTokens(rDoc, rPos);
-    if (!pCode)
-    {
-        CppUnit::Asserter::fail("empty token array", sourceLine);
-    }
-
-    OUString aFormula = toString(rDoc, rPos, *pCode, rDoc.GetGrammar());
-    OUString aExpectedFormula = OUString::createFromAscii(expected);
-    if (aFormula != aExpectedFormula)
-    {
-        CppUnit::Asserter::failNotEqual(to_std_string(aExpectedFormula),
-                to_std_string(aFormula), sourceLine, CppUnit::AdditionalMessage(msg));
-    }
-}
-
-ScRange insertRangeData(
+ScRange ScSimpleBootstrapFixture::insertRangeData(
     ScDocument* pDoc, const ScAddress& rPos, const std::vector<std::vector<const char*>>& rData )
 {
     if (rData.empty())
@@ -980,7 +723,7 @@ ScRange insertRangeData(
     return aRange;
 }
 
-ScUndoCut* cutToClip(ScDocShell& rDocSh, const ScRange& rRange, ScDocument* pClipDoc, bool bCreateUndo)
+ScUndoCut* ScSimpleBootstrapFixture::cutToClip(ScDocShell& rDocSh, const ScRange& rRange, ScDocument* pClipDoc, bool bCreateUndo)
 {
     ScDocument* pSrcDoc = &rDocSh.GetDocument();
 
@@ -1014,7 +757,7 @@ ScUndoCut* cutToClip(ScDocShell& rDocSh, const ScRange& rRange, ScDocument* pCli
     return nullptr;
 }
 
-void copyToClip(ScDocument* pSrcDoc, const ScRange& rRange, ScDocument* pClipDoc)
+void ScSimpleBootstrapFixture::copyToClip(ScDocument* pSrcDoc, const ScRange& rRange, ScDocument* pClipDoc)
 {
     ScClipParam aClipParam(rRange, false);
     ScMarkData aMark(pSrcDoc->GetSheetLimits());
@@ -1022,14 +765,14 @@ void copyToClip(ScDocument* pSrcDoc, const ScRange& rRange, ScDocument* pClipDoc
     pSrcDoc->CopyToClip(aClipParam, pClipDoc, &aMark, false, false);
 }
 
-void pasteFromClip(ScDocument* pDestDoc, const ScRange& rDestRange, ScDocument* pClipDoc)
+void ScSimpleBootstrapFixture::pasteFromClip(ScDocument* pDestDoc, const ScRange& rDestRange, ScDocument* pClipDoc)
 {
     ScMarkData aMark(pDestDoc->GetSheetLimits());
     aMark.SetMarkArea(rDestRange);
     pDestDoc->CopyFromClip(rDestRange, aMark, InsertDeleteFlags::ALL, nullptr, pClipDoc);
 }
 
-ScUndoPaste* createUndoPaste(ScDocShell& rDocSh, const ScRange& rRange, ScDocumentUniquePtr pUndoDoc)
+ScUndoPaste* ScSimpleBootstrapFixture::createUndoPaste(ScDocShell& rDocSh, const ScRange& rRange, ScDocumentUniquePtr pUndoDoc)
 {
     ScDocument& rDoc = rDocSh.GetDocument();
     ScMarkData aMarkData(rDoc.GetSheetLimits());
@@ -1040,7 +783,7 @@ ScUndoPaste* createUndoPaste(ScDocShell& rDocSh, const ScRange& rRange, ScDocume
         &rDocSh, rRange, aMarkData, std::move(pUndoDoc), nullptr, InsertDeleteFlags::ALL, std::move(pRefUndoData), false);
 }
 
-void pasteOneCellFromClip(ScDocument* pDestDoc, const ScRange& rDestRange, ScDocument* pClipDoc, InsertDeleteFlags eFlags)
+void ScSimpleBootstrapFixture::pasteOneCellFromClip(ScDocument* pDestDoc, const ScRange& rDestRange, ScDocument* pClipDoc, InsertDeleteFlags eFlags)
 {
     ScMarkData aMark(pDestDoc->GetSheetLimits());
     aMark.SetMarkArea(rDestRange);
@@ -1052,14 +795,14 @@ void pasteOneCellFromClip(ScDocument* pDestDoc, const ScRange& rDestRange, ScDoc
             rDestRange.aEnd.Col(), rDestRange.aEnd.Row());
 }
 
-void setCalcAsShown(ScDocument* pDoc, bool bCalcAsShown)
+void ScSimpleBootstrapFixture::setCalcAsShown(ScDocument* pDoc, bool bCalcAsShown)
 {
     ScDocOptions aOpt = pDoc->GetDocOptions();
     aOpt.SetCalcAsShown(bCalcAsShown);
     pDoc->SetDocOptions(aOpt);
 }
 
-ScDocShell* findLoadedDocShellByName(std::u16string_view rName)
+ScDocShell* ScSimpleBootstrapFixture::findLoadedDocShellByName(std::u16string_view rName)
 {
     ScDocShell* pShell = static_cast<ScDocShell*>(SfxObjectShell::GetFirst(checkSfxObjectShell<ScDocShell>, false));
     while (pShell)
@@ -1076,7 +819,7 @@ ScDocShell* findLoadedDocShellByName(std::u16string_view rName)
     return nullptr;
 }
 
-bool insertRangeNames(
+bool ScSimpleBootstrapFixture::insertRangeNames(
     ScDocument* pDoc, ScRangeName* pNames, const RangeNameDef* p, const RangeNameDef* pEnd)
 {
     ScAddress aA1(0, 0, 0);
@@ -1100,32 +843,27 @@ bool insertRangeNames(
     return true;
 }
 
-OUString getRangeByName(ScDocument* pDoc, const OUString& aRangeName)
+OUString ScSimpleBootstrapFixture::getRangeByName(ScDocument* pDoc, const OUString& aRangeName)
 {
     ScRangeData* pName = pDoc->GetRangeName()->findByUpperName(aRangeName.toAsciiUpperCase());
     CPPUNIT_ASSERT(pName);
     return pName->GetSymbol(pDoc->GetGrammar());
 }
 
-OUString getFormula(ScDocument* pDoc, SCCOL nCol, SCROW nRow, SCTAB nTab)
-{
-    return pDoc->GetFormula(nCol, nRow, nTab);
-}
-
 #if CALC_DEBUG_OUTPUT != 0
-void printFormula(ScDocument* pDoc, SCCOL nCol, SCROW nRow, SCTAB nTab, const char* pCaption)
+void ScSimpleBootstrapFixture::printFormula(ScDocument* pDoc, SCCOL nCol, SCROW nRow, SCTAB nTab, const char* pCaption)
 {
     if (pCaption != nullptr)
         cout << pCaption << ", ";
-    cout << nCol << "/" << nRow << ": " << getFormula(pDoc, nCol, nRow, nTab);
+    cout << nCol << "/" << nRow << ": " << pDoc->GetFormula(nCol, nRow, nTab);
     cout << endl;
 }
 #else
 // Avoid unused parameter warning
-void printFormula(ScDocument*, SCCOL, SCROW, SCTAB, const char*) {}
+void ScSimpleBootstrapFixture::printFormula(ScDocument*, SCCOL, SCROW, SCTAB, const char*) {}
 #endif
 
-void printRange(ScDocument* pDoc, const ScRange& rRange, const char* pCaption,
+void ScSimpleBootstrapFixture::printRange(ScDocument* pDoc, const ScRange& rRange, const char* pCaption,
                 const bool printFormula)
 {
     SCROW nRow1 = rRange.aStart.Row(), nRow2 = rRange.aEnd.Row();
@@ -1137,7 +875,7 @@ void printRange(ScDocument* pDoc, const ScRange& rRange, const char* pCaption,
         {
             ScAddress aPos(nCol, nRow, rRange.aStart.Tab());
             ScRefCellValue aCell(*pDoc, aPos);
-            OUString aVal = printFormula ? getFormula(pDoc, nCol, nRow, rRange.aStart.Tab())
+            OUString aVal = printFormula ? pDoc->GetFormula(nCol, nRow, rRange.aStart.Tab())
                                          : ScCellFormat::GetOutputString(*pDoc, aPos, aCell);
             printer.set(nRow - nRow1, nCol - nCol1, aVal);
         }
@@ -1145,13 +883,13 @@ void printRange(ScDocument* pDoc, const ScRange& rRange, const char* pCaption,
     printer.print(pCaption);
 }
 
-void printRange(ScDocument* pDoc, const ScRange& rRange, const OString& rCaption,
+void ScSimpleBootstrapFixture::printRange(ScDocument* pDoc, const ScRange& rRange, const OString& rCaption,
                 const bool printFormula)
 {
     printRange(pDoc, rRange, rCaption.getStr(), printFormula);
 }
 
-void clearRange(ScDocument* pDoc, const ScRange& rRange)
+void ScSimpleBootstrapFixture::clearRange(ScDocument* pDoc, const ScRange& rRange)
 {
     ScMarkData aMarkData(pDoc->GetSheetLimits());
     aMarkData.SetMarkArea(rRange);
@@ -1160,10 +898,78 @@ void clearRange(ScDocument* pDoc, const ScRange& rRange)
         rRange.aEnd.Col(), rRange.aEnd.Row(), aMarkData, InsertDeleteFlags::CONTENTS);
 }
 
-void clearSheet(ScDocument* pDoc, SCTAB nTab)
+void ScSimpleBootstrapFixture::clearSheet(ScDocument* pDoc, SCTAB nTab)
 {
     ScRange aRange(0,0,nTab,pDoc->MaxCol(),pDoc->MaxRow(),nTab);
     clearRange(pDoc, aRange);
 }
+
+bool ScSimpleBootstrapFixture::checkFormulaPosition(ScDocument& rDoc, const ScAddress& rPos)
+{
+    OUString aStr(rPos.Format(ScRefFlags::VALID));
+    const ScFormulaCell* pFC = rDoc.GetFormulaCell(rPos);
+    if (!pFC)
+    {
+        cerr << "Formula cell expected at " << aStr << " but not found." << endl;
+        return false;
+    }
+
+    if (pFC->aPos != rPos)
+    {
+        OUString aStr2(pFC->aPos.Format(ScRefFlags::VALID));
+        cerr << "Formula cell at " << aStr << " has incorrect position of " << aStr2 << endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool ScSimpleBootstrapFixture::checkFormulaPositions(
+    ScDocument& rDoc, SCTAB nTab, SCCOL nCol, const SCROW* pRows, size_t nRowCount)
+{
+    ScAddress aPos(nCol, 0, nTab);
+    for (size_t i = 0; i < nRowCount; ++i)
+    {
+        SCROW nRow = pRows[i];
+        aPos.SetRow(nRow);
+
+        if (!checkFormulaPosition(rDoc, aPos))
+        {
+            OUString aStr(aPos.Format(ScRefFlags::VALID));
+            cerr << "Formula cell position failed at " << aStr << "." << endl;
+            return false;
+        }
+    }
+    return true;
+}
+
+std::unique_ptr<ScTokenArray> ScSimpleBootstrapFixture::compileFormula(
+    ScDocument* pDoc, const OUString& rFormula,
+    formula::FormulaGrammar::Grammar eGram )
+{
+    ScAddress aPos(0,0,0);
+    ScCompiler aComp(*pDoc, aPos, eGram);
+    return aComp.CompileString(rFormula);
+}
+
+void ScSimpleBootstrapFixture::clearFormulaCellChangedFlag( ScDocument& rDoc, const ScRange& rRange )
+{
+    const ScAddress& s = rRange.aStart;
+    const ScAddress& e = rRange.aEnd;
+    for (SCTAB nTab = s.Tab(); nTab <= e.Tab(); ++nTab)
+    {
+        for (SCCOL nCol = s.Col(); nCol <= e.Col(); ++nCol)
+        {
+            for (SCROW nRow = s.Row(); nRow <= e.Row(); ++nRow)
+            {
+                ScAddress aPos(nCol, nRow, nTab);
+                ScFormulaCell* pFC = rDoc.GetFormulaCell(aPos);
+                if (pFC)
+                    pFC->SetChanged(false);
+            }
+        }
+    }
+}
+
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

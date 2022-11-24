@@ -33,6 +33,10 @@ interface BaseTextEditView
         ExecMethod = Execute ;
         StateMethod = GetState ;
     ]
+    FN_OUTLINE_LEVELS_SHOWN
+    [
+        ExecMethod = Execute;
+    ]
     SID_REFRESH_VIEW // status(final|play)
     [
         ExecMethod = Execute ;
@@ -393,6 +397,11 @@ interface BaseTextEditView
     [
         ExecMethod = ExecuteStatusLine ;
         StateMethod = StateStatusLine ;
+    ]
+    FN_STAT_ACCESSIBILITY_CHECK // status()
+    [
+        ExecMethod = ExecuteStatusLine;
+        StateMethod = StateStatusLine;
     ]
     FN_STAT_BOOKMARK // status()
     [
@@ -816,10 +825,17 @@ interface BaseTextEditView
         StateMethod = GetState ;
         DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
     ]
+
     SID_AUTOSPELL_CHECK
     [
-        ExecMethod = ExecViewOptions ;
-        StateMethod = StateViewOptions ;
+        ExecMethod = ExecViewOptions;
+        StateMethod = StateViewOptions;
+    ]
+
+    SID_ACCESSIBILITY_CHECK_ONLINE
+    [
+        ExecMethod = ExecViewOptions;
+        StateMethod = StateViewOptions;
     ]
 
       //Extra/Options/View
@@ -982,4 +998,3 @@ interface BaseTextEditView
     ]
 
 }
-

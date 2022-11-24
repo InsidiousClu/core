@@ -110,7 +110,6 @@
 #define RID_CUISTR_EDITHINT                         NC_("RID_SVXSTR_EDITHINT", "[Enter text here]")
 #define RID_CUISTR_HANGUL                           NC_("RID_SVXSTR_HANGUL", "Hangul")
 #define RID_CUISTR_HANJA                            NC_("RID_SVXSTR_HANJA", "Hanja")
-#define RID_CUISTR_BASICMACROS                      NC_("RID_SVXSTR_BASICMACROS", "BASIC Macros")
 #define RID_CUISTR_GROUP_STYLES                     NC_("RID_SVXSTR_GROUP_STYLES", "Styles")
 #define RID_CUISTR_GROUP_SIDEBARDECKS               NC_("RID_SVXSTR_GROUP_SIDEBARDECKS", "Sidebar Decks")
 
@@ -402,5 +401,7 @@
 #define RID_CUISTR_CLICK_RESULT                     NC_("RID_CUISTR_CLICK_RESULT", "(Click on any test to view its resultant bitmap image)")
 #define RID_CUISTR_ZIPFAIL                          NC_("RID_CUISTR_ZIPFAIL", "Creation of ZIP file failed.")
 #define RID_CUISTR_SAVED                            NC_("RID_CUISTR_SAVED", "The results have been successfully saved in the file 'GraphicTestResults.zip'!")
+
+#define RID_LANGUAGETOOL_LEAVE_EMPTY                NC_("RID_LANGUAGETOOL_LEAVE_EMPTY", "Leave this field empty to use the free version")
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

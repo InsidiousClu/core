@@ -99,33 +99,6 @@ namespace
     }
 }
 
-struct SwParaIdleData_Impl
-{
-    std::unique_ptr<SwWrongList> pWrong;                // for spell checking
-    std::unique_ptr<SwGrammarMarkUp> pGrammarCheck;     // for grammar checking /  proof reading
-    std::unique_ptr<SwWrongList> pSmartTags;
-    sal_uLong nNumberOfWords;
-    sal_uLong nNumberOfAsianWords;
-    sal_uLong nNumberOfChars;
-    sal_uLong nNumberOfCharsExcludingSpaces;
-    bool bWordCountDirty;
-    SwTextNode::WrongState eWrongDirty; ///< online spell checking needed/done?
-    bool bGrammarCheckDirty;
-    bool bSmartTagDirty;
-    bool bAutoComplDirty;               ///< auto complete list dirty
-
-    SwParaIdleData_Impl() :
-        nNumberOfWords      ( 0 ),
-        nNumberOfAsianWords ( 0 ),
-        nNumberOfChars      ( 0 ),
-        nNumberOfCharsExcludingSpaces ( 0 ),
-        bWordCountDirty     ( true ),
-        eWrongDirty         ( SwTextNode::WrongState::TODO ),
-        bGrammarCheckDirty  ( true ),
-        bSmartTagDirty      ( true ),
-        bAutoComplDirty     ( true ) {};
-};
-
 static bool lcl_HasComments(const SwTextNode& rNode)
 {
     sal_Int32 nPosition = rNode.GetText().indexOf(CH_TXTATR_INWORD);
@@ -357,7 +330,7 @@ static bool lcl_HaveCommonAttributes( IStyleAccess& rStyleAccess,
  * 5) The attribute is outside the deletion range
  *    -> nothing to do
  *
- * @param rIdx starting position
+ * @param nStt starting position
  * @param nLen length of the deletion
  * @param nthat ???
  * @param pSet ???
@@ -365,18 +338,16 @@ static bool lcl_HaveCommonAttributes( IStyleAccess& rStyleAccess,
  */
 
 void SwTextNode::RstTextAttr(
-    const SwContentIndex &rIdx,
+    sal_Int32 nStt,
     const sal_Int32 nLen,
     const sal_uInt16 nWhich,
     const SfxItemSet* pSet,
     const bool bInclRefToxMark,
     const bool bExactRange )
 {
-    assert(rIdx.GetContentNode() == this);
     if ( !GetpSwpHints() )
         return;
 
-    sal_Int32 nStt = rIdx.GetIndex();
     sal_Int32 nEnd = nStt + nLen;
     {
         // enlarge range for the reset of text attributes in case of an overlapping input field
@@ -652,12 +623,12 @@ void SwTextNode::RstTextAttr(
     CallSwClientNotify(sw::LegacyModifyHint(nullptr, &aNew));
 }
 
-static sal_Int32 clipIndexBounds(const OUString &rStr, sal_Int32 nPos)
+static sal_Int32 clipIndexBounds(std::u16string_view aStr, sal_Int32 nPos)
 {
     if (nPos < 0)
         return 0;
-    if (nPos > rStr.getLength())
-        return rStr.getLength();
+    if (nPos > sal_Int32(aStr.size()))
+        return aStr.size();
     return nPos;
 }
 
@@ -1410,14 +1381,14 @@ SwRect SwTextFrame::AutoSpell_(SwTextNode & rNode, sal_Int32 nActPos)
         pNode->SetWrongDirty(
             (COMPLETE_STRING != pNode->GetWrong()->GetBeginInv())
                 ? (bPending
-                    ? SwTextNode::WrongState::PENDING
-                    : SwTextNode::WrongState::TODO)
-                : SwTextNode::WrongState::DONE);
+                    ? sw::WrongState::PENDING
+                    : sw::WrongState::TODO)
+                : sw::WrongState::DONE);
         if( !pNode->GetWrong()->Count() && ! pNode->IsWrongDirty() )
             pNode->ClearWrong();
     }
     else
-        pNode->SetWrongDirty(SwTextNode::WrongState::DONE);
+        pNode->SetWrongDirty(sw::WrongState::DONE);
 
     if( bAddAutoCmpl )
         pNode->SetAutoCompleteWordDirty( false );
@@ -1497,7 +1468,7 @@ SwRect SwTextFrame::SmartTagScan(SwTextNode & rNode)
 
         SwPosition start(*pNode, nBegin);
         SwPosition end  (*pNode, nEnd);
-        Reference< css::text::XTextRange > xRange = SwXTextRange::CreateXTextRange(pNode->GetDoc(), start, &end);
+        rtl::Reference<SwXTextRange> xRange = SwXTextRange::CreateXTextRange(pNode->GetDoc(), start, &end);
 
         rSmartTagMgr.RecognizeTextRange(xRange, xTextMarkup, xController);
 
@@ -1975,14 +1946,14 @@ void SwTextNode::TransliterateText(
 }
 
 void SwTextNode::ReplaceTextOnly( sal_Int32 nPos, sal_Int32 nLen,
-                                const OUString & rText,
+                                std::u16string_view aText,
                                 const Sequence<sal_Int32>& rOffsets )
 {
-    assert(rText.getLength() - nLen <= GetSpaceLeft());
+    assert(sal_Int32(aText.size()) - nLen <= GetSpaceLeft());
 
-    m_Text = m_Text.replaceAt(nPos, nLen, rText);
+    m_Text = m_Text.replaceAt(nPos, nLen, aText);
 
-    sal_Int32 nTLen = rText.getLength();
+    sal_Int32 nTLen = aText.size();
     const sal_Int32* pOffsets = rOffsets.getConstArray();
     // now look for no 1-1 mapping -> move the indices!
     sal_Int32 nMyOff = nPos;
@@ -2069,13 +2040,11 @@ bool SwTextNode::CountWords( SwDocStat& rStat,
     if ( bCountAll && !IsWordCountDirty() )
     {
         // accumulate into DocStat record to return the values
-        if (m_pParaIdleData_Impl)
-        {
-            rStat.nWord += m_pParaIdleData_Impl->nNumberOfWords;
-            rStat.nAsianWord += m_pParaIdleData_Impl->nNumberOfAsianWords;
-            rStat.nChar += m_pParaIdleData_Impl->nNumberOfChars;
-            rStat.nCharExcludingSpaces += m_pParaIdleData_Impl->nNumberOfCharsExcludingSpaces;
-        }
+
+        rStat.nWord += m_aParagraphIdleData.nNumberOfWords;
+        rStat.nAsianWord += m_aParagraphIdleData.nNumberOfAsianWords;
+        rStat.nChar += m_aParagraphIdleData.nNumberOfChars;
+        rStat.nCharExcludingSpaces += m_aParagraphIdleData.nNumberOfCharsExcludingSpaces;
         return false;
     }
 
@@ -2170,13 +2139,10 @@ bool SwTextNode::CountWords( SwDocStat& rStat,
     // If counting the whole para then update cached values and mark clean
     if ( bCountAll )
     {
-        if ( m_pParaIdleData_Impl )
-        {
-            m_pParaIdleData_Impl->nNumberOfWords = nTmpWords;
-            m_pParaIdleData_Impl->nNumberOfAsianWords = nTmpAsianWords;
-            m_pParaIdleData_Impl->nNumberOfChars = nTmpChars;
-            m_pParaIdleData_Impl->nNumberOfCharsExcludingSpaces = nTmpCharsExcludingSpaces;
-        }
+        m_aParagraphIdleData.nNumberOfWords = nTmpWords;
+        m_aParagraphIdleData.nNumberOfAsianWords = nTmpAsianWords;
+        m_aParagraphIdleData.nNumberOfChars = nTmpChars;
+        m_aParagraphIdleData.nNumberOfCharsExcludingSpaces = nTmpCharsExcludingSpaces;
         SetWordCountDirty( false );
     }
     // accumulate into DocStat record to return the values
@@ -2188,72 +2154,50 @@ bool SwTextNode::CountWords( SwDocStat& rStat,
     return true;
 }
 
-// Paragraph statistics start -->
-
-void SwTextNode::InitSwParaStatistics( bool bNew )
-{
-    if ( bNew )
-    {
-        m_pParaIdleData_Impl = new SwParaIdleData_Impl;
-    }
-    else if ( m_pParaIdleData_Impl )
-    {
-        m_pParaIdleData_Impl->pWrong.reset();
-        m_pParaIdleData_Impl->pGrammarCheck.reset();
-        m_pParaIdleData_Impl->pSmartTags.reset();
-        delete m_pParaIdleData_Impl;
-        m_pParaIdleData_Impl = nullptr;
-    }
-}
-
 void SwTextNode::SetWrong( std::unique_ptr<SwWrongList> pNew )
 {
-    if ( m_pParaIdleData_Impl )
-        m_pParaIdleData_Impl->pWrong = std::move(pNew);
+    m_aParagraphIdleData.pWrong = std::move(pNew);
 }
 
 void SwTextNode::ClearWrong()
 {
-    if ( m_pParaIdleData_Impl )
-        m_pParaIdleData_Impl->pWrong.reset();
+    m_aParagraphIdleData.pWrong.reset();
 }
 
 std::unique_ptr<SwWrongList> SwTextNode::ReleaseWrong()
 {
-    return m_pParaIdleData_Impl ? std::move(m_pParaIdleData_Impl->pWrong) : nullptr;
+    return std::move(m_aParagraphIdleData.pWrong);
 }
 
 SwWrongList* SwTextNode::GetWrong()
 {
-    return m_pParaIdleData_Impl ? m_pParaIdleData_Impl->pWrong.get() : nullptr;
+    return m_aParagraphIdleData.pWrong.get();
 }
 
 // #i71360#
 const SwWrongList* SwTextNode::GetWrong() const
 {
-    return m_pParaIdleData_Impl ? m_pParaIdleData_Impl->pWrong.get() : nullptr;
+    return m_aParagraphIdleData.pWrong.get();
 }
 
 void SwTextNode::SetGrammarCheck( std::unique_ptr<SwGrammarMarkUp> pNew )
 {
-    if ( m_pParaIdleData_Impl )
-        m_pParaIdleData_Impl->pGrammarCheck = std::move(pNew);
+    m_aParagraphIdleData.pGrammarCheck = std::move(pNew);
 }
 
 void SwTextNode::ClearGrammarCheck()
 {
-    if ( m_pParaIdleData_Impl )
-        m_pParaIdleData_Impl->pGrammarCheck.reset();
+    m_aParagraphIdleData.pGrammarCheck.reset();
 }
 
 std::unique_ptr<SwGrammarMarkUp> SwTextNode::ReleaseGrammarCheck()
 {
-    return m_pParaIdleData_Impl ? std::move(m_pParaIdleData_Impl->pGrammarCheck) : nullptr;
+    return std::move(m_aParagraphIdleData.pGrammarCheck);
 }
 
 SwGrammarMarkUp* SwTextNode::GetGrammarCheck()
 {
-    return m_pParaIdleData_Impl ? m_pParaIdleData_Impl->pGrammarCheck.get() : nullptr;
+    return m_aParagraphIdleData.pGrammarCheck.get();
 }
 
 SwWrongList const* SwTextNode::GetGrammarCheck() const
@@ -2266,24 +2210,22 @@ void SwTextNode::SetSmartTags( std::unique_ptr<SwWrongList> pNew )
     OSL_ENSURE( !pNew || SwSmartTagMgr::Get().IsSmartTagsEnabled(),
             "Weird - we have a smart tag list without any recognizers?" );
 
-    if ( m_pParaIdleData_Impl )
-        m_pParaIdleData_Impl->pSmartTags = std::move(pNew);
+    m_aParagraphIdleData.pSmartTags = std::move(pNew);
 }
 
 void SwTextNode::ClearSmartTags()
 {
-    if ( m_pParaIdleData_Impl )
-        m_pParaIdleData_Impl->pSmartTags.reset();
+    m_aParagraphIdleData.pSmartTags.reset();
 }
 
 std::unique_ptr<SwWrongList> SwTextNode::ReleaseSmartTags()
 {
-    return m_pParaIdleData_Impl ? std::move(m_pParaIdleData_Impl->pSmartTags) : nullptr;
+    return std::move(m_aParagraphIdleData.pSmartTags);
 }
 
 SwWrongList* SwTextNode::GetSmartTags()
 {
-    return m_pParaIdleData_Impl ? m_pParaIdleData_Impl->pSmartTags.get() : nullptr;
+    return m_aParagraphIdleData.pSmartTags.get();
 }
 
 SwWrongList const* SwTextNode::GetSmartTags() const
@@ -2293,72 +2235,57 @@ SwWrongList const* SwTextNode::GetSmartTags() const
 
 void SwTextNode::SetWordCountDirty( bool bNew ) const
 {
-    if ( m_pParaIdleData_Impl )
-    {
-        m_pParaIdleData_Impl->bWordCountDirty = bNew;
-    }
+    m_aParagraphIdleData.bWordCountDirty = bNew;
 }
 
 bool SwTextNode::IsWordCountDirty() const
 {
-    return m_pParaIdleData_Impl && m_pParaIdleData_Impl->bWordCountDirty;
+    return m_aParagraphIdleData.bWordCountDirty;
 }
 
-void SwTextNode::SetWrongDirty(WrongState eNew) const
+void SwTextNode::SetWrongDirty(sw::WrongState eNew) const
 {
-    if ( m_pParaIdleData_Impl )
-    {
-        m_pParaIdleData_Impl->eWrongDirty = eNew;
-    }
+    m_aParagraphIdleData.eWrongDirty = eNew;
 }
 
-auto SwTextNode::GetWrongDirty() const -> WrongState
+sw::WrongState SwTextNode::GetWrongDirty() const
 {
-    return m_pParaIdleData_Impl ? m_pParaIdleData_Impl->eWrongDirty : WrongState::DONE;
+    return m_aParagraphIdleData.eWrongDirty;
 }
 
 bool SwTextNode::IsWrongDirty() const
 {
-    return m_pParaIdleData_Impl && m_pParaIdleData_Impl->eWrongDirty != WrongState::DONE;
+    return m_aParagraphIdleData.eWrongDirty != sw::WrongState::DONE;
 }
 
 void SwTextNode::SetGrammarCheckDirty( bool bNew ) const
 {
-    if ( m_pParaIdleData_Impl )
-    {
-        m_pParaIdleData_Impl->bGrammarCheckDirty = bNew;
-    }
+    m_aParagraphIdleData.bGrammarCheckDirty = bNew;
 }
 
 bool SwTextNode::IsGrammarCheckDirty() const
 {
-    return m_pParaIdleData_Impl && m_pParaIdleData_Impl->bGrammarCheckDirty;
+    return m_aParagraphIdleData.bGrammarCheckDirty;
 }
 
 void SwTextNode::SetSmartTagDirty( bool bNew ) const
 {
-    if ( m_pParaIdleData_Impl )
-    {
-        m_pParaIdleData_Impl->bSmartTagDirty = bNew;
-    }
+    m_aParagraphIdleData.bSmartTagDirty = bNew;
 }
 
 bool SwTextNode::IsSmartTagDirty() const
 {
-    return m_pParaIdleData_Impl && m_pParaIdleData_Impl->bSmartTagDirty;
+    return m_aParagraphIdleData.bSmartTagDirty;
 }
 
 void SwTextNode::SetAutoCompleteWordDirty( bool bNew ) const
 {
-    if ( m_pParaIdleData_Impl )
-    {
-        m_pParaIdleData_Impl->bAutoComplDirty = bNew;
-    }
+    m_aParagraphIdleData.bAutoComplDirty = bNew;
 }
 
 bool SwTextNode::IsAutoCompleteWordDirty() const
 {
-    return m_pParaIdleData_Impl && m_pParaIdleData_Impl->bAutoComplDirty;
+    return m_aParagraphIdleData.bAutoComplDirty;
 }
 
 // <-- Paragraph statistics end

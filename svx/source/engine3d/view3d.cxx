@@ -230,7 +230,7 @@ void E3dView::DrawMarkedObj(OutputDevice& rOut) const
             }
         }
         // Reset all selection flags
-        if(auto p3dObject = dynamic_cast< const E3dObject*>(pObj))
+        if(auto p3dObject = DynCastE3dObject(pObj))
         {
             pScene = p3dObject->getRootE3dSceneFromE3dObject();
 
@@ -263,7 +263,7 @@ void E3dView::DrawMarkedObj(OutputDevice& rOut) const
         for(size_t nObjs = 0; nObjs < nCnt; ++nObjs)
         {
             SdrObject *pObj = GetMarkedObjectByIndex(nObjs);
-            if(auto p3DObj = dynamic_cast<E3dObject*>(pObj))
+            if(auto p3DObj = DynCastE3dObject(pObj))
             {
                 // Select object
                 p3DObj->SetSelected(true);
@@ -331,7 +331,7 @@ std::unique_ptr<SdrModel> E3dView::CreateMarkedObjModel() const
                 }
             }
 
-        if(auto p3dObject = dynamic_cast< const E3dObject*>(pObj))
+        if(auto p3dObject = DynCastE3dObject(pObj))
         {
             // reset all selection flags at 3D objects
             pScene = p3dObject->getRootE3dSceneFromE3dObject();
@@ -377,7 +377,7 @@ std::unique_ptr<SdrModel> E3dView::CreateMarkedObjModel() const
     {
         SdrObject *pObj = aOldML.GetMark(nObjs)->GetMarkedSdrObj();
 
-        if(auto p3dObject = dynamic_cast< E3dObject* >(pObj))
+        if(auto p3dObject = DynCastE3dObject(pObj))
         {
             pScene = p3dObject->getRootE3dSceneFromE3dObject();
 
@@ -403,7 +403,7 @@ std::unique_ptr<SdrModel> E3dView::CreateMarkedObjModel() const
             {
                 const SdrObject* pSrcOb=pSrcPg->GetObj(nOb);
 
-                if(auto p3dscene = dynamic_cast< const E3dScene* >( pSrcOb))
+                if(const E3dScene* p3dscene = DynCastE3dScene( pSrcOb))
                 {
                     pScene = const_cast<E3dScene*>(p3dscene);
 
@@ -441,7 +441,7 @@ bool E3dView::Paste(
         return false;
 
     // Get owner of the list
-    E3dScene* pDstScene(dynamic_cast< E3dScene* >(pDstList->getSdrObjectFromSdrObjList()));
+    E3dScene* pDstScene(DynCastE3dScene(pDstList->getSdrObjectFromSdrObjList()));
 
     if(nullptr != pDstScene)
     {
@@ -461,7 +461,7 @@ bool E3dView::Paste(
             for(size_t nOb = 0; nOb < nObjCount; ++nOb)
             {
                 const SdrObject* pSrcOb = pSrcPg->GetObj(nOb);
-                if(auto p3dscene = dynamic_cast< const E3dScene* >(pSrcOb))
+                if(const E3dScene* p3dscene = DynCastE3dScene(pSrcOb))
                 {
                     E3dScene* pSrcScene = const_cast<E3dScene*>(p3dscene);
                     ImpCloneAll3DObjectsToDestScene(pSrcScene, pDstScene, aDist);
@@ -611,7 +611,7 @@ void E3dView::ImpIsConvertTo3DPossible(SdrObject const * pObj, bool& rAny3D,
     if(!pObj)
         return;
 
-    if(dynamic_cast< const E3dObject* >(pObj) !=  nullptr)
+    if(DynCastE3dObject(pObj))
     {
         rAny3D = true;
     }
@@ -632,7 +632,7 @@ void E3dView::ImpIsConvertTo3DPossible(SdrObject const * pObj, bool& rAny3D,
 
 void E3dView::ImpChangeSomeAttributesFor3DConversion(SdrObject* pObj)
 {
-    if(dynamic_cast<const SdrTextObj*>( pObj) ==  nullptr)
+    if(DynCastSdrTextObj( pObj) ==  nullptr)
         return;
 
     const SfxItemSet& rSet = pObj->GetMergedItemSet();
@@ -1172,11 +1172,11 @@ bool E3dView::BegDragObj(const Point& rPnt, OutputDevice* pOut,
                 SdrObject *pObj = GetMarkedObjectByIndex(nObjs);
                 if(pObj)
                 {
-                    if( auto pScene = dynamic_cast< const E3dScene* >(pObj) )
+                    if( const E3dScene* pScene = DynCastE3dScene(pObj) )
                         if( pScene->getRootE3dSceneFromE3dObject() == pObj )
                             bThereAreRootScenes = true;
 
-                    if(dynamic_cast< const E3dObject* >(pObj) !=  nullptr)
+                    if(DynCastE3dObject(pObj))
                     {
                         bThereAre3DObjects = true;
                     }
@@ -1481,7 +1481,7 @@ bool E3dView::IsBreak3DObjPossible() const
         {
             SdrObject* pObj = GetMarkedObjectByIndex(i);
 
-            if (auto p3dObject = dynamic_cast< E3dObject* >(pObj))
+            if (auto p3dObject = DynCastE3dObject(pObj))
             {
                 if(!p3dObject->IsBreakObjPossible())
                     return false;
@@ -1520,7 +1520,7 @@ void E3dView::Break3DObj()
 
 void E3dView::BreakSingle3DObj(E3dObject* pObj)
 {
-    if(dynamic_cast< const E3dScene* >(pObj) !=  nullptr)
+    if(DynCastE3dScene(pObj))
     {
         SdrObjList* pSubList = pObj->GetSubList();
         SdrObjListIter aIter(pSubList, SdrIterMode::Flat);
@@ -1562,7 +1562,7 @@ void E3dView::CheckPossibilities()
         SdrObject *pObj = GetMarkedObjectByIndex(nObjs);
         if(dynamic_cast< const E3dCompoundObject* >(pObj))
             bCompound = true;
-        if(dynamic_cast< const E3dObject* >(pObj))
+        if(DynCastE3dObject(pObj))
             b3DObject = true;
     }
 

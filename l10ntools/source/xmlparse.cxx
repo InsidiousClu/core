@@ -473,7 +473,7 @@ void XMLFile::SearchL10NElements( XMLChildNode *pCur )
     }
 }
 
-bool XMLFile::CheckExportStatus( XMLParentNode *pCur )
+bool XMLFile::CheckExportStatus( XMLChildNode *pCur )
 {
     static bool bStatusExport = true;
 
@@ -488,7 +488,7 @@ bool XMLFile::CheckExportStatus( XMLParentNode *pCur )
                 {
                     for ( size_t i = 0; i < GetChildList()->size(); i++ )
                     {
-                        XMLParentNode* pElement = static_cast<XMLParentNode*>((*GetChildList())[ i ]);
+                        XMLChildNode* pElement = (*GetChildList())[ i ];
                         if( pElement->GetNodeType() ==  XMLNodeType::ELEMENT ) CheckExportStatus( pElement );//, i);
                     }
                 }
@@ -520,7 +520,7 @@ bool XMLFile::CheckExportStatus( XMLParentNode *pCur )
                 else if ( pElement->GetChildList() )
                 {
                     for (size_t k = 0; k < pElement->GetChildList()->size(); ++k)
-                        CheckExportStatus( static_cast<XMLParentNode*>((*pElement->GetChildList())[k]) );
+                        CheckExportStatus( (*pElement->GetChildList())[k] );
                 }
             }
             break;

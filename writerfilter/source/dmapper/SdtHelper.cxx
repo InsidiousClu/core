@@ -28,6 +28,7 @@
 #include <com/sun/star/document/XOOXMLDocumentPropertiesImporter.hpp>
 #include <ooxml/OOXMLDocument.hxx>
 #include <com/sun/star/xml/xpath/XPathAPI.hpp>
+#include <com/sun/star/xml/xpath/XPathException.hpp>
 #include <com/sun/star/xml/dom/DocumentBuilder.hpp>
 
 namespace writerfilter::dmapper
@@ -225,25 +226,42 @@ std::optional<OUString> SdtHelper::getValueFromDataBinding()
     const auto& aSourceIt = m_xPropertiesXMLs.find(m_sDataBindingStoreItemID);
     if (aSourceIt != m_xPropertiesXMLs.end())
     {
-        uno::Reference<XXPathObject> xResult
-            = xXpathAPI->eval(aSourceIt->second, m_sDataBindingXPath);
-
-        if (xResult.is() && xResult->getNodeList() && xResult->getNodeList()->getLength()
-            && xResult->getString().getLength())
+        try
         {
-            return xResult->getString();
+            uno::Reference<XXPathObject> xResult
+                = xXpathAPI->eval(aSourceIt->second, m_sDataBindingXPath);
+
+            if (xResult.is() && xResult->getNodeList() && xResult->getNodeList()->getLength()
+                && xResult->getString().getLength())
+            {
+                return xResult->getString();
+            }
+        }
+        catch (const XPathException& e)
+        {
+            // XPath failed? Log and continue with next data document
+            SAL_WARN("writerfilter", "SdtHelper::failed running XPath: " << e.Message);
         }
     }
 
     // Nothing found? Try to iterate storages and eval xpath
     for (const auto& aSource : m_xPropertiesXMLs)
     {
-        uno::Reference<XXPathObject> xResult = xXpathAPI->eval(aSource.second, m_sDataBindingXPath);
-
-        if (xResult.is() && xResult->getNodeList() && xResult->getNodeList()->getLength()
-            && xResult->getString().getLength())
+        try
         {
-            return xResult->getString();
+            uno::Reference<XXPathObject> xResult
+                = xXpathAPI->eval(aSource.second, m_sDataBindingXPath);
+
+            if (xResult.is() && xResult->getNodeList() && xResult->getNodeList()->getLength()
+                && xResult->getString().getLength())
+            {
+                return xResult->getString();
+            }
+        }
+        catch (const XPathException& e)
+        {
+            // XPath failed? Log and continue with next data document
+            SAL_WARN("writerfilter", "SdtHelper::failed running XPath: " << e.Message);
         }
     }
 
@@ -498,6 +516,11 @@ void SdtHelper::clear()
     m_bChecked = false;
     m_aCheckedState.clear();
     m_aUncheckedState.clear();
+    m_aPlaceholderDocPart.clear();
+    m_aColor.clear();
+    m_aAlias.clear();
+    m_aTag.clear();
+    m_nId = 0;
 }
 
 void SdtHelper::SetPlaceholderDocPart(const OUString& rPlaceholderDocPart)
@@ -510,6 +533,18 @@ const OUString& SdtHelper::GetPlaceholderDocPart() const { return m_aPlaceholder
 void SdtHelper::SetColor(const OUString& rColor) { m_aColor = rColor; }
 
 const OUString& SdtHelper::GetColor() const { return m_aColor; }
+
+void SdtHelper::SetAlias(const OUString& rAlias) { m_aAlias = rAlias; }
+
+const OUString& SdtHelper::GetAlias() const { return m_aAlias; }
+
+void SdtHelper::SetTag(const OUString& rTag) { m_aTag = rTag; }
+
+const OUString& SdtHelper::GetTag() const { return m_aTag; }
+
+void SdtHelper::SetId(sal_Int32 nId) { m_nId = nId; }
+
+sal_Int32 SdtHelper::GetId() const { return m_nId; }
 
 } // namespace writerfilter::dmapper
 

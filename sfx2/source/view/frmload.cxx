@@ -57,6 +57,7 @@
 #include <sal/log.hxx>
 #include <svl/eitem.hxx>
 #include <svl/stritem.hxx>
+#include <unotools/fcm.hxx>
 #include <unotools/moduleoptions.hxx>
 #include <comphelper/diagnose_ex.hxx>
 #include <tools/stream.hxx>
@@ -580,11 +581,7 @@ Reference< XController2 > SfxFrameLoader_Impl::impl_createDocumentView( const Re
     ), UNO_SET_THROW );
 
     // introduce model/view/controller to each other
-    xController->attachModel( i_rModel );
-    i_rModel->connectController( xController );
-    i_rFrame->setComponent( xController->getComponentWindow(), xController );
-    xController->attachFrame( i_rFrame );
-    i_rModel->setCurrentController( xController );
+    utl::ConnectFrameControllerModel(i_rFrame, xController, i_rModel);
 
     return xController;
 }

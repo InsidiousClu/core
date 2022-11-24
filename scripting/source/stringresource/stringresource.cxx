@@ -33,9 +33,12 @@
 #include <com/sun/star/ucb/SimpleFileAccess.hpp>
 
 #include <osl/diagnose.h>
+#include <o3tl/string_view.hxx>
+#include <rtl/ref.hxx>
 #include <rtl/tencinfo.h>
 #include <rtl/ustrbuf.hxx>
 #include <tools/urlobj.hxx>
+#include <unotools/tempfile.hxx>
 #include <i18nlangtag/languagetag.hxx>
 #include <sal/log.hxx>
 
@@ -1045,12 +1048,11 @@ void StringResourcePersistenceImpl::implStoreAtLocation
 
 class BinaryOutput
 {
-    Reference< XComponentContext >          m_xContext;
-    Reference< XInterface >                 m_xTempFile;
+    rtl::Reference< utl::TempFileFastService > m_xTempFile;
     Reference< io::XOutputStream >          m_xOutputStream;
 
 public:
-    explicit BinaryOutput( Reference< XComponentContext > const & xContext );
+    explicit BinaryOutput();
 
     const Reference< io::XOutputStream >& getOutputStream() const
         { return m_xOutputStream; }
@@ -1068,11 +1070,10 @@ public:
     void writeString( const OUString& aStr );
 };
 
-BinaryOutput::BinaryOutput( Reference< XComponentContext > const & xContext )
-        : m_xContext( xContext )
+BinaryOutput::BinaryOutput()
 {
-    m_xTempFile = io::TempFile::create( m_xContext );
-    m_xOutputStream.set( m_xTempFile, UNO_QUERY_THROW );
+    m_xTempFile = new utl::TempFileFastService;
+    m_xOutputStream = m_xTempFile;
 }
 
 template< class T >
@@ -1127,18 +1128,10 @@ Sequence< ::sal_Int8 > BinaryOutput::closeAndGetData()
 
     m_xOutputStream->closeOutput();
 
-    Reference< io::XSeekable> xSeekable( m_xTempFile, UNO_QUERY );
-    if( !xSeekable.is() )
-        return aRetSeq;
+    sal_Int32 nSize = static_cast<sal_Int32>(m_xTempFile->getPosition());
 
-    sal_Int32 nSize = static_cast<sal_Int32>(xSeekable->getPosition());
-
-    Reference< io::XInputStream> xInputStream( m_xTempFile, UNO_QUERY );
-    if( !xInputStream.is() )
-        return aRetSeq;
-
-    xSeekable->seek( 0 );
-    sal_Int32 nRead = xInputStream->readBytes( aRetSeq, nSize );
+    m_xTempFile->seek( 0 );
+    sal_Int32 nRead = m_xTempFile->readBytes( aRetSeq, nSize );
     OSL_ENSURE( nRead == nSize, "BinaryOutput::closeAndGetData: nRead != nSize" );
 
     return aRetSeq;
@@ -1174,7 +1167,7 @@ Sequence< ::sal_Int8 > BinaryOutput::closeAndGetData()
 
 Sequence< sal_Int8 > StringResourcePersistenceImpl::exportBinary(  )
 {
-    BinaryOutput aOut( m_xContext );
+    BinaryOutput aOut;
 
     sal_Int32 nLocaleCount = m_aLocaleItemVector.size();
     std::vector<Sequence< sal_Int8 >> aLocaleDataSeq(nLocaleCount);
@@ -1188,7 +1181,7 @@ Sequence< sal_Int8 > StringResourcePersistenceImpl::exportBinary(  )
             if( m_pDefaultLocaleItem == pLocaleItem.get() )
                 iDefault = iLocale;
 
-            BinaryOutput aLocaleOut( m_xContext );
+            BinaryOutput aLocaleOut;
             implWriteLocaleBinary( pLocaleItem.get(), aLocaleOut );
 
             aLocaleDataSeq[iLocale] = aLocaleOut.closeAndGetData();
@@ -1253,14 +1246,13 @@ namespace {
 class BinaryInput
 {
     Sequence< sal_Int8 >                    m_aData;
-    Reference< XComponentContext >          m_xContext;
 
     const sal_Int8*                         m_pData;
     sal_Int32                               m_nCurPos;
     sal_Int32                               m_nSize;
 
 public:
-    BinaryInput( const Sequence< ::sal_Int8 >& aData, Reference< XComponentContext > const & xContext );
+    BinaryInput( const Sequence< ::sal_Int8 >& aData );
 
     Reference< io::XInputStream > getInputStreamForSection( sal_Int32 nSize );
 
@@ -1276,9 +1268,8 @@ public:
 
 }
 
-BinaryInput::BinaryInput( const Sequence< ::sal_Int8 >& aData, Reference< XComponentContext > const & xContext )
+BinaryInput::BinaryInput( const Sequence< ::sal_Int8 >& aData )
         : m_aData( aData )
-        , m_xContext( xContext )
 {
     m_pData = m_aData.getConstArray();
     m_nCurPos = 0;
@@ -1290,15 +1281,11 @@ Reference< io::XInputStream > BinaryInput::getInputStreamForSection( sal_Int32 n
     Reference< io::XInputStream > xIn;
     if( m_nCurPos + nSize <= m_nSize )
     {
-        Reference< io::XOutputStream > xTempOut( io::TempFile::create(m_xContext), UNO_QUERY_THROW );
+        rtl::Reference< utl::TempFileFastService > xTempOut = new utl::TempFileFastService;
         Sequence< sal_Int8 > aSection( m_pData + m_nCurPos, nSize );
         xTempOut->writeBytes( aSection );
-
-        Reference< io::XSeekable> xSeekable( xTempOut, UNO_QUERY );
-        if( xSeekable.is() )
-            xSeekable->seek( 0 );
-
-        xIn.set( xTempOut, UNO_QUERY );
+        xTempOut->seek( 0 );
+        xIn = xTempOut;
     }
     else
         OSL_FAIL( "BinaryInput::getInputStreamForSection(): Read past end" );
@@ -1395,7 +1382,7 @@ void StringResourcePersistenceImpl::importBinary( const Sequence< ::sal_Int8 >& 
     while( nOldLocaleCount > 0 );
 
     // Import data
-    BinaryInput aIn( Data, m_xContext );
+    BinaryInput aIn( Data );
 
     aIn.readInt16(); // version
     sal_Int32 nLocaleCount = aIn.readInt16();
@@ -1437,17 +1424,17 @@ void StringResourcePersistenceImpl::importBinary( const Sequence< ::sal_Int8 >& 
 
 // Private helper methods
 
-static bool checkNamingSceme( const OUString& aName, const OUString& aNameBase,
+static bool checkNamingSceme( std::u16string_view aName, std::u16string_view aNameBase,
                        Locale& aLocale )
 {
     bool bSuccess = false;
 
-    sal_Int32 nNameLen = aName.getLength();
-    sal_Int32 nNameBaseLen = aNameBase.getLength();
+    size_t nNameLen = aName.size();
+    size_t nNameBaseLen = aNameBase.size();
 
     // Name has to start with NameBase followed
     // by a '_' and at least one more character
-    if( aName.startsWith( aNameBase ) && nNameBaseLen < nNameLen-1 &&
+    if( o3tl::starts_with(aName, aNameBase) && nNameBaseLen < nNameLen-1 &&
         aName[nNameBaseLen] == '_' )
     {
         bSuccess = true;
@@ -1457,23 +1444,23 @@ static bool checkNamingSceme( const OUString& aName, const OUString& aNameBase,
          * violate the naming scheme in use. */
 
         sal_Int32 iStart = nNameBaseLen + 1;
-        sal_Int32 iNext_ = aName.indexOf( '_', iStart );
-        if( iNext_ != -1 && iNext_ < nNameLen-1 )
+        size_t iNext_ = aName.find( '_', iStart );
+        if( iNext_ != std::u16string_view::npos && iNext_ < nNameLen-1 )
         {
-            aLocale.Language = aName.copy( iStart, iNext_ - iStart );
+            aLocale.Language = aName.substr( iStart, iNext_ - iStart );
 
             iStart = iNext_ + 1;
-            iNext_ = aName.indexOf( '_', iStart );
-            if( iNext_ != -1 && iNext_ < nNameLen-1 )
+            iNext_ = aName.find( '_', iStart );
+            if( iNext_ != std::u16string_view::npos && iNext_ < nNameLen-1 )
             {
-                aLocale.Country = aName.copy( iStart, iNext_ - iStart );
-                aLocale.Variant = aName.copy( iNext_ + 1 );
+                aLocale.Country = aName.substr( iStart, iNext_ - iStart );
+                aLocale.Variant = aName.substr( iNext_ + 1 );
             }
             else
-                aLocale.Country = aName.copy( iStart );
+                aLocale.Country = aName.substr( iStart );
         }
         else
-            aLocale.Language = aName.copy( iStart );
+            aLocale.Language = aName.substr( iStart );
     }
     return bSuccess;
 }

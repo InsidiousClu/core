@@ -92,14 +92,13 @@ void MacrosTest::dispatchCommand(const uno::Reference<lang::XComponent>& xCompon
     xDispatchHelper->executeDispatch(xFrame, rCommand, OUString(), 0, rPropertyValues);
 }
 
-std::unique_ptr<SvStream> MacrosTest::parseExportStream(const utl::TempFileNamed& rTempFile,
+std::unique_ptr<SvStream> MacrosTest::parseExportStream(const OUString& url,
                                                         const OUString& rStreamName)
 {
-    const OUString aUrl = rTempFile.GetURL();
     uno::Reference<uno::XComponentContext> xComponentContext
         = comphelper::getProcessComponentContext();
     uno::Reference<packages::zip::XZipFileAccess2> const xZipNames(
-        packages::zip::ZipFileAccess::createWithURL(xComponentContext, aUrl));
+        packages::zip::ZipFileAccess::createWithURL(xComponentContext, url));
     uno::Reference<io::XInputStream> const xInputStream(xZipNames->getByName(rStreamName),
                                                         uno::UNO_QUERY);
     std::unique_ptr<SvStream> pStream(utl::UcbStreamHelper::CreateStream(xInputStream, true));
@@ -109,8 +108,8 @@ std::unique_ptr<SvStream> MacrosTest::parseExportStream(const utl::TempFileNamed
 void MacrosTest::setUpNssGpg(const test::Directories& rDirectories, const OUString& rTestName)
 {
     OUString aSourceDir = rDirectories.getURLFromSrc(u"/test/signing-keys/");
-    OUString aTargetDir = rDirectories.getURLFromWorkdir(
-        OUStringConcatenation("CppunitTest/" + rTestName + ".test.user"));
+    OUString aTargetDir
+        = rDirectories.getURLFromWorkdir(Concat2View("CppunitTest/" + rTestName + ".test.user"));
 
     // Set up NSS database in workdir/CppunitTest/
     osl::File::copy(aSourceDir + "cert9.db", aTargetDir + "/cert9.db");

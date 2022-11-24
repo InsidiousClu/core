@@ -1065,7 +1065,7 @@ SwTableNode* SwNodes::TextToTable( const SwNodeRange& rRange, sal_Unicode cCh,
             {
                 if (pTextNd->GetText()[nChPos] == cCh)
                 {
-                    aCntPos.nContent = nChPos;
+                    aCntPos.SetContent(nChPos);
                     std::function<void (SwTextNode *, sw::mark::RestoreMode, bool)> restoreFunc(
                         [&](SwTextNode *const pNewNode, sw::mark::RestoreMode const eMode, bool)
                         {
@@ -1891,8 +1891,7 @@ void SwDoc::DeleteRow( const SwCursor& rCursor )
         {
             // Change the Shell's Cursor or the one passed?
             SwPaM* pPam = const_cast<SwPaM*>(static_cast<SwPaM const *>(&rCursor));
-            pPam->GetPoint()->nNode = aIdx;
-            pPam->GetPoint()->nContent.Assign( pCNd, 0 );
+            pPam->GetPoint()->Assign(aIdx);
             pPam->SetMark(); // Both want a part of it
             pPam->DeleteMark();
         }
@@ -2272,8 +2271,7 @@ TableMergeErr SwDoc::MergeTable( SwPaM& rPam )
         // access it after GetMergeSel
         {
             rPam.DeleteMark();
-            rPam.GetPoint()->nNode = *pMergeBox->GetSttNd();
-            rPam.GetPoint()->nContent.Assign( nullptr, 0 );
+            rPam.GetPoint()->Assign(*pMergeBox->GetSttNd());
             rPam.SetMark();
             rPam.DeleteMark();
 
@@ -2309,7 +2307,7 @@ TableMergeErr SwDoc::MergeTable( SwPaM& rPam )
             }
         }
 
-        rPam.GetPoint()->nNode = *pMergeBox->GetSttNd();
+        rPam.GetPoint()->Assign( *pMergeBox->GetSttNd() );
         rPam.Move();
 
         ::ClearFEShellTabCols(*this, nullptr);
@@ -2378,17 +2376,17 @@ void SwTableNode::MakeFramesForAdjacentContentNode(const SwNodeIndex & rIdx)
 /**
  * Create a TableFrame for every Shell and insert before the corresponding ContentFrame.
  */
-void SwTableNode::MakeOwnFrames(SwNodeIndex* pIdxBehind)
+void SwTableNode::MakeOwnFrames(SwPosition* pIdxBehind)
 {
     SwNode *pNd = GetNodes().FindPrvNxtFrameNode( *this, EndOfSectionNode() );
     if( !pNd )
     {
         if (pIdxBehind)
-            *pIdxBehind = *this;
+            pIdxBehind->Assign(*this);
         return;
     }
     if (pIdxBehind)
-        *pIdxBehind = *pNd;
+        pIdxBehind->Assign(*pNd);
 
     SwFrame *pFrame( nullptr );
     SwLayoutFrame *pUpper( nullptr );
@@ -4013,13 +4011,13 @@ void SwDoc::SetColRowWidthHeight( SwTableBox& rCurrentBox, TableChgWidthHeightTy
     }
 }
 
-bool SwDoc::IsNumberFormat( const OUString& rString, sal_uInt32& F_Index, double& fOutNumber )
+bool SwDoc::IsNumberFormat( std::u16string_view aString, sal_uInt32& F_Index, double& fOutNumber )
 {
-    if( rString.getLength() > 308 ) // optimization matches svl:IsNumberFormat arbitrary value
+    if( aString.size() > 308 ) // optimization matches svl:IsNumberFormat arbitrary value
         return false;
 
     // remove any comment anchor marks
-    OUStringBuffer sStringBuffer(rString);
+    OUStringBuffer sStringBuffer(aString);
     sal_Int32 nCommentPosition = sStringBuffer.indexOf( CH_TXTATR_INWORD );
     while( nCommentPosition != -1 )
     {
@@ -4348,7 +4346,7 @@ bool SwDoc::InsCopyOfTable( SwPosition& rInsPos, const SwSelBoxes& rBoxes,
                 }
                 return false;
             }
-            aPos.nNode -= SwNodeOffset(1); // Set to the Table's EndNode
+            aPos.Adjust(SwNodeOffset(-1)); // Set to the Table's EndNode
             pSrcTableNd = aPos.GetNode().FindTableNode();
         }
 

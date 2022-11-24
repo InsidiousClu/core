@@ -120,18 +120,12 @@ public:
     bool                    TestFont() const { return mbFaceOk;}
     FT_Face                 GetFtFace() const;
     const FontConfigFontOptions* GetFontOptions() const;
-    bool                    NeedsArtificialBold() const { return mbArtBold; }
-    bool                    NeedsArtificialItalic() const { return mbArtItalic; }
 
     void                    GetFontMetric(ImplFontMetricDataRef const &) const;
-    const unsigned char*    GetTable( const char* pName, sal_uLong* pLength ) const;
-    bool                    GetFontCapabilities(vcl::FontCapabilities &) const;
 
     bool                    GetGlyphBoundRect(sal_GlyphId, tools::Rectangle&, bool) const;
     bool                    GetGlyphOutline(sal_GlyphId, basegfx::B2DPolyPolygon&, bool) const;
     bool                    GetAntialiasAdvice() const;
-
-    void                    SetFontVariationsOnHBFont(hb_font_t* pHbFace) const;
 
 private:
     friend class FreetypeFontInstance;
@@ -158,8 +152,6 @@ private:
     mutable std::unique_ptr<FontConfigFontOptions> mxFontOptions;
 
     bool                    mbFaceOk;
-    bool                    mbArtItalic;
-    bool                    mbArtBold;
 };
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

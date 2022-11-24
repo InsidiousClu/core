@@ -3022,6 +3022,14 @@ bool SbiRuntime::EvaluateTopOfStackAsBool()
     {
         return false;
     }
+
+    // tdf#151503 - do not evaluate a missing optional variable to a boolean
+    if (tos->GetType() == SbxERROR && IsMissing(tos.get(), 1))
+    {
+        Error(ERRCODE_BASIC_NOT_OPTIONAL);
+        return false;
+    }
+
     if ( tos->IsObject() )
     {
         //GetBool applied to an Object attempts to dereference and evaluate
@@ -4414,7 +4422,7 @@ void SbiRuntime::StepSTMNT( sal_uInt32 nOp1, sal_uInt32 nOp2 )
     }
 
     // 16.10.96: #31460 new concept for StepInto/Over/Out
-    // see explanation at _ImplGetBreakCallLevel
+    // see explanation at SbiInstance::CalcBreakCallLevel
     if( pInst->nCallLvl <= pInst->nBreakCallLvl )
     {
         StarBASIC* pStepBasic = GetCurrentBasic( &rBasic );

@@ -201,7 +201,6 @@ SwTextNode *SwNodes::MakeTextNode( SwNode& rWhere,
 
 SwTextNode::SwTextNode( SwNode& rWhere, SwTextFormatColl *pTextColl, const SfxItemSet* pAutoAttr )
 :   SwContentNode( rWhere, SwNodeType::Text, pTextColl ),
-    m_pParaIdleData_Impl(nullptr),
     m_bContainsHiddenChars(false),
     m_bHiddenCharsHidePara(false),
     m_bRecalcHiddenCharFlags(false),
@@ -213,7 +212,6 @@ SwTextNode::SwTextNode( SwNode& rWhere, SwTextFormatColl *pTextColl, const SfxIt
 {
     {
         sw::TextNodeNotificationSuppressor(*this);
-        InitSwParaStatistics( true );
 
         if( pAutoAttr )
             SetAttr( *pAutoAttr );
@@ -264,7 +262,6 @@ SwTextNode::~SwTextNode()
 
     RemoveFromList();
 
-    InitSwParaStatistics( false );
     DelFrames(nullptr); // must be called here while it's still a SwTextNode
     DelFrames_TextNodePart();
 #if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
@@ -438,7 +435,7 @@ SwTextNode *SwTextNode::SplitContentNode(const SwPosition & rPos,
     const sal_Int32 nSplitPos = rPos.GetContentIndex();
     const sal_Int32 nTextLen = m_Text.getLength();
     SwTextNode* const pNode =
-        MakeNewTextNode( rPos.nNode, false, nSplitPos==nTextLen );
+        MakeNewTextNode( rPos.GetNode(), false, nSplitPos==nTextLen );
 
     // the first paragraph gets the XmlId,
     // _except_ if it is empty and the second is not empty
@@ -483,7 +480,7 @@ SwTextNode *SwTextNode::SplitContentNode(const SwPosition & rPos,
         {
             pNode->SetWrong( GetWrong()->SplitList( nSplitPos ) );
         }
-        SetWrongDirty(WrongState::TODO);
+        SetWrongDirty(sw::WrongState::TODO);
 
         if( GetGrammarCheck() )
         {
@@ -498,6 +495,9 @@ SwTextNode *SwTextNode::SplitContentNode(const SwPosition & rPos,
             pNode->SetSmartTags( GetSmartTags()->SplitList( nSplitPos ) );
         }
         SetSmartTagDirty( true );
+
+        resetAndQueueAccessibilityCheck();
+        pNode->resetAndQueueAccessibilityCheck();
 
         if ( pNode->HasHints() )
         {
@@ -588,7 +588,7 @@ SwTextNode *SwTextNode::SplitContentNode(const SwPosition & rPos,
     else
     {
         std::unique_ptr<SwWrongList> pList = ReleaseWrong();
-        SetWrongDirty(WrongState::TODO);
+        SetWrongDirty(sw::WrongState::TODO);
 
         std::unique_ptr<SwGrammarMarkUp> pList3 = ReleaseGrammarCheck();
         SetGrammarCheckDirty( true );
@@ -635,6 +635,9 @@ SwTextNode *SwTextNode::SplitContentNode(const SwPosition & rPos,
             pNode->SetSmartTags( pList2->SplitList( nSplitPos ) );
             SetSmartTags( std::move(pList2) );
         }
+
+        resetAndQueueAccessibilityCheck();
+        pNode->resetAndQueueAccessibilityCheck();
 
         if (pContentIndexRestore)
         {   // call before making frames and before RegisterToNode
@@ -1014,7 +1017,7 @@ SwContentNode *SwTextNode::JoinNext()
         if( pList )
         {
             pList->JoinList( pTextNode->GetWrong(), nOldLen );
-            SetWrongDirty(WrongState::TODO);
+            SetWrongDirty(sw::WrongState::TODO);
         }
         else
         {
@@ -1022,7 +1025,7 @@ SwContentNode *SwTextNode::JoinNext()
             if( pList )
             {
                 pList->Move( 0, nOldLen );
-                SetWrongDirty(WrongState::TODO);
+                SetWrongDirty(sw::WrongState::TODO);
             }
         }
 
@@ -1094,6 +1097,8 @@ SwContentNode *SwTextNode::JoinNext()
         SetGrammarCheck( std::move(pList3) );
         SetSmartTags( std::move(pList2) );
 
+        resetAndQueueAccessibilityCheck();
+
         if (bOldHasNumberingWhichNeedsLayoutUpdate || HasNumberingWhichNeedsLayoutUpdate(*this))
         {
             // Repaint all text frames that belong to this numbering to avoid outdated generated
@@ -1126,7 +1131,7 @@ void SwTextNode::JoinPrev()
         if( pList )
         {
             pList->JoinList( GetWrong(), Len() );
-            SetWrongDirty(WrongState::TODO);
+            SetWrongDirty(sw::WrongState::TODO);
             ClearWrong();
         }
         else
@@ -1135,7 +1140,7 @@ void SwTextNode::JoinPrev()
             if( pList )
             {
                 pList->Move( 0, nLen );
-                SetWrongDirty(WrongState::TODO);
+                SetWrongDirty(sw::WrongState::TODO);
             }
         }
 
@@ -1195,6 +1200,7 @@ void SwTextNode::JoinPrev()
         SetWrong( std::move(pList) );
         SetGrammarCheck( std::move(pList3) );
         SetSmartTags( std::move(pList2) );
+        resetAndQueueAccessibilityCheck();
         InvalidateNumRule();
         sw::CheckResetRedlineMergeFlag(*this,
                 eOldMergeFlag == SwNode::Merge::NonFirst
@@ -1814,7 +1820,7 @@ const SwTextInputField* SwTextNode::GetOverlappingInputField( const SwTextAttr& 
 void SwTextNode::DelFrames_TextNodePart()
 {
     SetWrong( nullptr );
-    SetWrongDirty(WrongState::TODO);
+    SetWrongDirty(sw::WrongState::TODO);
 
     SetGrammarCheck( nullptr );
     SetGrammarCheckDirty( true );
@@ -2053,6 +2059,15 @@ void SwTextNode::CopyText( SwTextNode *const pDest,
 {
     SwContentIndex const aIdx( pDest, pDest->m_Text.getLength() );
     CopyText( pDest, aIdx, rStart, nLen, bForceCopyOfAllAttrs );
+}
+
+void SwTextNode::CopyText( SwTextNode *const pDest,
+                      const SwContentIndex &rDestStart,
+                      const SwPosition &rStart,
+                      sal_Int32 nLen,
+                      const bool bForceCopyOfAllAttrs )
+{
+    CopyText( pDest, rDestStart, rStart.nContent, nLen, bForceCopyOfAllAttrs );
 }
 
 void SwTextNode::CopyText( SwTextNode *const pDest,
@@ -2357,7 +2372,10 @@ OUString SwTextNode::InsertText( const OUString & rStr, const SwContentIndex & r
     {
         return sInserted;
     }
-    m_Text = m_Text.replaceAt(aPos, 0, sInserted);
+    if (aPos == 0 && m_Text.isEmpty())
+        m_Text = sInserted;
+    else
+        m_Text = m_Text.replaceAt(aPos, 0, sInserted);
     assert(GetSpaceLeft()>=0);
     nLen = m_Text.getLength() - aPos - nLen;
     assert(nLen != 0);
@@ -2974,7 +2992,7 @@ bool SwTextNode::HasMarkedLabel() const
 }
 // <- #i27615#
 
-SwTextNode* SwTextNode::MakeNewTextNode( const SwNodeIndex& rPos, bool bNext,
+SwTextNode* SwTextNode::MakeNewTextNode( SwNode& rPosNd, bool bNext,
                                        bool bChgFollow )
 {
     // ignore hard PageBreak/PageDesc/ColumnBreak from Auto-Set
@@ -3052,7 +3070,7 @@ SwTextNode* SwTextNode::MakeNewTextNode( const SwNodeIndex& rPos, bool bNext,
 
     SwTextFormatColl* pColl = GetTextColl();
 
-    SwTextNode *pNode = new SwTextNode( rPos.GetNode(), pColl, oNewAttrSet ? &*oNewAttrSet : nullptr );
+    SwTextNode *pNode = new SwTextNode( rPosNd, pColl, oNewAttrSet ? &*oNewAttrSet : nullptr );
 
     oNewAttrSet.reset();
 
@@ -3098,8 +3116,7 @@ SwTextNode* SwTextNode::MakeNewTextNode( const SwNodeIndex& rPos, bool bNext,
 SwContentNode* SwTextNode::AppendNode( const SwPosition & rPos )
 {
     // position behind which it will be inserted
-    SwNodeIndex aIdx( rPos.GetNode(), 1 );
-    SwTextNode* pNew = MakeNewTextNode( aIdx );
+    SwTextNode* pNew = MakeNewTextNode( *rPos.GetNodes()[rPos.GetNodeIndex() + 1] );
 
     // reset list attributes at appended text node
     pNew->ResetAttr( RES_PARATR_LIST_ISRESTART );
@@ -4005,7 +4022,7 @@ namespace {
                 {
                     lcl_ResetParAttrs(rTextNode);
                     // #i70748#
-                    if ( dynamic_cast<const SfxUInt16Item &>(rTextNode.GetAttr( RES_PARATR_OUTLINELEVEL, false )).GetValue() > 0 )
+                    if ( rTextNode.GetAttr( RES_PARATR_OUTLINELEVEL, false ).GetValue() > 0 )
                     {
                         rTextNode.SetEmptyListStyleDueToSetOutlineLevelAttr();
                     }
@@ -4145,7 +4162,7 @@ void SwTextNode::SetAttrOutlineLevel(int nLevel)
 
 void SwTextNode::GetAttrOutlineContentVisible(bool& bOutlineContentVisibleAttr)
 {
-    const SfxGrabBagItem & rGrabBagItem = dynamic_cast<const SfxGrabBagItem&>(GetAttr(RES_PARATR_GRABBAG));
+    const SfxGrabBagItem & rGrabBagItem = GetAttr(RES_PARATR_GRABBAG);
     auto it = rGrabBagItem.GetGrabBag().find("OutlineContentVisibleAttr");
     if (it != rGrabBagItem.GetGrabBag().end())
         it->second >>= bOutlineContentVisibleAttr;
@@ -4202,7 +4219,7 @@ int SwTextNode::GetAttrListLevel() const
     int nAttrListLevel = 0;
 
     const SfxInt16Item& aListLevelItem =
-        dynamic_cast<const SfxInt16Item&>(GetAttr( RES_PARATR_LIST_LEVEL ));
+        GetAttr( RES_PARATR_LIST_LEVEL );
     nAttrListLevel = static_cast<int>(aListLevelItem.GetValue());
 
     return nAttrListLevel;
@@ -4298,7 +4315,7 @@ SwNumberTree::tSwNumTreeNumber SwTextNode::GetAttrListRestartValue() const
             "<SwTextNode::GetAttrListRestartValue()> - only ask for list restart value, if attribute is set at text node." );
 
     const SfxInt16Item& aListRestartValueItem =
-        dynamic_cast<const SfxInt16Item&>(GetAttr( RES_PARATR_LIST_RESTARTVALUE ));
+        GetAttr( RES_PARATR_LIST_RESTARTVALUE );
     return static_cast<SwNumberTree::tSwNumTreeNumber>(aListRestartValueItem.GetValue());
 }
 
@@ -4525,7 +4542,7 @@ bool SwTextNode::IsFirstOfNumRule(SwRootFrame const& rLayout) const
 void SwTextNode::SetListId(OUString const& rListId)
 {
     const SfxStringItem& rListIdItem =
-            dynamic_cast<const SfxStringItem&>(GetAttr( RES_PARATR_LIST_ID ));
+            GetAttr( RES_PARATR_LIST_ID );
     if (rListIdItem.GetValue() != rListId)
     {
         if (rListId.isEmpty())
@@ -4543,7 +4560,7 @@ void SwTextNode::SetListId(OUString const& rListId)
 OUString SwTextNode::GetListId() const
 {
     const SfxStringItem& rListIdItem =
-                dynamic_cast<const SfxStringItem&>(GetAttr( RES_PARATR_LIST_ID ));
+                GetAttr( RES_PARATR_LIST_ID );
     const OUString& sListId {rListIdItem.GetValue()};
 
     // As long as no explicit list id attribute is set, use the list id of
@@ -5081,7 +5098,7 @@ namespace {
             bool mbUpdateListRestart;
             bool mbUpdateListCount;
 
-            void init( const std::vector<sal_uInt16>& rWhichArr );
+            void init( sal_uInt16 nWhich, bool& rbRemoveFromList );
     };
 
     HandleResetAttrAtTextNode::HandleResetAttrAtTextNode( SwTextNode& rTextNode,
@@ -5095,11 +5112,11 @@ namespace {
     {
         if ( nWhich2 < nWhich1 )
             nWhich2 = nWhich1;
-        std::vector<sal_uInt16> rWhichArr;
+        bool bRemoveFromList( false );
         for ( sal_uInt16 nWhich = nWhich1; nWhich <= nWhich2; ++nWhich )
-            rWhichArr.push_back( nWhich );
-
-        init( rWhichArr );
+            init( nWhich, bRemoveFromList );
+        if ( bRemoveFromList && mrTextNode.IsInList() )
+            mrTextNode.RemoveFromList();
     }
 
     HandleResetAttrAtTextNode::HandleResetAttrAtTextNode( SwTextNode& rTextNode,
@@ -5110,7 +5127,11 @@ namespace {
           mbUpdateListRestart( false ),
           mbUpdateListCount( false )
     {
-        init( rWhichArr );
+        bool bRemoveFromList( false );
+        for ( sal_uInt16 nWhich : rWhichArr )
+            init( nWhich, bRemoveFromList );
+        if ( bRemoveFromList && mrTextNode.IsInList() )
+            mrTextNode.RemoveFromList();
     }
 
     HandleResetAttrAtTextNode::HandleResetAttrAtTextNode( SwTextNode& rTextNode )
@@ -5128,55 +5149,44 @@ namespace {
         mrTextNode.ResetEmptyListStyleDueToResetOutlineLevelAttr();
     }
 
-    void HandleResetAttrAtTextNode::init( const std::vector<sal_uInt16>& rWhichArr )
+    void HandleResetAttrAtTextNode::init( sal_uInt16 rWhich, bool& rbRemoveFromList )
     {
-        bool bRemoveFromList( false );
+        if ( rWhich == RES_PARATR_NUMRULE )
         {
-            for (const auto& rWhich : rWhichArr)
-            {
-                if ( rWhich == RES_PARATR_NUMRULE )
-                {
-                    bRemoveFromList = bRemoveFromList ||
-                                      mrTextNode.GetNumRule() != nullptr;
-                    mbListStyleOrIdReset = true;
-                }
-                else if ( rWhich == RES_PARATR_LIST_ID )
-                {
-                    bRemoveFromList = bRemoveFromList ||
-                        ( mrTextNode.GetpSwAttrSet() &&
-                          mrTextNode.GetpSwAttrSet()->GetItemState( RES_PARATR_LIST_ID, false ) == SfxItemState::SET );
-                    mbListStyleOrIdReset = true;
-                }
-                else if ( rWhich == RES_PARATR_OUTLINELEVEL )
-                    mrTextNode.ResetEmptyListStyleDueToResetOutlineLevelAttr();
-                else if ( rWhich == RES_BACKGROUND )
-                    mrTextNode.ResetAttr( XATTR_FILL_FIRST, XATTR_FILL_LAST );
-
-                if ( !bRemoveFromList )
-                {
-                    // RES_PARATR_LIST_LEVEL
-                    mbUpdateListLevel = mbUpdateListLevel ||
-                                        ( rWhich == RES_PARATR_LIST_LEVEL &&
-                                          mrTextNode.HasAttrListLevel() );
-
-                    // RES_PARATR_LIST_ISRESTART and RES_PARATR_LIST_RESTARTVALUE
-                    mbUpdateListRestart = mbUpdateListRestart ||
-                                          ( rWhich == RES_PARATR_LIST_ISRESTART &&
-                                            mrTextNode.IsListRestart() ) ||
-                                          ( rWhich == RES_PARATR_LIST_RESTARTVALUE &&
-                                            mrTextNode.HasAttrListRestartValue() );
-
-                    // RES_PARATR_LIST_ISCOUNTED
-                    mbUpdateListCount = mbUpdateListCount ||
-                                        ( rWhich == RES_PARATR_LIST_ISCOUNTED &&
-                                          !mrTextNode.IsCountedInList() );
-                }
-            }
+            rbRemoveFromList = rbRemoveFromList ||
+                              mrTextNode.GetNumRule() != nullptr;
+            mbListStyleOrIdReset = true;
         }
-
-        if ( bRemoveFromList && mrTextNode.IsInList() )
+        else if ( rWhich == RES_PARATR_LIST_ID )
         {
-            mrTextNode.RemoveFromList();
+            rbRemoveFromList = rbRemoveFromList ||
+                ( mrTextNode.GetpSwAttrSet() &&
+                  mrTextNode.GetpSwAttrSet()->GetItemState( RES_PARATR_LIST_ID, false ) == SfxItemState::SET );
+            mbListStyleOrIdReset = true;
+        }
+        else if ( rWhich == RES_PARATR_OUTLINELEVEL )
+            mrTextNode.ResetEmptyListStyleDueToResetOutlineLevelAttr();
+        else if ( rWhich == RES_BACKGROUND )
+            mrTextNode.ResetAttr( XATTR_FILL_FIRST, XATTR_FILL_LAST );
+
+        if ( !rbRemoveFromList )
+        {
+            // RES_PARATR_LIST_LEVEL
+            mbUpdateListLevel = mbUpdateListLevel ||
+                                ( rWhich == RES_PARATR_LIST_LEVEL &&
+                                  mrTextNode.HasAttrListLevel() );
+
+            // RES_PARATR_LIST_ISRESTART and RES_PARATR_LIST_RESTARTVALUE
+            mbUpdateListRestart = mbUpdateListRestart ||
+                                  ( rWhich == RES_PARATR_LIST_ISRESTART &&
+                                    mrTextNode.IsListRestart() ) ||
+                                  ( rWhich == RES_PARATR_LIST_RESTARTVALUE &&
+                                    mrTextNode.HasAttrListRestartValue() );
+
+            // RES_PARATR_LIST_ISCOUNTED
+            mbUpdateListCount = mbUpdateListCount ||
+                                ( rWhich == RES_PARATR_LIST_ISCOUNTED &&
+                                  !mrTextNode.IsCountedInList() );
         }
     }
 

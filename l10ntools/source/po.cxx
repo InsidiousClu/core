@@ -223,7 +223,7 @@ void GenPoEntry::readFromFile(std::ifstream& rIFStream)
             {
                 sReference = m_sReferences.front();
             }
-            if (pLastMsg != &m_sMsgCtxt || sLine != OStringConcatenation("\"" + sReference + "\\n\""))
+            if (pLastMsg != &m_sMsgCtxt || sLine != Concat2View("\"" + sReference + "\\n\""))
             {
                 *pLastMsg += lcl_GenNormString(sLine);
             }
@@ -279,7 +279,7 @@ PoEntry::PoEntry(
     }
     m_pGenPo->setMsgCtxt(sMsgCtxt);
     m_pGenPo->setMsgId(rText);
-    m_pGenPo->setExtractCom(OStringConcatenation(
+    m_pGenPo->setExtractCom(Concat2View(
         ( !rHelpText.empty() ?  OString::Concat(rHelpText) + "\n" : OString()) +
         genKeyId( m_pGenPo->getReference().front() + rGroupId + rLocalId + rResType + rText ) ));
     m_bIsInitialized = true;
@@ -425,7 +425,7 @@ OString PoEntry::genKeyId(const OString& rGenerator)
         nCRC >>= 6;
     }
     sKeyId[5] = '\0';
-    return OString(sKeyId);
+    return sKeyId;
 }
 
 namespace
@@ -437,7 +437,7 @@ namespace
         struct tm* pNow = localtime(&aNow);
         char pBuff[50];
         strftime( pBuff, sizeof pBuff, "%Y-%m-%d %H:%M%z", pNow );
-        return OString(pBuff);
+        return pBuff;
     }
 }
 
@@ -446,7 +446,7 @@ PoHeader::PoHeader( std::string_view rExtSrc, const OString& rPoHeaderMsgStr )
     : m_pGenPo( new GenPoEntry() )
     , m_bIsInitialized( false )
 {
-    m_pGenPo->setExtractCom(OStringConcatenation(OString::Concat("extracted from ") + rExtSrc));
+    m_pGenPo->setExtractCom(Concat2View(OString::Concat("extracted from ") + rExtSrc));
     m_pGenPo->setMsgStr(rPoHeaderMsgStr);
     m_bIsInitialized = true;
 }
@@ -455,7 +455,7 @@ PoHeader::PoHeader( std::string_view rExtSrc )
     : m_pGenPo( new GenPoEntry() )
     , m_bIsInitialized( false )
 {
-    m_pGenPo->setExtractCom(OStringConcatenation(OString::Concat("extracted from ") + rExtSrc));
+    m_pGenPo->setExtractCom(Concat2View(OString::Concat("extracted from ") + rExtSrc));
     m_pGenPo->setMsgStr(
         "Project-Id-Version: PACKAGE VERSION\n"
         "Report-Msgid-Bugs-To: https://bugs.libreoffice.org/enter_bug.cgi?"

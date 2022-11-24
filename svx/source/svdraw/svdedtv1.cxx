@@ -332,7 +332,7 @@ void SdrEditView::RotateMarkedObj(const Point& rRef, Degree100 nAngle, bool bCop
             }
 
             // set up a scene updater if object is a 3d object
-            if(dynamic_cast< E3dObject* >(pO))
+            if(DynCastE3dObject(pO))
             {
                 aUpdaters.push_back(new E3DModifySceneSnapRectUpdater(pO));
             }
@@ -396,7 +396,7 @@ void SdrEditView::MirrorMarkedObj(const Point& rRef1, const Point& rRef2, bool b
             }
 
             // set up a scene updater if object is a 3d object
-            if(dynamic_cast< E3dObject* >(pO))
+            if(DynCastE3dObject(pO))
             {
                 aUpdaters.push_back(new E3DModifySceneSnapRectUpdater(pO));
             }
@@ -1181,14 +1181,14 @@ void SdrEditView::SetAttrToMarked(const SfxItemSet& rAttr, bool bReplaceAll)
             // multiple portions exist with multiple formats. If an OutlinerParaObject
             // really exists and needs to be rescued is evaluated in the undo
             // implementation itself.
-            const bool bRescueText = dynamic_cast< SdrTextObj* >(pObj) != nullptr;
+            const bool bRescueText = DynCastSdrTextObj(pObj) != nullptr;
 
             // add attribute undo
             AddUndo(GetModel()->GetSdrUndoFactory().CreateUndoAttrObject(*pObj,false,bHasEEItems || bPossibleGeomChange || bRescueText));
         }
 
         // set up a scene updater if object is a 3d object
-        if(dynamic_cast< E3dObject* >(pObj))
+        if(DynCastE3dObject(pObj))
         {
             aUpdaters.push_back(new E3DModifySceneSnapRectUpdater(pObj));
         }
@@ -1226,7 +1226,7 @@ void SdrEditView::SetAttrToMarked(const SfxItemSet& rAttr, bool bReplaceAll)
             }
         }
 
-        if(auto pTextObj = dynamic_cast<SdrTextObj*>( pObj))
+        if(auto pTextObj = DynCastSdrTextObj( pObj))
         {
             if(!aCharWhichIds.empty())
             {

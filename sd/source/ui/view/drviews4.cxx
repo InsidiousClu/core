@@ -208,7 +208,7 @@ bool DrawViewShell::KeyInput (const KeyEvent& rKEvt, ::sd::Window* pWin)
                 {
                     SdrObject* pObj = aIter.Next();
 
-                    if(auto pSdrTextObj = dynamic_cast<SdrTextObj *>( pObj ))
+                    if(auto pSdrTextObj = DynCastSdrTextObj( pObj ))
                     {
                         SdrInventor nInv(pObj->GetObjInventor());
                         SdrObjKind  nKnd(pObj->GetObjIdentifier());
@@ -249,15 +249,18 @@ bool DrawViewShell::KeyInput (const KeyEvent& rKEvt, ::sd::Window* pWin)
             bRet = ViewShell::KeyInput(rKEvt, pWin);
             //If object is marked , the corresponding entry is set true , else
             //the corresponding entry is set false .
-            if(KEY_TAB == rKEvt.GetKeyCode().GetCode())
+            if(KEY_TAB == rKEvt.GetKeyCode().GetCode()
+                    || KEY_ESCAPE == rKEvt.GetKeyCode().GetCode())
+
             {
                FreshNavigatrTree();
             }
         }
+        if (!bRet && !mbReadOnly) // tdf#139804
+        {
+            bRet = GetView()->KeyInput(rKEvt, pWin);
+        }
     }
-
-    if (!bRet)
-        bRet = GetView()->KeyInput(rKEvt, pWin);
 
     return bRet;
 }

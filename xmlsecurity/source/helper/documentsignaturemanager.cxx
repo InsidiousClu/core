@@ -25,7 +25,7 @@
 #include <com/sun/star/embed/StorageFormats.hpp>
 #include <com/sun/star/embed/ElementModes.hpp>
 #include <com/sun/star/embed/XStorage.hpp>
-#include <com/sun/star/io/TempFile.hpp>
+#include <com/sun/star/io/XTempFile.hpp>
 #include <com/sun/star/io/XTruncate.hpp>
 #include <com/sun/star/embed/XTransactedObject.hpp>
 #include <com/sun/star/xml/crypto/SEInitializer.hpp>
@@ -237,7 +237,7 @@ SignatureStreamHelper DocumentSignatureManager::ImplOpenSignatureStream(sal_Int3
         if (nStreamOpenMode & embed::ElementModes::TRUNCATE)
         {
             //We write always into a new temporary stream.
-            mxTempSignatureStream.set(io::TempFile::create(mxContext), uno::UNO_QUERY_THROW);
+            mxTempSignatureStream = new utl::TempFileFastService;
             if (aHelper.nStorageFormat != embed::StorageFormats::OFOPXML)
                 aHelper.xSignatureStream = mxTempSignatureStream;
             else

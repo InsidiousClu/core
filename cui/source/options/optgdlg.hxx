@@ -38,7 +38,6 @@ private:
     std::unique_ptr<weld::Widget> m_xFileDlgFrame;
     std::unique_ptr<weld::Widget> m_xFileDlgROImage;
     std::unique_ptr<weld::CheckButton> m_xFileDlgCB;
-    std::unique_ptr<weld::CheckButton> m_xPrintDlgCB;
     std::unique_ptr<weld::CheckButton> m_xDocStatusCB;
     std::unique_ptr<weld::Widget> m_xYearFrame;
     std::unique_ptr<weld::SpinButton> m_xYearValueField;
@@ -167,6 +166,8 @@ class OfaLanguagesTabPage : public SfxTabPage
     DECL_LINK(SupportHdl, weld::Toggleable&, void);
     DECL_LINK(LocaleSettingHdl, weld::ComboBox&, void);
     DECL_LINK(DatePatternsHdl, weld::Entry&, void);
+
+    bool validateDatePatterns( bool& rbModified, OUString& rPatterns );
 
 public:
     OfaLanguagesTabPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet& rSet);

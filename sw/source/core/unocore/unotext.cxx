@@ -86,7 +86,6 @@ public:
     const CursorType            m_eType;
     SwDoc *                     m_pDoc;
     bool                        m_bIsValid;
-    bool m_bCopySkipsBookmarks;
 
     Impl(   SwXText & rThis,
             SwDoc *const pDoc, const CursorType eType)
@@ -95,7 +94,6 @@ public:
         , m_eType(eType)
         , m_pDoc(pDoc)
         , m_bIsValid(nullptr != pDoc)
-        , m_bCopySkipsBookmarks(false)
     {
     }
 
@@ -200,6 +198,10 @@ SwXText::queryInterface(const uno::Type& rType)
     {
         aRet <<= uno::Reference< text::XText >(this);
     }
+    else if (rType == cppu::UnoType<lang::XUnoTunnel>::get())
+    {
+        aRet <<= uno::Reference< lang::XUnoTunnel >(this);
+    }
     else if (rType == cppu::UnoType<text::XSimpleText>::get())
     {
         aRet <<= uno::Reference< text::XSimpleText >(this);
@@ -227,10 +229,6 @@ SwXText::queryInterface(const uno::Type& rType)
     else if (rType == cppu::UnoType<beans::XPropertySet>::get())
     {
         aRet <<= uno::Reference< beans::XPropertySet >(this);
-    }
-    else if (rType == cppu::UnoType<lang::XUnoTunnel>::get())
-    {
-        aRet <<= uno::Reference< lang::XUnoTunnel >(this);
     }
     else if (rType == cppu::UnoType<text::XTextAppendAndConvert>::get())
     {
@@ -613,12 +611,12 @@ SwXText::insertTextContent(
         uno::Reference<lang::XUnoTunnel> const xRangeTunnel(xRange, uno::UNO_QUERY);
         if (SwXTextRange *const pRange = comphelper::getFromUnoTunnel<SwXTextRange>(xRangeTunnel))
         {
-            pRange->DeleteAndInsert(OUString(), ::sw::DeleteAndInsertMode::ForceReplace
+            pRange->DeleteAndInsert(u"", ::sw::DeleteAndInsertMode::ForceReplace
                 | (bForceExpandHints ? ::sw::DeleteAndInsertMode::ForceExpandHints : ::sw::DeleteAndInsertMode::Default));
         }
         else if (SwXTextCursor *const pCursor = dynamic_cast<SwXTextCursor*>(comphelper::getFromUnoTunnel<OTextCursorHelper>(xRangeTunnel)))
         {
-            pCursor->DeleteAndInsert(OUString(), ::sw::DeleteAndInsertMode::ForceReplace
+            pCursor->DeleteAndInsert(u"", ::sw::DeleteAndInsertMode::ForceReplace
                 | (bForceExpandHints ? ::sw::DeleteAndInsertMode::ForceExpandHints : ::sw::DeleteAndInsertMode::Default));
         }
         else
@@ -1123,18 +1121,9 @@ SwXText::getPropertySetInfo()
 }
 
 void SAL_CALL
-SwXText::setPropertyValue(const OUString& aPropertyName,
-        const uno::Any& aValue)
+SwXText::setPropertyValue(const OUString& /*aPropertyName*/,
+        const uno::Any& /*aValue*/)
 {
-    if (aPropertyName == "CopySkipsBookmarks")
-    {
-        bool bValue{};
-        if (aValue >>= bValue)
-        {
-            m_pImpl->m_bCopySkipsBookmarks = bValue;
-        }
-        return;
-    }
     throw lang::IllegalArgumentException();
 }
 
@@ -2413,12 +2402,7 @@ SwXText::copyText(
             // Explicitly request copy text mode, so
             // sw::DocumentContentOperationsManager::CopyFlyInFlyImpl() will copy shapes anchored to
             // us, even if we have only a single paragraph.
-            SwCopyFlags eFlags = SwCopyFlags::CheckPosInFly;
-            if (m_pImpl->m_bCopySkipsBookmarks)
-            {
-                eFlags |= SwCopyFlags::SkipBookmarks;
-            }
-            m_pImpl->m_pDoc->getIDocumentContentOperations().CopyRange(temp, rPos, eFlags);
+            m_pImpl->m_pDoc->getIDocumentContentOperations().CopyRange(temp, rPos, SwCopyFlags::CheckPosInFly);
         }
         if (!pFirstNode)
         {   // the node at rPos was split; get rid of the first empty one so

@@ -171,7 +171,7 @@ namespace vcl
         int   typoLineGap = 0;        /**< OS/2 portable typographic line gap                       */
         int   winAscent = 0;          /**< ascender metric for Windows                             */
         int   winDescent = 0;         /**< descender metric for Windows                            */
-        bool  symbolEncoded = false;      /**< true: MS symbol encoded */
+        bool  microsoftSymbolEncoded = false;  /**< true: MS symbol encoded */
         sal_uInt8  panose[10] = {};   /**< PANOSE classification number                            */
         sal_uInt32 typeFlags = 0;     /**< type flags (copyright bits)                             */
         sal_uInt16 fsSelection = 0;   /**< OS/2 fsSelection */
@@ -651,18 +651,6 @@ class TrueTypeFont;
                                int            nGlyphs);
 
 /**
- * Queries glyph metrics. Allocates an array of advance width/height values and returns it.
- *
- * @param ttf         pointer to the TrueTypeFont structure
- * @param glyphArray  pointer to an array of glyphs that are to be extracted from ttf
- * @param nGlyphs     number of glyph IDs in glyphArray and encoding values in encoding
- * @param vertical    writing mode: false - horizontal, true - vertical
- * @ingroup sft
- *
- */
-    VCL_DLLPUBLIC std::unique_ptr<sal_uInt16[]> GetTTSimpleGlyphMetrics(AbstractTrueTypeFont const *ttf, const sal_uInt16 *glyphArray, int nGlyphs, bool vertical);
-
-/**
  * Returns global font information about the TrueType font.
  * @see TTGlobalFontInfo
  *
@@ -719,7 +707,7 @@ class VCL_DLLPUBLIC AbstractTrueTypeFont
     sal_uInt32 m_nUnitsPerEm;
     std::vector<sal_uInt32> m_aGlyphOffsets;
     FontCharMapRef m_xCharMap;
-    bool m_bIsSymbolFont;
+    bool m_bMicrosoftSymbolEncoded;
 
 protected:
     SFErrCodes indexGlyphData();
@@ -736,7 +724,7 @@ public:
     sal_uInt32 horzMetricCount() const { return m_nHorzMetrics; }
     sal_uInt32 vertMetricCount() const { return m_nVertMetrics; }
     sal_uInt32 unitsPerEm() const { return m_nUnitsPerEm; }
-    bool IsSymbolFont() const { return m_bIsSymbolFont; }
+    bool IsMicrosoftSymbolEncoded() const { return m_bMicrosoftSymbolEncoded; }
 
     virtual bool hasTable(sal_uInt32 ord) const = 0;
     virtual const sal_uInt8* table(sal_uInt32 ord, sal_uInt32& size) const = 0;

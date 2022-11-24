@@ -7,7 +7,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include <test/calc_unoapi_test.hxx>
+#include <test/unoapi_test.hxx>
 #include <test/container/xelementaccess.hxx>
 #include <test/container/xenumerationaccess.hxx>
 #include <test/util/xrefreshable.hxx>
@@ -32,7 +32,7 @@ using namespace css;
 
 namespace sc_apitest
 {
-class ScHeaderFieldsObj : public CalcUnoApiTest,
+class ScHeaderFieldsObj : public UnoApiTest,
                           public apitest::XElementAccess,
                           public apitest::XEnumerationAccess,
                           public apitest::XRefreshable
@@ -59,7 +59,6 @@ public:
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    uno::Reference<lang::XComponent> m_xComponent;
     // We need a long living reference to css::text::XText to make the
     // XElementAccess::hasElements() test work as ScHeaderFooterEditSource holds
     // only (weak) references and they sometimes are gone.
@@ -69,14 +68,14 @@ private:
 uno::Reference<text::XText> ScHeaderFieldsObj::m_xText;
 
 ScHeaderFieldsObj::ScHeaderFieldsObj()
-    : CalcUnoApiTest("/sc/qa/extras/testdocuments")
+    : UnoApiTest("/sc/qa/extras/testdocuments")
     , ::apitest::XElementAccess(cppu::UnoType<text::XTextField>::get())
 {
 }
 
 uno::Reference<uno::XInterface> ScHeaderFieldsObj::init()
 {
-    uno::Reference<sheet::XSpreadsheetDocument> xDoc(m_xComponent, uno::UNO_QUERY_THROW);
+    uno::Reference<sheet::XSpreadsheetDocument> xDoc(mxComponent, uno::UNO_QUERY_THROW);
 
     uno::Reference<style::XStyleFamiliesSupplier> xSFS(xDoc, uno::UNO_QUERY_THROW);
     uno::Reference<container::XNameAccess> xNA(xSFS->getStyleFamilies(), uno::UNO_SET_THROW);
@@ -100,17 +99,16 @@ uno::Reference<uno::XInterface> ScHeaderFieldsObj::init()
 
 void ScHeaderFieldsObj::setUp()
 {
-    CalcUnoApiTest::setUp();
+    UnoApiTest::setUp();
     // create calc document
-    m_xComponent = loadFromDesktop("private:factory/scalc");
+    mxComponent = loadFromDesktop("private:factory/scalc");
 }
 
 void ScHeaderFieldsObj::tearDown()
 {
     m_xText.clear();
 
-    closeDocument(m_xComponent);
-    CalcUnoApiTest::tearDown();
+    UnoApiTest::tearDown();
 }
 
 CPPUNIT_TEST_SUITE_REGISTRATION(ScHeaderFieldsObj);

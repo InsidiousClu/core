@@ -442,7 +442,7 @@ CheckParaRedlineMerge(SwTextFrame & rFrame, SwTextNode & rTextNode,
 void SwAttrIter::InitFontAndAttrHandler(
         SwTextNode const& rPropsNode,
         SwTextNode const& rTextNode,
-        OUString const& rText,
+        std::u16string_view aText,
         bool const*const pbVertLayout,
         bool const*const pbVertLayoutLRBT)
 {
@@ -512,7 +512,7 @@ void SwAttrIter::InitFontAndAttrHandler(
             m_pFont->GetFontCacheId( m_aFontCacheIds[ nTmp ], m_aFontIdx[ nTmp ], nTmp );
         }
     }
-    while (nChg < TextFrameIndex(rText.getLength()));
+    while (nChg < TextFrameIndex(aText.size()));
 }
 
 void SwAttrIter::CtorInitAttrIter(SwTextNode & rTextNode,
@@ -1049,6 +1049,8 @@ void SwExtend::ActualizeFont( SwFont &rFnt, ExtTextInputAttr nAttr )
 {
     if ( nAttr & ExtTextInputAttr::Underline )
         rFnt.SetUnderline( LINESTYLE_SINGLE );
+    else if ( nAttr & ExtTextInputAttr::DoubleUnderline )
+        rFnt.SetUnderline( LINESTYLE_DOUBLE );
     else if ( nAttr & ExtTextInputAttr::BoldUnderline )
         rFnt.SetUnderline( LINESTYLE_BOLD );
     else if ( nAttr & ExtTextInputAttr::DottedUnderline )

@@ -1679,13 +1679,14 @@ MetaFontAction::MetaFontAction( vcl::Font aFont ) :
     MetaAction  ( MetaActionType::FONT ),
     maFont      (std::move( aFont ))
 {
-    // #96876: because RTL_TEXTENCODING_SYMBOL is often set at the StarSymbol font,
+    // #96876: because RTL_TEXTENCODING_SYMBOL is often set at the OpenSymbol font,
     // we change the textencoding to RTL_TEXTENCODING_UNICODE here, which seems
     // to be the right way; changing the textencoding at other sources
     // is too dangerous at the moment
-    if ( IsStarSymbol( maFont.GetFamilyName() )
+    if ( IsOpenSymbol( maFont.GetFamilyName() )
         && ( maFont.GetCharSet() != RTL_TEXTENCODING_UNICODE ) )
     {
+        SAL_WARN_IF(maFont.GetCharSet() == RTL_TEXTENCODING_SYMBOL, "vcl", "OpenSymbol should not have charset of RTL_TEXTENCODING_SYMBOL in new documents");
         maFont.SetCharSet( RTL_TEXTENCODING_UNICODE );
     }
 }

@@ -175,7 +175,7 @@ protected:
 /// Calculates what scaling factor will be used for autofit text scaling of this shape.
 sal_Int16 GetTextFitToSizeScale(SdrObject* pObject)
 {
-    SdrTextObj* pTextObj = dynamic_cast<SdrTextObj*>(pObject);
+    SdrTextObj* pTextObj = DynCastSdrTextObj(pObject);
     if (!pTextObj)
     {
         return 0;
@@ -1000,8 +1000,6 @@ static bool svx_needLogicRectHack( SdrObject const * pObj )
         case SdrObjKind::PathFill:
         case SdrObjKind::FreehandLine:
         case SdrObjKind::FreehandFill:
-        case SdrObjKind::SplineLine:
-        case SdrObjKind::SplineFill:
         case SdrObjKind::Edge:
         case SdrObjKind::PathPoly:
         case SdrObjKind::PathPolyLine:
@@ -2436,7 +2434,7 @@ bool SvxShape::setPropertyValueImpl( const OUString&, const SfxItemPropertyMapEn
 
     case OWN_ATTR_TEXTCOLUMNS:
     {
-        if (auto pTextObj = dynamic_cast<SdrTextObj*>(pSdrObject.get()))
+        if (auto pTextObj = DynCastSdrTextObj(pSdrObject.get()))
         {
             css::uno::Reference<css::text::XTextColumns> xTextColumns;
             if (rValue >>= xTextColumns)
@@ -2566,7 +2564,7 @@ bool SvxShape::getPropertyValueImpl( const OUString&, const SfxItemPropertyMapEn
     case OWN_ATTR_ISFONTWORK:
     {
         bool bIsFontwork = false;
-        if (const SdrTextObj* pTextObj = dynamic_cast<const SdrTextObj*>(GetSdrObject()))
+        if (const SdrTextObj* pTextObj = DynCastSdrTextObj(GetSdrObject()))
             bIsFontwork = pTextObj->IsFontwork();
         rValue <<= bIsFontwork;
         break;
@@ -2883,7 +2881,7 @@ bool SvxShape::getPropertyValueImpl( const OUString&, const SfxItemPropertyMapEn
 
     case OWN_ATTR_TEXTCOLUMNS:
     {
-        if (auto pTextObj = dynamic_cast<const SdrTextObj*>(GetSdrObject()))
+        if (auto pTextObj = DynCastSdrTextObj(GetSdrObject()))
         {
             if (pTextObj->HasTextColumnsNumber() || pTextObj->HasTextColumnsSpacing())
             {
@@ -3888,7 +3886,7 @@ bool SvxShapeText::setPropertyValueImpl( const OUString& rName, const SfxItemPro
 
     if( pProperty->nWID == SDRATTR_TEXTDIRECTION )
     {
-        SdrTextObj* pTextObj = dynamic_cast< SdrTextObj* >( GetSdrObject() );
+        SdrTextObj* pTextObj = DynCastSdrTextObj( GetSdrObject() );
         if( pTextObj )
         {
             css::text::WritingMode eMode;
@@ -3906,7 +3904,7 @@ bool SvxShapeText::getPropertyValueImpl( const OUString& rName, const SfxItemPro
 {
     if( pProperty->nWID == SDRATTR_TEXTDIRECTION )
     {
-        SdrTextObj* pTextObj = dynamic_cast< SdrTextObj* >( GetSdrObject() );
+        SdrTextObj* pTextObj = DynCastSdrTextObj( GetSdrObject() );
         if( pTextObj && pTextObj->IsVerticalWriting() )
             rValue <<= css::text::WritingMode_TB_RL;
         else

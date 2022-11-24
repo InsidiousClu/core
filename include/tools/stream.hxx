@@ -50,8 +50,9 @@ enum class StreamMode {
 // file i/o
     NOCREATE                 = 0x0004,  ///< 1 == Don't create file
     TRUNC                    = 0x0008,  ///< Truncate _existing_ file to zero length
-    COPY_ON_SYMLINK          = 0x0010,  ///< copy-on-write for symlinks (Unix)
+    COPY_ON_SYMLINK          = 0x0010,  ///< copy-on-write for symlinks (Unix-only)
     TEMPORARY                = 0x0020,  ///< temporary file attribute (Windows-only)
+    DELETE_ON_CLOSE          = 0x0040,  ///< only for temporary files (Windows-only)
 // sharing options
     SHARE_DENYNONE           = 0x0100,
     SHARE_DENYREAD           = 0x0200,  // overrides denynone
@@ -65,7 +66,7 @@ enum class StreamMode {
 };
 namespace o3tl
 {
-    template<> struct typed_flags<StreamMode> : is_typed_flags<StreamMode, 0x0f3f> {};
+    template<> struct typed_flags<StreamMode> : is_typed_flags<StreamMode, 0x0f7f> {};
 }
 
 #define STREAM_SEEK_TO_BEGIN            0L
@@ -161,7 +162,6 @@ private:
     bool            m_isSwap;
     bool            m_isEof;
     ErrCode         m_nError;
-    SvStreamEndian  m_nEndian;
     SvStreamCompressFlags m_nCompressMode;
     LineEnd         m_eLineDelimiter;
     rtl_TextEncoding m_eStreamCharSet;
@@ -207,7 +207,7 @@ public:
     virtual void    ResetError();
 
     void            SetEndian( SvStreamEndian SvStreamEndian );
-    SvStreamEndian  GetEndian() const { return m_nEndian; }
+    SvStreamEndian  GetEndian() const;
     /// returns status of endian swap flag
     bool            IsEndianSwap() const { return m_isSwap; }
 

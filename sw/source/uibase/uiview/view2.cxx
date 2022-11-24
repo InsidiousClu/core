@@ -88,6 +88,7 @@
 #include <IDocumentSettingAccess.hxx>
 #include <IDocumentDrawModelAccess.hxx>
 #include <IDocumentStatistics.hxx>
+#include <IDocumentOutlineNodes.hxx>
 #include <wrtsh.hxx>
 #include <viewopt.hxx>
 #include <basesh.hxx>
@@ -130,6 +131,7 @@
 #include <unotextrange.hxx>
 #include <docstat.hxx>
 #include <wordcountdialog.hxx>
+#include <OnlineAccessibilityCheck.hxx>
 #include <sfx2/sidebar/Sidebar.hxx>
 
 #include <vcl/GraphicNativeTransform.hxx>
@@ -168,6 +170,66 @@ using namespace ::com::sun::star::beans;
 using namespace ::com::sun::star::container;
 using namespace ::com::sun::star::sdb;
 using namespace ::com::sun::star::ui::dialogs;
+
+namespace {
+
+class SwNumberInputDlg : public SfxDialogController
+{
+private:
+    std::unique_ptr<weld::Label> m_xLabel1;
+    std::unique_ptr<weld::SpinButton> m_xSpinButton;
+    std::unique_ptr<weld::Label> m_xLabel2;
+    std::unique_ptr<weld::Button> m_xOKButton;
+
+    DECL_LINK(InputModifiedHdl, weld::Entry&, void);
+public:
+    SwNumberInputDlg(weld::Window* pParent, const OUString& rTitle,
+        const OUString& rLabel1, const sal_Int64 nValue, const sal_Int64 min, const sal_Int64 max,
+        OUString rLabel2 = OUString())
+        : SfxDialogController(pParent, "modules/swriter/ui/numberinput.ui", "NumberInputDialog")
+        , m_xLabel1(m_xBuilder->weld_label("label1"))
+        , m_xSpinButton(m_xBuilder->weld_spin_button("spinbutton"))
+        , m_xLabel2(m_xBuilder->weld_label("label2"))
+        , m_xOKButton(m_xBuilder->weld_button("ok"))
+    {
+        m_xDialog->set_title(rTitle);
+        m_xLabel1->set_label(rLabel1);
+        m_xSpinButton->set_value(nValue);
+        m_xSpinButton->set_range(min, max);
+        m_xSpinButton->set_position(-1);
+        m_xSpinButton->select_region(0, -1);
+        m_xSpinButton->connect_changed(LINK(this, SwNumberInputDlg, InputModifiedHdl));
+        if (!rLabel2.isEmpty())
+        {
+            m_xLabel2->set_label(rLabel2);
+            m_xLabel2->show();
+        }
+    }
+
+    auto GetNumber()
+    {
+        return m_xSpinButton->get_text().toInt32();
+    }
+};
+
+IMPL_LINK_NOARG(SwNumberInputDlg, InputModifiedHdl, weld::Entry&, void)
+{
+    m_xOKButton->set_sensitive(!m_xSpinButton->get_text().isEmpty());
+    if (!m_xOKButton->get_sensitive())
+        return;
+
+    auto nValue = m_xSpinButton->get_text().toInt32();
+    if (nValue <= m_xSpinButton->get_min())
+        m_xSpinButton->set_value(m_xSpinButton->get_min());
+    else if (nValue > m_xSpinButton->get_max())
+        m_xSpinButton->set_value(m_xSpinButton->get_max());
+    else
+        m_xSpinButton->set_value(nValue);
+
+    m_xSpinButton->set_position(-1);
+}
+
+}
 
 static void lcl_SetAllTextToDefaultLanguage( SwWrtShell &rWrtSh, sal_uInt16 nWhichId )
 {
@@ -1271,18 +1333,27 @@ void SwView::Execute(SfxRequest &rReq)
             lcl_SetAllTextToDefaultLanguage( *m_pWrtShell, RES_CHRATR_CJK_LANGUAGE );
         }
         break;
+        case FN_OUTLINE_LEVELS_SHOWN:
+        {
+            SwWrtShell& rSh = GetWrtShell();
+            int nOutlineLevel = -1;
+            auto nOutlinePos = rSh.GetOutlinePos();
+            if (nOutlinePos != SwOutlineNodes::npos)
+                nOutlineLevel = rSh.getIDocumentOutlineNodesAccess()->getOutlineLevel(nOutlinePos);
+            SwNumberInputDlg aDlg(GetViewFrame()->GetFrameWeld(),
+                                  SwResId(STR_OUTLINE_LEVELS_SHOWN_TITLE),
+                                  SwResId(STR_OUTLINE_LEVELS_SHOWN_SPIN_LABEL),
+                                  nOutlineLevel + 1, 1, 10,
+                                  SwResId(STR_OUTLINE_LEVELS_SHOWN_HELP_LABEL));
+            if (aDlg.run() == RET_OK)
+                rSh.MakeOutlineLevelsVisible(aDlg.GetNumber());
+        }
+        break;
         case FN_TOGGLE_OUTLINE_CONTENT_VISIBILITY:
         {
-            m_pWrtShell->EnterStdMode();
-            size_t nPos(m_pWrtShell->GetOutlinePos());
-            if (nPos != SwOutlineNodes::npos)
-            {
-                SwNode* pNode = m_pWrtShell->GetNodes().GetOutLineNds()[nPos];
-                pNode->GetTextNode()->SetAttrOutlineContentVisible(
-                            !m_pWrtShell->GetAttrOutlineContentVisible(nPos));
-                m_pWrtShell->InvalidateOutlineContentVisibility();
-                m_pWrtShell->GotoOutline(nPos);
-            }
+        size_t nPos(m_pWrtShell->GetOutlinePos());
+        if (nPos != SwOutlineNodes::npos)
+            GetEditWin().ToggleOutlineContentVisibility(nPos, false);
         }
         break;
         case FN_NAV_ELEMENT:
@@ -1742,6 +1813,16 @@ void SwView::StateStatusLine(SfxItemSet &rSet)
                     pWrdCnt->SetCounts(selectionStats, documentStats);
             }
             break;
+            case FN_STAT_ACCESSIBILITY_CHECK:
+            {
+                std::unique_ptr<sw::OnlineAccessibilityCheck> const& rOnlineAccessibilityCheck = rShell.GetDoc()->getOnlineAccessibilityCheck();
+                if (rOnlineAccessibilityCheck)
+                {
+                    sal_Int32 nIssues = rOnlineAccessibilityCheck->getNumberOfAccessibilityIssues();
+                    rSet.Put(SfxInt32Item(FN_STAT_ACCESSIBILITY_CHECK, nIssues));
+                }
+            }
+            break;
 
             case FN_STAT_TEMPLATE:
             {
@@ -2047,8 +2128,15 @@ void SwView::ExecuteStatusLine(SfxRequest &rReq)
 
         case FN_STAT_TEMPLATE:
         {
+            weld::Window* pDialogParent = GetViewFrame()->GetFrameWeld();
+            css::uno::Any aAny(pDialogParent->GetXWindow());
+            SfxUnoAnyItem aDialogParent(SID_DIALOG_PARENT, aAny);
+            const SfxPoolItem* pInternalItems[ 2 ];
+            pInternalItems[ 0 ] = &aDialogParent;
+            pInternalItems[ 1 ] = nullptr;
             GetViewFrame()->GetDispatcher()->Execute(FN_FORMAT_PAGE_DLG,
-                                        SfxCallMode::SYNCHRON|SfxCallMode::RECORD );
+                                        SfxCallMode::SYNCHRON|SfxCallMode::RECORD,
+                                        nullptr, 0, pInternalItems);
         }
         break;
         case SID_ATTR_ZOOM:
@@ -2270,35 +2358,35 @@ void SwView::EditLinkDlg()
 
 namespace sw {
 
-auto PrepareJumpToTOXMark(SwDoc const& rDoc, OUString const& rName)
+auto PrepareJumpToTOXMark(SwDoc const& rDoc, std::u16string_view aName)
     -> std::optional<std::pair<SwTOXMark, sal_Int32>>
 {
-    sal_Int32 const first(rName.indexOf(toxMarkSeparator));
-    if (first == -1)
+    size_t const first(aName.find(toxMarkSeparator));
+    if (first == std::u16string_view::npos)
     {
         SAL_WARN("sw.ui", "JumpToTOXMark: missing separator");
         return std::optional<std::pair<SwTOXMark, sal_Int32>>();
     }
-    sal_Int32 const counter(o3tl::toInt32(rName.subView(0, first)));
+    sal_Int32 const counter(o3tl::toInt32(aName.substr(0, first)));
     if (counter <= 0)
     {
         SAL_WARN("sw.ui", "JumpToTOXMark: invalid counter");
         return std::optional<std::pair<SwTOXMark, sal_Int32>>();
     }
-    sal_Int32 const second(rName.indexOf(toxMarkSeparator, first + 1));
-    if (second == -1)
+    size_t const second(aName.find(toxMarkSeparator, first + 1));
+    if (second == std::u16string_view::npos)
     {
         SAL_WARN("sw.ui", "JumpToTOXMark: missing separator");
         return std::optional<std::pair<SwTOXMark, sal_Int32>>();
     }
-    OUString const entry(rName.copy(first + 1, second - (first + 1)));
-    if (rName.getLength() < second + 2)
+    std::u16string_view const entry(aName.substr(first + 1, second - (first + 1)));
+    if (aName.size() < second + 2)
     {
         SAL_WARN("sw.ui", "JumpToTOXMark: invalid tox");
         return std::optional<std::pair<SwTOXMark, sal_Int32>>();
     }
-    sal_uInt16 const indexType(rName[second + 1]);
-    std::u16string_view const indexName(rName.subView(second + 2));
+    sal_uInt16 const indexType(aName[second + 1]);
+    std::u16string_view const indexName(aName.substr(second + 2));
     SwTOXType const* pType(nullptr);
     switch (indexType)
     {
@@ -2330,16 +2418,16 @@ auto PrepareJumpToTOXMark(SwDoc const& rDoc, OUString const& rName)
     }
     // type and alt text are the search keys
     SwTOXMark tmp(pType);
-    tmp.SetAlternativeText(entry);
+    tmp.SetAlternativeText(OUString(entry));
     return std::optional<std::pair<SwTOXMark, sal_Int32>>(std::pair<SwTOXMark, sal_Int32>(tmp, counter));
 }
 
 } // namespace sw
 
-static auto JumpToTOXMark(SwWrtShell & rSh, OUString const& rName) -> bool
+static auto JumpToTOXMark(SwWrtShell & rSh, std::u16string_view aName) -> bool
 {
     std::optional<std::pair<SwTOXMark, sal_Int32>> const tmp(
-        sw::PrepareJumpToTOXMark(*rSh.GetDoc(), rName));
+        sw::PrepareJumpToTOXMark(*rSh.GetDoc(), aName));
     if (!tmp)
     {
         return false;
@@ -2661,7 +2749,7 @@ tools::Long SwView::InsertMedium( sal_uInt16 nSlotId, std::unique_ptr<SfxMedium>
                     else
                     {
                         ::sw::UndoGuard const ug(pDoc->GetIDocumentUndoRedo());
-                        uno::Reference<text::XTextRange> const xInsertPosition(
+                        rtl::Reference<SwXTextRange> const xInsertPosition(
                             SwXTextRange::CreateXTextRange(*pDoc,
                                 *m_pWrtShell->GetCursor()->GetPoint(), nullptr));
                         nErrno = pDocSh->ImportFrom(*pMedium, xInsertPosition)

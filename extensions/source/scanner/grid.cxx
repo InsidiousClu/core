@@ -18,9 +18,9 @@
  */
 
 #include <sal/config.h>
+#include <o3tl/sprintf.hxx>
 #include <osl/thread.h>
 #include <rtl/math.hxx>
-#include <cstdio>
 
 #include <bitmaps.hlst>
 #include <cmath>
@@ -206,7 +206,6 @@ void GridWindow::SetDrawingArea(weld::DrawingArea* pDrawingArea)
 
 GridDialog::GridDialog(weld::Window* pParent, double* pXValues, double* pYValues, int nValues)
     : GenericDialogController(pParent, "modules/scanner/ui/griddialog.ui", "GridDialog")
-    , m_xOKButton(m_xBuilder->weld_button("ok"))
     , m_xResetTypeBox(m_xBuilder->weld_combo_box("resetTypeCombobox"))
     , m_xResetButton(m_xBuilder->weld_button("resetButton"))
     , m_xGridWindow(new GridWindow)
@@ -446,7 +445,7 @@ void GridWindow::drawGrid(vcl::RenderContext& rRenderContext)
         drawLine(rRenderContext, fX, m_fMinY, fX, m_fMaxY);
         // draw tickmarks
         Point aPt = transform(fX, m_fMinY);
-        std::sprintf(pBuf, "%g", fX);
+        o3tl::sprintf(pBuf, "%g", fX);
         OUString aMark(pBuf, strlen(pBuf), osl_getThreadTextEncoding());
         Size aTextSize(rRenderContext.GetTextWidth(aMark), rRenderContext.GetTextHeight());
         aPt.AdjustX( -(aTextSize.Width() / 2) );
@@ -459,7 +458,7 @@ void GridWindow::drawGrid(vcl::RenderContext& rRenderContext)
         drawLine(rRenderContext, m_fMinX, fY, m_fMaxX, fY);
         // draw tickmarks
         Point aPt = transform(m_fMinX, fY);
-        std::sprintf(pBuf, "%g", fY);
+        o3tl::sprintf(pBuf, "%g", fY);
         OUString aMark(pBuf, strlen(pBuf), osl_getThreadTextEncoding());
         Size aTextSize(rRenderContext.GetTextWidth(aMark), rRenderContext.GetTextHeight());
         aPt.AdjustX( -(aTextSize.Width() + 2) );

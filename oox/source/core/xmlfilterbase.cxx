@@ -697,6 +697,8 @@ writeCoreProperties( XmlFilterBase& rSelf, const Reference< XDocumentProperties 
     }
 
     pCoreProps->endElementNS( XML_cp, XML_coreProperties );
+
+    pCoreProps->endDocument();
 }
 
 static void
@@ -819,6 +821,8 @@ writeAppProperties( XmlFilterBase& rSelf, const Reference< XDocumentProperties >
     }
 
     pAppProps->endElement( XML_Properties );
+
+    pAppProps->endDocument();
 }
 
 static void
@@ -937,6 +941,8 @@ writeCustomProperties( XmlFilterBase& rSelf, const Reference< XDocumentPropertie
         ++nIndex;
     }
     pAppProps->endElement( XML_Properties );
+
+    pAppProps->endDocument();
 }
 
 void XmlFilterBase::exportDocumentProperties( const Reference< XDocumentProperties >& xProperties, bool bSecurityOptOpenReadOnly )
@@ -1179,7 +1185,7 @@ void XmlFilterBase::exportCustomFragments()
         const OUString fragmentPath = "customXml/item" + OUString::number(j+1) + ".xml";
         if (customXmlDom.is())
         {
-            addRelation(oox::getRelationship(Relationship::CUSTOMXML), OUStringConcatenation("../" + fragmentPath));
+            addRelation(oox::getRelationship(Relationship::CUSTOMXML), Concat2View("../" + fragmentPath));
 
             uno::Reference<xml::sax::XSAXSerializable> serializer(customXmlDom, uno::UNO_QUERY);
             uno::Reference<xml::sax::XWriter> writer = xml::sax::Writer::create(comphelper::getProcessComponentContext());
@@ -1200,7 +1206,7 @@ void XmlFilterBase::exportCustomFragments()
             // Adding itemprops's relationship entry to item.xml.rels file
             addRelation(openFragmentStream(fragmentPath, "application/xml"),
                         oox::getRelationship(Relationship::CUSTOMXMLPROPS),
-                        OUStringConcatenation("itemProps"+OUString::number(j+1)+".xml"));
+                        Concat2View("itemProps"+OUString::number(j+1)+".xml"));
         }
     }
 

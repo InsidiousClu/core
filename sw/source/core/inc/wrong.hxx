@@ -109,7 +109,7 @@ private:
         {
         }
 
-        return COL_LIGHTBLUE;
+        return SwViewOption::GetGrammarColor();
     }
 
     static WrongAreaLineType getGrammarLineType( css::uno::Reference< css::container::XStringKeyMap > const & xPropertyBag )
@@ -259,7 +259,7 @@ private:
 
 };
 
-class SwWrongList
+class SAL_DLLPUBLIC_RTTI SwWrongList
 {
     std::vector<SwWrongArea> maList;
     WrongListType            meType;

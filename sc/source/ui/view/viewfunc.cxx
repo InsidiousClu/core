@@ -80,6 +80,19 @@
 
 #include <memory>
 
+static void ShowFilteredRows(ScDocument& rDoc, SCTAB nTab, SCCOLROW nStartNo, SCCOLROW nEndNo,
+                             bool bShow)
+{
+    SCROW nFirstRow = nStartNo;
+    SCROW nLastRow = nStartNo;
+    do
+    {
+        if (!rDoc.RowFiltered(nFirstRow, nTab, nullptr, &nLastRow))
+            rDoc.ShowRows(nFirstRow, nLastRow < nEndNo ? nLastRow : nEndNo, nTab, bShow);
+        nFirstRow = nLastRow + 1;
+    } while (nFirstRow <= nEndNo);
+}
+
 static void lcl_PostRepaintCondFormat( const ScConditionalFormat *pCondFmt, ScDocShell *pDocSh )
 {
     if( pCondFmt )
@@ -324,15 +337,21 @@ static bool lcl_AddFunction( ScAppOptions& rAppOpt, sal_uInt16 nOpCode )
 
 namespace HelperNotifyChanges
 {
-    static void NotifyIfChangesListeners(const ScDocShell &rDocShell, ScMarkData& rMark, SCCOL nCol, SCROW nRow)
+    static void NotifyIfChangesListeners(const ScDocShell &rDocShell, ScMarkData& rMark,
+                                         SCCOL nCol, SCROW nRow, const OUString& rType = "cell-change")
     {
-        if (ScModelObj *pModelObj = getMustPropagateChangesModel(rDocShell))
-        {
-            ScRangeList aChangeRanges;
-            for (const auto& rTab : rMark)
-                aChangeRanges.push_back( ScRange( nCol, nRow, rTab ) );
+        ScModelObj* pModelObj = getModel(rDocShell);
 
-            HelperNotifyChanges::Notify(*pModelObj, aChangeRanges, "cell-change");
+        ScRangeList aChangeRanges;
+        for (const auto& rTab : rMark)
+            aChangeRanges.push_back( ScRange( nCol, nRow, rTab ) );
+
+        if (getMustPropagateChangesModel(pModelObj))
+            Notify(*pModelObj, aChangeRanges, rType);
+        else
+        {
+            Notify(*pModelObj, aChangeRanges, isDataAreaInvalidateType(rType)
+                    ? OUString("data-area-invalidate") : OUString("data-area-extend"));
         }
     }
 }
@@ -635,7 +654,8 @@ void ScViewFunc::EnterData( SCCOL nCol, SCROW nRow, SCTAB nTab,
 
     pDocSh->UpdateOle(GetViewData());
 
-    HelperNotifyChanges::NotifyIfChangesListeners(*pDocSh, rMark, nCol, nRow);
+    const OUString aType(rString.isEmpty() ? u"delete-content" : u"cell-change");
+    HelperNotifyChanges::NotifyIfChangesListeners(*pDocSh, rMark, nCol, nRow, aType);
 
     if ( bRecord )
         rFunc.EndListAction();
@@ -789,7 +809,10 @@ void ScViewFunc::EnterData( SCCOL nCol, SCROW nRow, SCTAB nTab,
 
             pDocSh->UpdateOle(GetViewData());
 
-            HelperNotifyChanges::NotifyIfChangesListeners(*pDocSh, rMark, nCol, nRow);
+            bool bIsEmpty = rData.GetParagraphCount() == 0
+                || (rData.GetParagraphCount() == 1 && rData.GetText(0).isEmpty());
+            const OUString aType(bIsEmpty ? u"delete-content" : u"cell-change");
+            HelperNotifyChanges::NotifyIfChangesListeners(*pDocSh, rMark, nCol, nRow, aType);
 
             aModificator.SetDocumentModified();
         }
@@ -1158,6 +1181,34 @@ void ScViewFunc::ApplyPatternLines( const ScPatternAttr& rAttr, const SvxBoxItem
     StartFormatArea();
 }
 
+static void ShrinkToDataArea(ScMarkData& rFuncMark, ScDocument& rDoc)
+{
+    // tdf#147842 if the marked area is the entire sheet, then shrink it to the data area.
+    // Otherwise ctrl-A, perform-action, will take a very long time as it tries to modify
+    // cells then we are not using.
+    if (rFuncMark.IsMultiMarked())
+        return;
+    ScRange aMarkArea = rFuncMark.GetMarkArea();
+    const ScSheetLimits& rLimits = rDoc.GetSheetLimits();
+    if (aMarkArea.aStart.Row() != 0 || aMarkArea.aStart.Col() != 0)
+        return;
+    if (aMarkArea.aEnd.Row() != rLimits.MaxRow() || aMarkArea.aEnd.Col() != rLimits.MaxCol())
+        return;
+    if (aMarkArea.aStart.Tab() != aMarkArea.aEnd.Tab())
+        return;
+    SCCOL nStartCol = aMarkArea.aStart.Col();
+    SCROW nStartRow = aMarkArea.aStart.Row();
+    SCCOL nEndCol = aMarkArea.aEnd.Col();
+    SCROW nEndRow = aMarkArea.aEnd.Row();
+    rDoc.ShrinkToDataArea(aMarkArea.aStart.Tab(), nStartCol, nStartRow, nEndCol, nEndRow);
+    aMarkArea.aStart.SetCol(nStartCol);
+    aMarkArea.aStart.SetRow(nStartRow);
+    aMarkArea.aEnd.SetCol(nEndCol);
+    aMarkArea.aEnd.SetRow(nEndRow);
+    rFuncMark.ResetMark();
+    rFuncMark.SetMarkArea(aMarkArea);
+}
+
 //  pattern only
 
 void ScViewFunc::ApplySelectionPattern( const ScPatternAttr& rAttr, bool bCursorOnly )
@@ -1166,6 +1217,7 @@ void ScViewFunc::ApplySelectionPattern( const ScPatternAttr& rAttr, bool bCursor
     ScDocShell* pDocSh      = rViewData.GetDocShell();
     ScDocument& rDoc        = pDocSh->GetDocument();
     ScMarkData aFuncMark( rViewData.GetMarkData() );       // local copy for UnmarkFiltered
+    ShrinkToDataArea( aFuncMark, rDoc );
     ScViewUtil::UnmarkFiltered( aFuncMark, rDoc );
 
     bool bRecord = true;
@@ -1295,8 +1347,9 @@ void ScViewFunc::ApplySelectionPattern( const ScPatternAttr& rAttr, bool bCursor
         CellContentChanged();
     }
 
-    ScModelObj* pModelObj = HelperNotifyChanges::getMustPropagateChangesModel(*pDocSh);
-    if (pModelObj)
+    ScModelObj* pModelObj = HelperNotifyChanges::getModel(*pDocSh);
+
+    if (HelperNotifyChanges::getMustPropagateChangesModel(pModelObj))
     {
         css::uno::Sequence< css::beans::PropertyValue > aProperties;
         sal_Int32 nCount = 0;
@@ -2055,7 +2108,7 @@ void ScViewFunc::DeleteContents( InsertDeleteFlags nFlags )
 
     pDocSh->UpdateOle(GetViewData());
 
-    if (ScModelObj *pModelObj = HelperNotifyChanges::getMustPropagateChangesModel(*pDocSh))
+    if (ScModelObj* pModelObj = HelperNotifyChanges::getModel(*pDocSh))
     {
         ScRangeList aChangeRanges;
         if ( bSimple )
@@ -2066,7 +2119,11 @@ void ScViewFunc::DeleteContents( InsertDeleteFlags nFlags )
         {
             aFuncMark.FillRangeListWithMarks( &aChangeRanges, false );
         }
-        HelperNotifyChanges::Notify(*pModelObj, aChangeRanges);
+
+        if (HelperNotifyChanges::getMustPropagateChangesModel(pModelObj))
+            HelperNotifyChanges::Notify(*pModelObj, aChangeRanges, "delete-content");
+        else if (pModelObj)
+            HelperNotifyChanges::Notify(*pModelObj, aChangeRanges, "data-area-invalidate");
     }
 
     CellContentChanged();
@@ -2202,6 +2259,7 @@ void ScViewFunc::SetWidthOrHeight(
                 if ( eMode==SC_SIZE_OPTIMAL || eMode==SC_SIZE_VISOPT )
                 {
                     bool bAll = ( eMode==SC_SIZE_OPTIMAL );
+                    bool bFiltered = false;
                     if (!bAll)
                     {
                         //  delete CRFlags::ManualSize for all in range,
@@ -2220,6 +2278,14 @@ void ScViewFunc::SetWidthOrHeight(
                                 rDoc.SetRowFlags(nRow, nTab, nOld & ~CRFlags::ManualSize);
                         }
                     }
+                    else
+                    {
+                        SCROW nLastRow = nStartNo;
+                        if (rDoc.RowFiltered(nStartNo, nTab, nullptr, &nLastRow)
+                            || nLastRow < nEndNo)
+                            bFiltered = true;
+                    }
+
 
                     double nPPTX = GetViewData().GetPPTX();
                     double nPPTY = GetViewData().GetPPTY();
@@ -2239,6 +2305,9 @@ void ScViewFunc::SetWidthOrHeight(
                     aCxt.setExtraHeight(nSizeTwips);
                     rDoc.SetOptimalHeight(aCxt, nStartNo, nEndNo, nTab, true);
 
+                    if (bFiltered)
+                        ShowFilteredRows(rDoc, nTab, nStartNo, nEndNo, bShow);
+
                     //  Manual-Flag already (re)set in SetOptimalHeight in case of bAll=sal_True
                     //  (set for Extra-Height, else reset).
                 }
@@ -2250,7 +2319,8 @@ void ScViewFunc::SetWidthOrHeight(
                         rDoc.SetManualHeight( nStartNo, nEndNo, nTab, true );          // height was set manually
                     }
 
-                    rDoc.ShowRows( nStartNo, nEndNo, nTab, nSizeTwips != 0 );
+                    // tdf#36383 - Skip consecutive rows hidden by AutoFilter
+                    ShowFilteredRows(rDoc, nTab, nStartNo, nEndNo, nSizeTwips != 0);
 
                     if (!bShow && nStartNo <= nCurY && nCurY <= nEndNo && nTab == nCurTab)
                     {
@@ -2373,8 +2443,9 @@ void ScViewFunc::SetWidthOrHeight(
     if ( !bWidth )
         return;
 
-    ScModelObj* pModelObj = HelperNotifyChanges::getMustPropagateChangesModel(*pDocSh);
-    if (!pModelObj)
+    ScModelObj* pModelObj = HelperNotifyChanges::getModel(*pDocSh);
+
+    if (!HelperNotifyChanges::getMustPropagateChangesModel(pModelObj))
         return;
 
     ScRangeList aChangeRanges;

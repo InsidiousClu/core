@@ -83,6 +83,7 @@
 #include <unotools/tempfile.hxx>
 #include <comphelper/sequenceashashmap.hxx>
 #include <officecfg/Office/Common.hxx>
+#include <officecfg/Office/Writer.hxx>
 #include <comphelper/propertysequence.hxx>
 #include <comphelper/sequence.hxx>
 
@@ -488,10 +489,10 @@ ErrCode SwHTMLWriter::WriteStream()
         if( pTNd && m_bWriteAll )
         {
             // start with table node !!
-            m_pCurrentPam->GetPoint()->nNode = *pTNd;
+            m_pCurrentPam->GetPoint()->Assign(*pTNd);
 
             if( m_bWriteOnlyFirstTable )
-                m_pCurrentPam->GetMark()->nNode = *pTNd->EndOfSectionNode();
+                m_pCurrentPam->GetMark()->Assign(*pTNd->EndOfSectionNode());
         }
 
         // first node (with can contain a page break)
@@ -503,7 +504,7 @@ ErrCode SwHTMLWriter::WriteStream()
             if( m_bWriteAll )
             {
                 // start with section node !!
-                m_pCurrentPam->GetPoint()->nNode = *pSNd;
+                m_pCurrentPam->GetPoint()->Assign(*pSNd);
             }
             else
             {
@@ -580,13 +581,13 @@ ErrCode SwHTMLWriter::WriteStream()
         OutNewLine();
     if (!mbSkipHeaderFooter)
     {
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_body), false );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_body), false );
         OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_html), false );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_html), false );
     }
     else if (mbReqIF)
         // ReqIF: end xhtml.BlkStruct.class.
-        HTMLOutFuncs::Out_AsciiTag(Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false);
+        HTMLOutFuncs::Out_AsciiTag(Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false);
 
     // delete the table with floating frames
     OSL_ENSURE( m_aHTMLPosFlyFrames.empty(), "Were not all frames output?" );
@@ -785,7 +786,7 @@ static void lcl_html_OutSectionEndTag( SwHTMLWriter& rHTMLWrt )
     rHTMLWrt.DecIndentLevel();
     if( rHTMLWrt.m_bLFPossible )
         rHTMLWrt.OutNewLine();
-    HTMLOutFuncs::Out_AsciiTag( rHTMLWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
+    HTMLOutFuncs::Out_AsciiTag( rHTMLWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
     rHTMLWrt.m_bLFPossible = true;
 }
 
@@ -862,7 +863,7 @@ static Writer& OutHTML_Section( Writer& rWrt, const SwSectionNode& rSectNd )
         rHTMLWrt.Out_SwDoc( rHTMLWrt.m_pCurrentPam.get() );
     }
 
-    rHTMLWrt.m_pCurrentPam->GetPoint()->nNode = *rSectNd.EndOfSectionNode();
+    rHTMLWrt.m_pCurrentPam->GetPoint()->Assign(*rSectNd.EndOfSectionNode());
 
     if( bEndTag )
         lcl_html_OutSectionEndTag( rHTMLWrt );
@@ -881,6 +882,7 @@ static Writer& OutHTML_Section( Writer& rWrt, const SwSectionNode& rSectNd )
 void SwHTMLWriter::Out_SwDoc( SwPaM* pPam )
 {
     bool bSaveWriteAll = m_bWriteAll;     // save
+    bool bIncludeHidden = officecfg::Office::Writer::FilterFlags::HTML::IncludeHiddenText::get();
 
     // search next text::Bookmark position from text::Bookmark table
     m_nBkmkTabPos = m_bWriteAll ? FindPos_Bkmk( *m_pCurrentPam->GetPoint() ) : -1;
@@ -901,14 +903,17 @@ void SwHTMLWriter::Out_SwDoc( SwPaM* pPam )
 
             OSL_ENSURE( !(rNd.IsGrfNode() || rNd.IsOLENode()),
                     "Unexpected Grf- or OLE-Node here" );
+
             if( rNd.IsTextNode() )
             {
                 SwTextNode* pTextNd = rNd.GetTextNode();
+                if (!pTextNd->IsHidden() || bIncludeHidden)
+                {
+                    if (!m_bFirstLine)
+                        m_pCurrentPam->GetPoint()->Assign(*pTextNd, 0);
 
-                if( !m_bFirstLine )
-                    m_pCurrentPam->GetPoint()->nContent.Assign( pTextNd, 0 );
-
-                OutHTML_SwTextNode( *this, *pTextNd );
+                    OutHTML_SwTextNode(*this, *pTextNd);
+                }
             }
             else if( rNd.IsTableNode() )
             {
@@ -917,13 +922,17 @@ void SwHTMLWriter::Out_SwDoc( SwPaM* pPam )
             }
             else if( rNd.IsSectionNode() )
             {
-                OutHTML_Section( *this, *rNd.GetSectionNode() );
-                m_nBkmkTabPos = m_bWriteAll ? FindPos_Bkmk( *m_pCurrentPam->GetPoint() ) : -1;
+                SwSectionNode* pSectionNode = rNd.GetSectionNode();
+                if (!pSectionNode->GetSection().IsHiddenFlag() || bIncludeHidden)
+                {
+                    OutHTML_Section( *this, *pSectionNode );
+                    m_nBkmkTabPos = m_bWriteAll ? FindPos_Bkmk( *m_pCurrentPam->GetPoint() ) : -1;
+                }
             }
             else if( &rNd == &m_pDoc->GetNodes().GetEndOfContent() )
                 break;
 
-            ++m_pCurrentPam->GetPoint()->nNode;   // move
+            m_pCurrentPam->GetPoint()->Adjust(SwNodeOffset(+1));   // move
             SwNodeOffset nPos = m_pCurrentPam->GetPoint()->GetNodeIndex();
 
             if( m_bShowProgress )
@@ -1065,10 +1074,10 @@ const SwPageDesc *SwHTMLWriter::MakeHeader( sal_uInt16 &rHeaderAttrs )
 
         // build prelude
         OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_html) );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_html) );
 
         OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_head) );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_head) );
 
         IncIndentLevel();   // indent content of <HEAD>
 
@@ -1135,7 +1144,7 @@ const SwPageDesc *SwHTMLWriter::MakeHeader( sal_uInt16 &rHeaderAttrs )
 
         DecIndentLevel();   // indent content of <HEAD>
         OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_head), false );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_head), false );
 
         // the body won't be indented, because then everything would be indented!
         OutNewLine();
@@ -1180,7 +1189,7 @@ const SwPageDesc *SwHTMLWriter::MakeHeader( sal_uInt16 &rHeaderAttrs )
     }
     else if (mbReqIF)
         // ReqIF: start xhtml.BlkStruct.class.
-        HTMLOutFuncs::Out_AsciiTag(Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division));
+        HTMLOutFuncs::Out_AsciiTag(Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division));
 
     return pPageDesc;
 }
@@ -1213,7 +1222,7 @@ void SwHTMLWriter::OutAnchor( const OUString& rName )
         sOut.setLength(0);
         HTMLOutFuncs::Out_String( Strm(), rName.replace(' ', '_') ).WriteCharPtr( "\">" );
     }
-    HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_anchor), false );
+    HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_anchor), false );
 }
 
 void SwHTMLWriter::OutBookmarks()
@@ -1589,7 +1598,7 @@ HTMLSaveData::HTMLSaveData(SwHTMLWriter& rWriter, SwNodeOffset nStt,
     {
         const SwNode *pNd = rWrt.m_pDoc->GetNodes()[ nStt ];
         if( pNd->IsTableNode() || pNd->IsSectionNode() )
-            rWrt.m_pCurrentPam->GetMark()->nNode = nStt;
+            rWrt.m_pCurrentPam->GetMark()->Assign(*pNd);
     }
 
     rWrt.SetEndPaM( rWrt.m_pCurrentPam.get() );

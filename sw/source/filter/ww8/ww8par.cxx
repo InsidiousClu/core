@@ -912,7 +912,7 @@ rtl::Reference<SdrObject> SwMSDffManager::ProcessObj(SvStream& rSt,
 
                 if (bVerticalText)
                 {
-                    SdrTextObj *pTextObj = dynamic_cast< SdrTextObj* >(pObj.get());
+                    SdrTextObj *pTextObj = DynCastSdrTextObj(pObj.get());
                     if (pTextObj)
                         pTextObj->SetVerticalWriting(true);
                 }
@@ -3458,12 +3458,12 @@ void SwWW8ImplReader::emulateMSWordAddTextToParagraph(const OUString& rAddString
 
 namespace sw {
 
-auto FilterControlChars(OUString const& rString) -> OUString
+auto FilterControlChars(std::u16string_view aString) -> OUString
 {
-    OUStringBuffer buf(rString.getLength());
-    for (sal_Int32 i = 0; i < rString.getLength(); ++i)
+    OUStringBuffer buf(aString.size());
+    for (size_t i = 0; i < aString.size(); ++i)
     {
-        sal_Unicode const ch(rString[i]);
+        sal_Unicode const ch(aString[i]);
         if (!linguistic::IsControlChar(ch) || ch == '\r' || ch == '\n' || ch == '\t')
         {
             buf.append(ch);
@@ -3478,9 +3478,9 @@ auto FilterControlChars(OUString const& rString) -> OUString
 
 } // namespace sw
 
-void SwWW8ImplReader::simpleAddTextToParagraph(const OUString& rAddString)
+void SwWW8ImplReader::simpleAddTextToParagraph(std::u16string_view aAddString)
 {
-    OUString const addString(sw::FilterControlChars(rAddString));
+    OUString const addString(sw::FilterControlChars(aAddString));
 
     if (addString.isEmpty())
         return;
@@ -3636,12 +3636,18 @@ bool SwWW8ImplReader::ReadChar(tools::Long nPosCp, tools::Long nCpOfs)
     switch (nWCharVal)
     {
         case 0:
+            if (!m_bFuzzing)
             {
                 // Page number
                 SwPageNumberField aField(
                     static_cast<SwPageNumberFieldType*>(m_rDoc.getIDocumentFieldsAccess().GetSysFieldType(
                     SwFieldIds::PageNumber )), PG_RANDOM, SVX_NUM_ARABIC);
                 m_rDoc.getIDocumentContentOperations().InsertPoolItem(*m_pPaM, SwFormatField(aField));
+            }
+            else
+            {
+                // extremely slow, so skip for fuzzing, and insert a space instead
+                cInsert = ' ';
             }
             break;
         case 0xe:
@@ -5454,7 +5460,7 @@ ErrCode SwWW8ImplReader::CoreLoad(WW8Glossary const *pGloss)
                                                          ? &(pNdIdx->GetNodes())
                                                          : nullptr;
                             const SwGrfNode *pGrf = (pNodesArray != nullptr)
-                                                    ? dynamic_cast<const SwGrfNode*>((*pNodesArray)[pNdIdx->GetIndex() + 1])
+                                                    ? (*pNodesArray)[pNdIdx->GetIndex() + 1]->GetGrfNode()
                                                     : nullptr;
                             vecBulletGrf.push_back(pGrf);
                         }
@@ -6419,13 +6425,13 @@ ErrCode WW8Reader::OpenMainStream( tools::SvRef<SotStorageStream>& rRef, sal_uIn
     return nRet;
 }
 
-static void lcl_getListOfStreams(SotStorage * pStorage, comphelper::SequenceAsHashMap& aStreamsData, const OUString& sPrefix)
+static void lcl_getListOfStreams(SotStorage * pStorage, comphelper::SequenceAsHashMap& aStreamsData, std::u16string_view sPrefix)
 {
     SvStorageInfoList aElements;
     pStorage->FillInfoList(&aElements);
     for (const auto & aElement : aElements)
     {
-        OUString sStreamFullName = sPrefix.getLength() ? sPrefix + "/" + aElement.GetName() : aElement.GetName();
+        OUString sStreamFullName = sPrefix.size() ? OUString::Concat(sPrefix) + "/" + aElement.GetName() : aElement.GetName();
         if (aElement.IsStorage())
         {
             tools::SvRef<SotStorage> xSubStorage = pStorage->OpenSotStorage(aElement.GetName(), StreamMode::STD_READ | StreamMode::SHARE_DENYALL);
@@ -6464,7 +6470,7 @@ ErrCode WW8Reader::DecryptDRMPackage()
     }
 
     comphelper::SequenceAsHashMap aStreamsData;
-    lcl_getListOfStreams(m_pStorage.get(), aStreamsData, "");
+    lcl_getListOfStreams(m_pStorage.get(), aStreamsData, u"");
 
     try {
         uno::Sequence<beans::NamedValue> aStreams = aStreamsData.getAsConstNamedValueList();

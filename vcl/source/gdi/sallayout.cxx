@@ -38,9 +38,6 @@
 
 #include <vcl/svapp.hxx>
 
-#include <unicode/ubidi.h>
-#include <unicode/uchar.h>
-
 #include <algorithm>
 #include <memory>
 
@@ -50,12 +47,6 @@
 #define GF_FONTMASK  0xF0000000
 #define GF_FONTSHIFT 28
 
-
-sal_UCS4 GetMirroredChar( sal_UCS4 nChar )
-{
-    nChar = u_charMirror( nChar );
-    return nChar;
-}
 
 sal_UCS4 GetLocalizedChar( sal_UCS4 nChar, LanguageType eLang )
 {
@@ -315,7 +306,7 @@ void GenericSalLayout::Justify( DeviceCoordinate nNewWidth )
     int nMaxGlyphWidth = 0;
     for(pGlyphIter = m_GlyphItems.begin(); pGlyphIter != pGlyphIterRight; ++pGlyphIter)
     {
-        if( !pGlyphIter->IsDiacritic() )
+        if( !pGlyphIter->IsInCluster() )
             ++nStretchable;
         if (nMaxGlyphWidth < pGlyphIter->origWidth())
             nMaxGlyphWidth = pGlyphIter->origWidth();
@@ -342,7 +333,7 @@ void GenericSalLayout::Justify( DeviceCoordinate nNewWidth )
             pGlyphIter->adjustLinearPosX(nDeltaSum);
 
             // do not stretch non-stretchable glyphs
-            if( pGlyphIter->IsDiacritic() || (nStretchable <= 0) )
+            if( pGlyphIter->IsInCluster() || (nStretchable <= 0) )
                 continue;
 
             // distribute extra space equally to stretchable glyphs

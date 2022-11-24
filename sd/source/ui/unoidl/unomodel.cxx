@@ -44,6 +44,7 @@
 #include <sal/log.hxx>
 #include <editeng/unofield.hxx>
 #include <notifydocumentevent.hxx>
+#include <tpaction.hxx>
 #include <unomodel.hxx>
 #include "unopool.hxx"
 #include <sfx2/lokhelper.hxx>
@@ -134,6 +135,27 @@
 using namespace ::cppu;
 using namespace ::com::sun::star;
 using namespace ::sd;
+
+TranslateId SdTPAction::GetClickActionSdResId( presentation::ClickAction eCA )
+{
+    switch( eCA )
+    {
+        case presentation::ClickAction_NONE:             return STR_CLICK_ACTION_NONE;
+        case presentation::ClickAction_PREVPAGE:         return STR_CLICK_ACTION_PREVPAGE;
+        case presentation::ClickAction_NEXTPAGE:         return STR_CLICK_ACTION_NEXTPAGE;
+        case presentation::ClickAction_FIRSTPAGE:        return STR_CLICK_ACTION_FIRSTPAGE;
+        case presentation::ClickAction_LASTPAGE:         return STR_CLICK_ACTION_LASTPAGE;
+        case presentation::ClickAction_BOOKMARK:         return STR_CLICK_ACTION_BOOKMARK;
+        case presentation::ClickAction_DOCUMENT:         return STR_CLICK_ACTION_DOCUMENT;
+        case presentation::ClickAction_PROGRAM:          return STR_CLICK_ACTION_PROGRAM;
+        case presentation::ClickAction_MACRO:            return STR_CLICK_ACTION_MACRO;
+        case presentation::ClickAction_SOUND:            return STR_CLICK_ACTION_SOUND;
+        case presentation::ClickAction_VERB:             return STR_CLICK_ACTION_VERB;
+        case presentation::ClickAction_STOPPRESENTATION: return STR_CLICK_ACTION_STOPPRESENTATION;
+        default: OSL_FAIL( "No StringResource for ClickAction available!" );
+    }
+    return {};
+}
 
 namespace {
 
@@ -1512,15 +1534,12 @@ class ImplRenderPaintProc : public sdr::contact::ViewObjectContactRedirector
 {
     const SdrLayerAdmin&    rLayerAdmin;
     SdrPageView*            pSdrPageView;
-    vcl::PDFExtOutDevData*  pPDFExtOutDevData;
-
-    vcl::PDFWriter::StructElement ImplBegStructureTag( const SdrObject& rObject );
 
 public:
     bool IsVisible  ( const SdrObject* pObj ) const;
     bool IsPrintable( const SdrObject* pObj ) const;
 
-    ImplRenderPaintProc( const SdrLayerAdmin& rLA, SdrPageView* pView, vcl::PDFExtOutDevData* pData );
+    ImplRenderPaintProc(const SdrLayerAdmin& rLA, SdrPageView* pView);
 
     // all default implementations just call the same methods at the original. To do something
     // different, override the method and at least do what the method does.
@@ -1532,10 +1551,9 @@ public:
 
 }
 
-ImplRenderPaintProc::ImplRenderPaintProc( const SdrLayerAdmin& rLA, SdrPageView* pView, vcl::PDFExtOutDevData* pData )
-:   rLayerAdmin         ( rLA ),
-    pSdrPageView        ( pView ),
-    pPDFExtOutDevData   ( pData )
+ImplRenderPaintProc::ImplRenderPaintProc(const SdrLayerAdmin& rLA, SdrPageView *const pView)
+    : rLayerAdmin(rLA)
+    , pSdrPageView(pView)
 {
 }
 
@@ -1644,20 +1662,21 @@ static void ImplPDFExportShapeInteraction( const uno::Reference< drawing::XShape
             uno::Any aAny( xShapePropSet->getPropertyValue( "OnClick" ) );
             if ( aAny >>= eCa )
             {
+                OUString const actionName(SdResId(SdTPAction::GetClickActionSdResId(eCa)));
                 switch ( eCa )
                 {
                     case presentation::ClickAction_LASTPAGE :
                     {
                         sal_Int32 nCount = rDoc.GetSdPageCount( PageKind::Standard );
                         sal_Int32 nDestId = rPDFExtOutDevData.CreateDest( aPageRect, nCount - 1, vcl::PDFWriter::DestAreaType::FitRectangle );
-                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink( aLinkRect );
+                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink(aLinkRect, actionName);
                         rPDFExtOutDevData.SetLinkDest( nLinkId, nDestId );
                     }
                     break;
                     case presentation::ClickAction_FIRSTPAGE :
                     {
                         sal_Int32 nDestId = rPDFExtOutDevData.CreateDest( aPageRect, 0, vcl::PDFWriter::DestAreaType::FitRectangle );
-                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink( aLinkRect );
+                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink(aLinkRect, actionName);
                         rPDFExtOutDevData.SetLinkDest( nLinkId, nDestId );
                     }
                     break;
@@ -1667,7 +1686,7 @@ static void ImplPDFExportShapeInteraction( const uno::Reference< drawing::XShape
                         if ( nDestPage )
                             nDestPage--;
                         sal_Int32 nDestId = rPDFExtOutDevData.CreateDest( aPageRect, nDestPage, vcl::PDFWriter::DestAreaType::FitRectangle );
-                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink( aLinkRect );
+                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink(aLinkRect, actionName);
                         rPDFExtOutDevData.SetLinkDest( nLinkId, nDestId );
                     }
                     break;
@@ -1678,7 +1697,7 @@ static void ImplPDFExportShapeInteraction( const uno::Reference< drawing::XShape
                         if ( nDestPage > nLastPage )
                             nDestPage = nLastPage;
                         sal_Int32 nDestId = rPDFExtOutDevData.CreateDest( aPageRect, nDestPage, vcl::PDFWriter::DestAreaType::FitRectangle );
-                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink( aLinkRect );
+                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink(aLinkRect, actionName);
                         rPDFExtOutDevData.SetLinkDest( nLinkId, nDestId );
                     }
                     break;
@@ -1696,7 +1715,7 @@ static void ImplPDFExportShapeInteraction( const uno::Reference< drawing::XShape
                                 case presentation::ClickAction_DOCUMENT :
                                 case presentation::ClickAction_PROGRAM :
                                 {
-                                    sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink( aLinkRect );
+                                    sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink(aLinkRect, actionName);
                                     rPDFExtOutDevData.SetLinkURL( nLinkId, aBookmark );
                                 }
                                 break;
@@ -1706,7 +1725,7 @@ static void ImplPDFExportShapeInteraction( const uno::Reference< drawing::XShape
                                     if ( nPage != -1 )
                                     {
                                         sal_Int32 nDestId = rPDFExtOutDevData.CreateDest( aPageRect, nPage, vcl::PDFWriter::DestAreaType::FitRectangle );
-                                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink( aLinkRect );
+                                        sal_Int32 nLinkId = rPDFExtOutDevData.CreateLink(aLinkRect, actionName);
                                         rPDFExtOutDevData.SetLinkDest( nLinkId, nDestId );
                                     }
                                 }
@@ -1732,32 +1751,6 @@ static void ImplPDFExportShapeInteraction( const uno::Reference< drawing::XShape
     }
 }
 
-vcl::PDFWriter::StructElement ImplRenderPaintProc::ImplBegStructureTag( const SdrObject& rObject )
-{
-    vcl::PDFWriter::StructElement eElement(vcl::PDFWriter::NonStructElement);
-
-    if ( pPDFExtOutDevData && pPDFExtOutDevData->GetIsExportTaggedPDF() )
-    {
-        SdrInventor nInventor   = rObject.GetObjInventor();
-        SdrObjKind  nIdentifier = rObject.GetObjIdentifier();
-        bool        bIsTextObj  = dynamic_cast< const SdrTextObj *>( &rObject ) !=  nullptr;
-
-        if ( nInventor == SdrInventor::Default )
-        {
-            if ( nIdentifier == SdrObjKind::Group )
-                eElement = vcl::PDFWriter::Section;
-            else if ( nIdentifier == SdrObjKind::TitleText )
-                eElement = vcl::PDFWriter::Heading;
-            else if ( nIdentifier == SdrObjKind::OutlineText )
-                eElement = vcl::PDFWriter::Division;
-            else if ( !bIsTextObj || !static_cast<const SdrTextObj&>(rObject).HasText() )
-                eElement = vcl::PDFWriter::Figure;
-        }
-    }
-
-    return eElement;
-}
-
 void ImplRenderPaintProc::createRedirectedPrimitive2DSequence(
     const sdr::contact::ViewObjectContact& rOriginal,
     const sdr::contact::DisplayInfo& rDisplayInfo,
@@ -1778,31 +1771,7 @@ void ImplRenderPaintProc::createRedirectedPrimitive2DSequence(
     if(!IsVisible(pObject) || !IsPrintable(pObject))
         return;
 
-    const vcl::PDFWriter::StructElement eElement(ImplBegStructureTag( *pObject ));
-    const bool bTagUsed(vcl::PDFWriter::NonStructElement != eElement);
-
-    drawinglayer::primitive2d::Primitive2DContainer xRetval;
-    sdr::contact::ViewObjectContactRedirector::createRedirectedPrimitive2DSequence(rOriginal, rDisplayInfo, xRetval);
-
-    if(!xRetval.empty() && bTagUsed)
-    {
-        // embed Primitive2DSequence in a structure tag element for
-        // exactly this purpose (StructureTagPrimitive2D)
-
-        const bool bBackground(pSdrPage->IsMasterPage());
-        const bool bImage(pObject->GetObjIdentifier() == SdrObjKind::Graphic);
-
-        drawinglayer::primitive2d::Primitive2DReference xReference(
-            new drawinglayer::primitive2d::StructureTagPrimitive2D(
-                eElement,
-                bBackground,
-                bImage,
-                std::move(xRetval)));
-
-        xRetval = drawinglayer::primitive2d::Primitive2DContainer { xReference };
-    }
-
-    rVisitor.visit(xRetval);
+    sdr::contact::ViewObjectContactRedirector::createRedirectedPrimitive2DSequence(rOriginal, rDisplayInfo, rVisitor);
 }
 
 bool ImplRenderPaintProc::IsVisible( const SdrObject* pObj ) const
@@ -1936,7 +1905,7 @@ void SAL_CALL SdXImpressDocument::render( sal_Int32 nRenderer, const uno::Any& r
         }
 
         ImplRenderPaintProc aImplRenderPaintProc( mpDoc->GetLayerAdmin(),
-            pPV, pPDFExtOutDevData );
+            pPV);
 
         // background color for outliner :o
         SdPage* pPage = pPV ? static_cast<SdPage*>(pPV->GetPage()) : nullptr;
@@ -2169,7 +2138,7 @@ void SAL_CALL SdXImpressDocument::render( sal_Int32 nRenderer, const uno::Any& r
             SdrPageView* pPV = nullptr;
 
             ImplRenderPaintProc  aImplRenderPaintProc( mpDoc->GetLayerAdmin(),
-                                pOldSdView ? pOldSdView->GetSdrPageView() : nullptr, pPDFExtOutDevData );
+                            pOldSdView ? pOldSdView->GetSdrPageView() : nullptr);
 
             for( sal_uInt32 i = 0, nCount = xShapes->getCount(); i < nCount; i++ )
             {
@@ -2279,6 +2248,8 @@ void SdXImpressDocument::paintTile( VirtualDevice& rDevice,
 
     LokChartHelper::PaintAllChartsOnTile(rDevice, nOutputWidth, nOutputHeight,
                                          nTilePosX, nTilePosY, nTileWidth, nTileHeight);
+    LokStarMathHelper::PaintAllInPlaceOnTile(rDevice, nOutputWidth, nOutputHeight, nTilePosX,
+                                             nTilePosY, nTileWidth, nTileHeight);
 
     if(patchedPageWindow != nullptr)
         patchedPageWindow->unpatchPaintWindow(previousPaintWindow);
@@ -2316,7 +2287,10 @@ OUString SdXImpressDocument::getPartInfo(int nPart)
         OUString::number(static_cast<unsigned int>(bIsSelected)) +
         "\", \"masterPageCount\": \"" +
         OUString::number(nMasterPageCount) +
+        "\", \"mode\": \"" +
+        OUString::number(getEditMode()) +
         "\" }";
+
     return aPartInfo;
 }
 
@@ -2403,16 +2377,13 @@ VclPtr<vcl::Window> SdXImpressDocument::getDocWindow()
 {
     SolarMutexGuard aGuard;
     DrawViewShell* pViewShell = GetViewShell();
-    VclPtr<vcl::Window> pWindow;
-    if (pViewShell)
-        pWindow = pViewShell->GetActiveWindow();
+    if (!pViewShell)
+        return {};
 
-    LokChartHelper aChartHelper(pViewShell->GetViewShell());
-    VclPtr<vcl::Window> pChartWindow = aChartHelper.GetWindow();
-    if (pChartWindow)
-        pWindow = pChartWindow;
+    if (VclPtr<vcl::Window> pWindow = SfxLokHelper::getInPlaceDocWindow(pViewShell->GetViewShell()))
+        return pWindow;
 
-    return pWindow;
+    return pViewShell->GetActiveWindow();
 }
 
 void SdXImpressDocument::setPartMode( int nPartMode )
@@ -2431,6 +2402,26 @@ void SdXImpressDocument::setPartMode( int nPartMode )
         break;
     }
     pViewSh->SetPageKind( aPageKind );
+}
+
+int SdXImpressDocument::getEditMode()
+{
+    DrawViewShell* pViewSh = GetViewShell();
+    if (!pViewSh)
+        return 0;
+
+    return pViewSh->GetViewShellBase().getEditMode();
+}
+
+void SdXImpressDocument::setEditMode(int nMode)
+{
+    SolarMutexGuard aGuard;
+
+    DrawViewShell* pViewSh = GetViewShell();
+    if (!pViewSh)
+        return;
+
+    pViewSh->GetViewShellBase().setEditMode(nMode);
 }
 
 Size SdXImpressDocument::getDocumentSize()
@@ -2559,20 +2550,9 @@ void SdXImpressDocument::postMouseEvent(int nType, int nX, int nY, int nCount, i
 
     constexpr double fScale = o3tl::convert(1.0, o3tl::Length::twip, o3tl::Length::px);
 
-    // check if user hit a chart which is being edited by him
-    LokChartHelper aChartHelper(pViewShell->GetViewShell());
-    if (aChartHelper.postMouseEvent(nType, nX, nY,
-                                    nCount, nButtons, nModifier,
-                                    fScale, fScale))
+    if (SfxLokHelper::testInPlaceComponentMouseEventHit(
+            pViewShell->GetViewShell(), nType, nX, nY, nCount, nButtons, nModifier, fScale, fScale))
         return;
-
-    // check if the user hit a chart which is being edited by someone else
-    // and, if so, skip current mouse event
-    if (nType != LOK_MOUSEEVENT_MOUSEMOVE)
-    {
-        if (LokChartHelper::HitAny(Point(nX, nY)))
-            return;
-    }
 
     const Point aPos(Point(convertTwipToMm100(nX), convertTwipToMm100(nY)));
     LokMouseEventData aMouseEventData(nType, aPos, nCount, MouseEventModifiers::SIMPLECLICK,

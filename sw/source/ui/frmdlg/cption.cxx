@@ -84,7 +84,7 @@ public:
 
 }
 
-OUString SwCaptionDialog::our_aSepTextSave(": "); // Caption separator text
+OUString SwCaptionDialog::s_aSepTextSave(": "); // Caption separator text
 
 //Resolves: tdf#47427 disallow typing *or* pasting invalid content into the category box
 OUString TextFilterAutoConvert::filter(const OUString &rText)
@@ -111,7 +111,6 @@ SwCaptionDialog::SwCaptionDialog(weld::Window *pParent, SwView &rV)
     , m_xNumberingSeparatorED(m_xBuilder->weld_entry("num_separator_edit"))
     , m_xSepText(m_xBuilder->weld_label("separator_label"))
     , m_xSepEdit(m_xBuilder->weld_entry("separator_edit"))
-    , m_xPosText(m_xBuilder->weld_label("position_label"))
     , m_xPosBox(m_xBuilder->weld_combo_box("position"))
     , m_xOKButton(m_xBuilder->weld_button("ok"))
     , m_xAutoCaptionButton(m_xBuilder->weld_button("auto"))
@@ -138,6 +137,7 @@ SwCaptionDialog::SwCaptionDialog(weld::Window *pParent, SwView &rV)
     m_xSepEdit->connect_changed(aLk);
 
     m_xFormatBox->connect_changed(LINK(this, SwCaptionDialog, SelectListBoxHdl));
+    m_xOKButton->connect_clicked(LINK(this, SwCaptionDialog, OKHdl));
     m_xOptionButton->connect_clicked(LINK(this, SwCaptionDialog, OptionHdl));
     m_xAutoCaptionButton->connect_clicked(LINK(this, SwCaptionDialog, CaptionHdl));
     m_xAutoCaptionButton->set_accessible_description(SwResId(STR_A11Y_DESC_AUTO));
@@ -262,9 +262,15 @@ SwCaptionDialog::SwCaptionDialog(weld::Window *pParent, SwView &rV)
 
     ModifyHdl();
 
-    m_xSepEdit->set_text(our_aSepTextSave);
+    m_xSepEdit->set_text(s_aSepTextSave);
     m_xTextEdit->grab_focus();
     DrawSample();
+}
+
+IMPL_LINK_NOARG(SwCaptionDialog, OKHdl, weld::Button&, void)
+{
+    Apply();
+    m_xDialog->response(RET_OK);
 }
 
 void SwCaptionDialog::Apply()
@@ -290,7 +296,7 @@ void SwCaptionDialog::Apply()
     aOpt.CopyAttributes() = m_bCopyAttributes;
     aOpt.SetCharacterStyle( m_sCharacterStyle );
     m_rView.InsertCaption( &aOpt );
-    our_aSepTextSave = m_xSepEdit->get_text();
+    s_aSepTextSave = m_xSepEdit->get_text();
 }
 
 short SwCaptionDialog::run()
@@ -306,21 +312,25 @@ IMPL_LINK_NOARG(SwCaptionDialog, OptionHdl, weld::Button&, void)
     OUString sFieldTypeName = m_xCategoryBox->get_active_text();
     if(sFieldTypeName == m_sNone)
         sFieldTypeName.clear();
-    SwSequenceOptionDialog aDlg(m_xDialog.get(), m_rView, sFieldTypeName);
-    aDlg.SetApplyBorderAndShadow(m_bCopyAttributes);
-    aDlg.SetCharacterStyle( m_sCharacterStyle );
-    aDlg.SetOrderNumberingFirst( m_bOrderNumberingFirst );
-    aDlg.run();
-    m_bCopyAttributes = aDlg.IsApplyBorderAndShadow();
-    m_sCharacterStyle = aDlg.GetCharacterStyle();
-    //#i61007# order of captions
-    if( m_bOrderNumberingFirst != aDlg.IsOrderNumberingFirst() )
-    {
-        m_bOrderNumberingFirst = aDlg.IsOrderNumberingFirst();
-        SW_MOD()->GetModuleConfig()->SetCaptionOrderNumberingFirst(m_bOrderNumberingFirst);
-        ApplyCaptionOrder();
-    }
-    DrawSample();
+    auto pDlg = std::make_shared<SwSequenceOptionDialog>(m_xDialog.get(), m_rView, sFieldTypeName);
+    pDlg->SetApplyBorderAndShadow(m_bCopyAttributes);
+    pDlg->SetCharacterStyle( m_sCharacterStyle );
+    pDlg->SetOrderNumberingFirst( m_bOrderNumberingFirst );
+
+    GenericDialogController::runAsync(pDlg, [pDlg, this](sal_Int32 nResult){
+        if (nResult == RET_OK) {
+            m_bCopyAttributes = pDlg->IsApplyBorderAndShadow();
+            m_sCharacterStyle = pDlg->GetCharacterStyle();
+            //#i61007# order of captions
+            if( m_bOrderNumberingFirst != pDlg->IsOrderNumberingFirst() )
+            {
+                m_bOrderNumberingFirst = pDlg->IsOrderNumberingFirst();
+                SW_MOD()->GetModuleConfig()->SetCaptionOrderNumberingFirst(m_bOrderNumberingFirst);
+                ApplyCaptionOrder();
+            }
+            DrawSample();
+        }
+    });
 }
 
 IMPL_LINK_NOARG(SwCaptionDialog, SelectListBoxHdl, weld::ComboBox&, void)

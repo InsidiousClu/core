@@ -332,7 +332,7 @@ SwTabPortion::SwTabPortion( const sal_uInt16 nTabPosition, const sal_Unicode cFi
 {
     mnLineLength = TextFrameIndex(1);
     OSL_ENSURE(!IsFilled() || ' ' != m_cFill, "SwTabPortion::CTOR: blanks ?!");
-    SetWhichPor( PortionType::Table );
+    SetWhichPor( PortionType::Tab );
 }
 
 bool SwTabPortion::Format( SwTextFormatInfo &rInf )
@@ -604,7 +604,7 @@ void SwTabPortion::Paint( const SwTextPaintInfo &rInf ) const
     {
         // filled tabs are shaded in gray
         if( IsFilled() )
-            rInf.DrawViewOpt( *this, PortionType::Table );
+            rInf.DrawViewOpt( *this, PortionType::Tab );
         else
             rInf.DrawTab( *this );
     }
@@ -655,7 +655,7 @@ void SwAutoTabDecimalPortion::Paint( const SwTextPaintInfo & ) const
 
 void SwTabPortion::HandlePortion( SwPortionHandler& rPH ) const
 {
-    rPH.Text( GetLen(), GetWhichPor(), Height(), Width() );
+    rPH.Text( GetLen(), GetWhichPor() );
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

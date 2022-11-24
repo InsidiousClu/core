@@ -79,6 +79,7 @@
 #include <tools/fract.hxx>
 #include <tools/stream.hxx>
 #include <unotools/resmgr.hxx>
+#include <unotools/tempfile.hxx>
 #include <unx/gstsink.hxx>
 #include <vcl/ImageTree.hxx>
 #include <vcl/abstdlg.hxx>
@@ -4783,12 +4784,48 @@ namespace
         return pixbuf;
     }
 
+    std::shared_ptr<SvMemoryStream> get_icon_stream_by_name_theme_lang(const OUString& rIconName, const OUString& rIconTheme, const OUString& rUILang)
+    {
+        return ImageTree::get().getImageStream(rIconName, rIconTheme, rUILang);
+    }
+
     GdkPixbuf* load_icon_by_name_theme_lang(const OUString& rIconName, const OUString& rIconTheme, const OUString& rUILang)
     {
-        auto xMemStm = ImageTree::get().getImageStream(rIconName, rIconTheme, rUILang);
+        auto xMemStm = get_icon_stream_by_name_theme_lang(rIconName, rIconTheme, rUILang);
         if (!xMemStm)
             return nullptr;
         return load_icon_from_stream(*xMemStm);
+    }
+
+    std::unique_ptr<utl::TempFileNamed> get_icon_stream_as_file_by_name_theme_lang(const OUString& rIconName, const OUString& rIconTheme, const OUString& rUILang)
+    {
+        uno::Reference<io::XInputStream> xInputStream = ImageTree::get().getImageXInputStream(rIconName, rIconTheme, rUILang);
+        if (!xInputStream)
+            return nullptr;
+
+        std::unique_ptr<utl::TempFileNamed> xRet(new utl::TempFileNamed);
+        xRet->EnableKillingFile(true);
+        SvStream* pStream = xRet->GetStream(StreamMode::WRITE);
+
+        for (;;)
+        {
+            const sal_Int32 nSize(2048);
+            uno::Sequence<sal_Int8> aData(nSize);
+            sal_Int32 nRead = xInputStream->readBytes(aData, nSize);
+            pStream->WriteBytes(aData.getConstArray(), nRead);
+            if (nRead < nSize)
+                break;
+        }
+        xRet->CloseStream();
+
+        return xRet;
+    }
+
+    std::unique_ptr<utl::TempFileNamed> get_icon_stream_as_file(const OUString& rIconName)
+    {
+        OUString sIconTheme = Application::GetSettings().GetStyleSettings().DetermineIconTheme();
+        OUString sUILang = Application::GetSettings().GetUILanguageTag().getBcp47();
+        return get_icon_stream_as_file_by_name_theme_lang(rIconName, sIconTheme, sUILang);
     }
 }
 
@@ -4829,6 +4866,34 @@ namespace
         aWriter.write(aBitmapEx);
 
         return load_icon_from_stream(aMemStm);
+    }
+
+    // tdf#151898 as far as I can see only gtk_image_new_from_file (or gtk_image_new_from_resource) can support the use of a
+    // scalable input format to create a hidpi GtkImage, rather than an upscaled lodpi one so forced to go via a file here
+    std::unique_ptr<utl::TempFileNamed> getImageFile(const css::uno::Reference<css::graphic::XGraphic>& rImage, bool bMirror = false)
+    {
+        Image aImage(rImage);
+        if (bMirror)
+            aImage = mirrorImage(aImage);
+
+        OUString sStock(aImage.GetStock());
+        if (!sStock.isEmpty())
+            return get_icon_stream_as_file(sStock);
+
+        std::unique_ptr<utl::TempFileNamed> xRet(new utl::TempFileNamed);
+        xRet->EnableKillingFile(true);
+        SvStream* pStream = xRet->GetStream(StreamMode::WRITE);
+
+        // We "know" that this gets passed to zlib's deflateInit2_(). 1 means best speed.
+        css::uno::Sequence<css::beans::PropertyValue> aFilterData{ comphelper::makePropertyValue(
+            "Compression", sal_Int32(1)) };
+        auto aBitmapEx = aImage.GetBitmapEx();
+        vcl::PngImageWriter aWriter(*pStream);
+        aWriter.setParameters(aFilterData);
+        aWriter.write(aBitmapEx);
+
+        xRet->CloseStream();
+        return xRet;
     }
 
     GdkPixbuf* getPixbuf(const VirtualDevice& rDevice)
@@ -4980,13 +5045,44 @@ namespace
     }
 #endif
 
+    GtkWidget* image_new_from_xgraphic(const css::uno::Reference<css::graphic::XGraphic>& rIcon, bool bMirror)
+    {
+        GtkWidget* pImage = nullptr;
+        if (auto xTempFile = getImageFile(rIcon, bMirror))
+            pImage = gtk_image_new_from_file(OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        return pImage;
+    }
+
+    GtkWidget* image_new_from_icon_name(const OUString& rIconName)
+    {
+        GtkWidget* pImage = nullptr;
+        if (auto xTempFile = get_icon_stream_as_file(rIconName))
+            pImage = gtk_image_new_from_file(OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        return pImage;
+    }
+
+    GtkWidget* image_new_from_icon_name_theme_lang(const OUString& rIconName, const OUString& rIconTheme, const OUString& rUILang)
+    {
+        GtkWidget* pImage = nullptr;
+        if (auto xTempFile = get_icon_stream_as_file_by_name_theme_lang(rIconName, rIconTheme, rUILang))
+            pImage = gtk_image_new_from_file(OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        return pImage;
+    }
+
     void image_set_from_icon_name(GtkImage* pImage, const OUString& rIconName)
     {
-        GdkPixbuf* pixbuf = load_icon_by_name(rIconName);
-        gtk_image_set_from_pixbuf(pImage, pixbuf);
-        if (!pixbuf)
-            return;
-        g_object_unref(pixbuf);
+        if (auto xTempFile = get_icon_stream_as_file(rIconName))
+            gtk_image_set_from_file(pImage, OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        else
+            gtk_image_set_from_pixbuf(pImage, nullptr);
+    }
+
+    void image_set_from_icon_name_theme_lang(GtkImage* pImage, const OUString& rIconName, const OUString& rIconTheme, const OUString& rUILang)
+    {
+        if (auto xTempFile = get_icon_stream_as_file_by_name_theme_lang(rIconName, rIconTheme, rUILang))
+            gtk_image_set_from_file(pImage, OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        else
+            gtk_image_set_from_pixbuf(pImage, nullptr);
     }
 
     void image_set_from_virtual_device(GtkImage* pImage, const VirtualDevice* pDevice)
@@ -5000,19 +5096,27 @@ namespace
 
     void image_set_from_xgraphic(GtkImage* pImage, const css::uno::Reference<css::graphic::XGraphic>& rImage)
     {
-        GdkPixbuf* pixbuf = getPixbuf(rImage);
-        gtk_image_set_from_pixbuf(pImage, pixbuf);
-        if (pixbuf)
-            g_object_unref(pixbuf);
+        if (auto xTempFile = getImageFile(rImage, false))
+            gtk_image_set_from_file(pImage, OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        else
+            gtk_image_set_from_pixbuf(pImage, nullptr);
     }
 
 #if GTK_CHECK_VERSION(4, 0, 0)
     void picture_set_from_icon_name(GtkPicture* pPicture, const OUString& rIconName)
     {
-        GdkPixbuf* pixbuf = load_icon_by_name(rIconName);
-        gtk_picture_set_pixbuf(pPicture, pixbuf);
-        if (pixbuf)
-            g_object_unref(pixbuf);
+        if (auto xTempFile = get_icon_stream_as_file(rIconName))
+            gtk_picture_set_filename(pPicture, OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        else
+            gtk_picture_set_pixbuf(pPicture, nullptr);
+    }
+
+    void picture_set_from_icon_name_theme_lang(GtkPicture* pPicture, const OUString& rIconName, const OUString& rIconTheme, const OUString& rUILang)
+    {
+        if (auto xTempFile = get_icon_stream_as_file_by_name_theme_lang(rIconName, rIconTheme, rUILang))
+            gtk_picture_set_filename(pPicture, OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        else
+            gtk_picture_set_pixbuf(pPicture, nullptr);
     }
 
     void picture_set_from_virtual_device(GtkPicture* pPicture, const VirtualDevice* pDevice)
@@ -5025,10 +5129,10 @@ namespace
 
     void picture_set_from_xgraphic(GtkPicture* pPicture, const css::uno::Reference<css::graphic::XGraphic>& rPicture)
     {
-        GdkPixbuf* pixbuf = getPixbuf(rPicture);
-        gtk_picture_set_pixbuf(pPicture, pixbuf);
-        if (pixbuf)
-            g_object_unref(pixbuf);
+        if (auto xTempFile = getImageFile(rPicture, false))
+            gtk_picture_set_filename(pPicture, OUStringToOString(xTempFile->GetFileName(), osl_getThreadTextEncoding()).getStr());
+        else
+            gtk_picture_set_pixbuf(pPicture, nullptr);
     }
 #endif
 
@@ -5041,15 +5145,7 @@ namespace
             return;
         }
 
-        GdkPixbuf* pixbuf = load_icon_by_name(rIconName);
-        GtkWidget* pImage;
-        if (!pixbuf)
-            pImage = nullptr;
-        else
-        {
-            pImage = gtk_image_new_from_pixbuf(pixbuf);
-            g_object_unref(pixbuf);
-        }
+        GtkWidget* pImage = image_new_from_icon_name(rIconName);
 #if GTK_CHECK_VERSION(4, 0, 0)
         gtk_button_set_child(pButton, pImage);
 #else
@@ -5080,15 +5176,7 @@ namespace
             return;
         }
 
-        GdkPixbuf* pixbuf = getPixbuf(rImage);
-        GtkWidget* pImage;
-        if (!pixbuf)
-            pImage = nullptr;
-        else
-        {
-            pImage = gtk_image_new_from_pixbuf(pixbuf);
-            g_object_unref(pixbuf);
-        }
+        GtkWidget* pImage = image_new_from_xgraphic(rImage, false);
 #if GTK_CHECK_VERSION(4, 0, 0)
         gtk_button_set_child(pButton, pImage);
 #else
@@ -5364,14 +5452,7 @@ public:
 #if !GTK_CHECK_VERSION(4, 0, 0)
         GtkWidget* pImage = nullptr;
         if (pIconName && !pIconName->isEmpty())
-        {
-            GdkPixbuf* pixbuf = load_icon_by_name(*pIconName);
-            if (!pixbuf)
-            {
-                pImage = gtk_image_new_from_pixbuf(pixbuf);
-                g_object_unref(pixbuf);
-            }
-        }
+            pImage = image_new_from_icon_name(*pIconName);
         else if (pImageSurface)
             pImage = image_new_from_virtual_device(*pImageSurface);
 
@@ -11445,24 +11526,14 @@ public:
 #if !GTK_CHECK_VERSION(4, 0, 0)
         GtkWidget* pImage = nullptr;
         if (pIconName)
-        {
-            if (GdkPixbuf* pixbuf = load_icon_by_name(*pIconName))
-            {
-                pImage = gtk_image_new_from_pixbuf(pixbuf);
-                g_object_unref(pixbuf);
-            }
-        }
+            pImage = image_new_from_icon_name(*pIconName);
         else if (pImageSurface)
         {
             pImage = image_new_from_virtual_device(*pImageSurface);
         }
         else if (rGraphic)
         {
-            if (GdkPixbuf* pixbuf = getPixbuf(rGraphic))
-            {
-                pImage = gtk_image_new_from_pixbuf(pixbuf);
-                g_object_unref(pixbuf);
-            }
+            pImage = image_new_from_xgraphic(rGraphic, false);
         }
 
         GtkWidget *pItem;
@@ -11832,15 +11903,9 @@ private:
     static void set_item_image(GtkWidget* pItem, const css::uno::Reference<css::graphic::XGraphic>& rIcon, bool bMirror)
 #endif
     {
-        GtkWidget* pImage = nullptr;
-
-        if (GdkPixbuf* pixbuf = getPixbuf(rIcon, bMirror))
-        {
-            pImage = gtk_image_new_from_pixbuf(pixbuf);
-            g_object_unref(pixbuf);
+        GtkWidget* pImage = image_new_from_xgraphic(rIcon, bMirror);
+        if (pImage)
             gtk_widget_show(pImage);
-        }
-
 #if !GTK_CHECK_VERSION(4, 0, 0)
         gtk_tool_button_set_icon_widget(pItem, pImage);
 #else
@@ -12190,14 +12255,9 @@ public:
             return;
 #endif
 
-        GtkWidget* pImage = nullptr;
-
-        if (GdkPixbuf* pixbuf = getPixbuf(rIconName))
-        {
-            pImage = gtk_image_new_from_pixbuf(pixbuf);
-            g_object_unref(pixbuf);
+        GtkWidget* pImage = image_new_from_icon_name(rIconName);
+        if (pImage)
             gtk_widget_show(pImage);
-        }
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
         gtk_tool_button_set_icon_widget(GTK_TOOL_BUTTON(pItem), pImage);
@@ -13472,6 +13532,21 @@ public:
     }
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
+
+    virtual void show() override
+    {
+        GtkInstanceEditable::show();
+        if (m_pPlaceHolderReplacement)
+            gtk_widget_show(GTK_WIDGET(m_pPlaceHolderReplacement));
+    }
+
+    virtual void hide() override
+    {
+        if (m_pPlaceHolderReplacement)
+            gtk_widget_hide(GTK_WIDGET(m_pPlaceHolderReplacement));
+        GtkInstanceEditable::hide();
+    }
+
     virtual ~GtkInstanceEntry() override
     {
         if (m_nUpdatePlaceholderReplacementIdle)
@@ -14359,12 +14434,6 @@ private:
     {
         nCol = to_internal_model(nCol);
 
-        // recompute these 2 based on new 1st editable column
-        m_nTextCol = -1;
-        m_nTextView = -1;
-        int nIndex(0);
-        int nViewColumn(0);
-        bool isSet(false);
         for (GList* pEntry = g_list_first(m_pColumns); pEntry; pEntry = g_list_next(pEntry))
         {
             GtkTreeViewColumn* pColumn = GTK_TREE_VIEW_COLUMN(pEntry->data);
@@ -14376,27 +14445,10 @@ private:
                 if (reinterpret_cast<sal_IntPtr>(pData) == nCol)
                 {
                     g_object_set(G_OBJECT(pCellRenderer), "editable", bEditable, "editable-set", true, nullptr);
-                    isSet = true;
-                }
-                if (GTK_IS_CELL_RENDERER_TEXT(pCellRenderer))
-                {
-                    gboolean is_editable(false);
-                    g_object_get(pCellRenderer, "editable", &is_editable, nullptr);
-                    if (is_editable && m_nTextCol == -1)
-                    {
-                        assert(m_nTextView == -1);
-                        m_nTextCol = nIndex;
-                        m_nTextView = nViewColumn;
-                    }
-                }
-                if (isSet && m_nTextCol != -1) // both tasks done?
-                {
                     break;
                 }
-                ++nIndex;
             }
             g_list_free(pRenderers);
-            ++nViewColumn;
         }
     }
 
@@ -15199,6 +15251,7 @@ public:
         assert(gtk_tree_view_get_model(m_pTreeView) && "don't select when frozen, select after thaw. Note selection doesn't survive a freeze");
         disable_notify_events();
         GtkTreePath* path = gtk_tree_path_new_from_indices(pos, -1);
+        gtk_tree_view_expand_to_path(m_pTreeView, path);
         gtk_tree_view_scroll_to_cell(m_pTreeView, path, nullptr, true, 0, 0);
         gtk_tree_path_free(path);
         enable_notify_events();
@@ -15900,6 +15953,7 @@ public:
         disable_notify_events();
         const GtkInstanceTreeIter& rGtkIter = static_cast<const GtkInstanceTreeIter&>(rIter);
         GtkTreePath* path = gtk_tree_model_get_path(m_pTreeModel, const_cast<GtkTreeIter*>(&rGtkIter.iter));
+        gtk_tree_view_expand_to_path(m_pTreeView, path);
         gtk_tree_view_scroll_to_cell(m_pTreeView, path, nullptr, true, 0, 0);
         gtk_tree_path_free(path);
         enable_notify_events();
@@ -17943,8 +17997,66 @@ public:
 
 namespace {
 
+class GtkInstanceDrawingArea;
+
 // IMHandler
-class IMHandler;
+class IMHandler
+{
+private:
+    GtkInstanceDrawingArea* m_pArea;
+#if GTK_CHECK_VERSION(4, 0, 0)
+    GtkEventController* m_pFocusController;
+#endif
+    GtkIMContext* m_pIMContext;
+    OUString m_sPreeditText;
+    gulong m_nFocusInSignalId;
+    gulong m_nFocusOutSignalId;
+    bool m_bExtTextInput;
+
+public:
+    IMHandler(GtkInstanceDrawingArea* pArea);
+
+    void signalFocus(bool bIn);
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    static void signalFocusIn(GtkEventControllerFocus*, gpointer im_handler);
+#else
+    static gboolean signalFocusIn(GtkWidget*, GdkEvent*, gpointer im_handler);
+#endif
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    static void signalFocusOut(GtkEventControllerFocus*, gpointer im_handler);
+#else
+    static gboolean signalFocusOut(GtkWidget*, GdkEvent*, gpointer im_handler);
+#endif
+
+    ~IMHandler();
+
+    void updateIMSpotLocation();
+
+    void set_cursor_location(const tools::Rectangle& rRect);
+
+    static void signalIMCommit(GtkIMContext* /*pContext*/, gchar* pText, gpointer im_handler);
+
+    static void signalIMPreeditChanged(GtkIMContext* pIMContext, gpointer im_handler);
+
+    static gboolean signalIMRetrieveSurrounding(GtkIMContext* pContext, gpointer im_handler);
+
+    static gboolean signalIMDeleteSurrounding(GtkIMContext*, gint nOffset, gint nChars,
+        gpointer im_handler);
+
+    void StartExtTextInput();
+
+    static void signalIMPreeditStart(GtkIMContext*, gpointer im_handler);
+
+    void EndExtTextInput();
+
+    static void signalIMPreeditEnd(GtkIMContext*, gpointer im_handler);
+
+#if !GTK_CHECK_VERSION(4, 0, 0)
+    bool im_context_filter_keypress(const GdkEventKey* pEvent);
+#endif
+};
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
 AtkObject* (*default_drawing_area_get_accessible)(GtkWidget *widget);
@@ -18365,246 +18477,231 @@ IMPL_LINK(GtkInstanceDrawingArea, SettingsChangedHdl, VclWindowEvent&, rEvent, v
         signal_style_updated();
 }
 
-class IMHandler
+IMHandler::IMHandler(GtkInstanceDrawingArea* pArea)
+    : m_pArea(pArea)
+    , m_pIMContext(gtk_im_multicontext_new())
+    , m_bExtTextInput(false)
 {
-private:
-    GtkInstanceDrawingArea* m_pArea;
-#if GTK_CHECK_VERSION(4, 0, 0)
-    GtkEventController* m_pFocusController;
-#endif
-    GtkIMContext* m_pIMContext;
-    OUString m_sPreeditText;
-    gulong m_nFocusInSignalId;
-    gulong m_nFocusOutSignalId;
-    bool m_bExtTextInput;
-
-public:
-    IMHandler(GtkInstanceDrawingArea* pArea)
-        : m_pArea(pArea)
-        , m_pIMContext(gtk_im_multicontext_new())
-        , m_bExtTextInput(false)
-    {
-        GtkWidget* pWidget = m_pArea->getWidget();
+    GtkWidget* pWidget = m_pArea->getWidget();
 
 #if GTK_CHECK_VERSION(4, 0, 0)
-        m_pFocusController = gtk_event_controller_focus_new();
-        gtk_widget_add_controller(pWidget, m_pFocusController);
+    m_pFocusController = gtk_event_controller_focus_new();
+    gtk_widget_add_controller(pWidget, m_pFocusController);
 
-        m_nFocusInSignalId = g_signal_connect(m_pFocusController, "enter", G_CALLBACK(signalFocusIn), this);
-        m_nFocusOutSignalId = g_signal_connect(m_pFocusController, "leave", G_CALLBACK(signalFocusOut), this);
+    m_nFocusInSignalId = g_signal_connect(m_pFocusController, "enter", G_CALLBACK(signalFocusIn), this);
+    m_nFocusOutSignalId = g_signal_connect(m_pFocusController, "leave", G_CALLBACK(signalFocusOut), this);
 #else
-        m_nFocusInSignalId = g_signal_connect(pWidget, "focus-in-event", G_CALLBACK(signalFocusIn), this);
-        m_nFocusOutSignalId = g_signal_connect(pWidget, "focus-out-event", G_CALLBACK(signalFocusOut), this);
+    m_nFocusInSignalId = g_signal_connect(pWidget, "focus-in-event", G_CALLBACK(signalFocusIn), this);
+    m_nFocusOutSignalId = g_signal_connect(pWidget, "focus-out-event", G_CALLBACK(signalFocusOut), this);
 #endif
 
-        g_signal_connect(m_pIMContext, "preedit-start", G_CALLBACK(signalIMPreeditStart), this);
-        g_signal_connect(m_pIMContext, "preedit-end", G_CALLBACK(signalIMPreeditEnd), this);
-        g_signal_connect(m_pIMContext, "commit", G_CALLBACK(signalIMCommit), this);
-        g_signal_connect(m_pIMContext, "preedit-changed", G_CALLBACK(signalIMPreeditChanged), this);
-        g_signal_connect(m_pIMContext, "retrieve-surrounding", G_CALLBACK(signalIMRetrieveSurrounding), this);
-        g_signal_connect(m_pIMContext, "delete-surrounding", G_CALLBACK(signalIMDeleteSurrounding), this);
+    g_signal_connect(m_pIMContext, "preedit-start", G_CALLBACK(signalIMPreeditStart), this);
+    g_signal_connect(m_pIMContext, "preedit-end", G_CALLBACK(signalIMPreeditEnd), this);
+    g_signal_connect(m_pIMContext, "commit", G_CALLBACK(signalIMCommit), this);
+    g_signal_connect(m_pIMContext, "preedit-changed", G_CALLBACK(signalIMPreeditChanged), this);
+    g_signal_connect(m_pIMContext, "retrieve-surrounding", G_CALLBACK(signalIMRetrieveSurrounding), this);
+    g_signal_connect(m_pIMContext, "delete-surrounding", G_CALLBACK(signalIMDeleteSurrounding), this);
 
-        if (!gtk_widget_get_realized(pWidget))
-            gtk_widget_realize(pWidget);
-        im_context_set_client_widget(m_pIMContext, pWidget);
-        if (gtk_widget_has_focus(m_pArea->getWidget()))
-            gtk_im_context_focus_in(m_pIMContext);
-    }
+    if (!gtk_widget_get_realized(pWidget))
+        gtk_widget_realize(pWidget);
+    im_context_set_client_widget(m_pIMContext, pWidget);
+    if (gtk_widget_has_focus(m_pArea->getWidget()))
+        gtk_im_context_focus_in(m_pIMContext);
+}
 
-    void signalFocus(bool bIn)
-    {
-        if (bIn)
-            gtk_im_context_focus_in(m_pIMContext);
-        else
-            gtk_im_context_focus_out(m_pIMContext);
-    }
+void IMHandler::signalFocus(bool bIn)
+{
+    if (bIn)
+        gtk_im_context_focus_in(m_pIMContext);
+    else
+        gtk_im_context_focus_out(m_pIMContext);
+}
 
 #if GTK_CHECK_VERSION(4, 0, 0)
-    static void signalFocusIn(GtkEventControllerFocus*, gpointer im_handler)
+void IMHandler::signalFocusIn(GtkEventControllerFocus*, gpointer im_handler)
 #else
-    static gboolean signalFocusIn(GtkWidget*, GdkEvent*, gpointer im_handler)
+gboolean IMHandler::signalFocusIn(GtkWidget*, GdkEvent*, gpointer im_handler)
 #endif
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
-        pThis->signalFocus(true);
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+    pThis->signalFocus(true);
 #if !GTK_CHECK_VERSION(4, 0, 0)
-        return false;
+    return false;
 #endif
-    }
+}
 
 #if GTK_CHECK_VERSION(4, 0, 0)
-    static void signalFocusOut(GtkEventControllerFocus*, gpointer im_handler)
+void IMHandler::signalFocusOut(GtkEventControllerFocus*, gpointer im_handler)
 #else
-    static gboolean signalFocusOut(GtkWidget*, GdkEvent*, gpointer im_handler)
+gboolean IMHandler::signalFocusOut(GtkWidget*, GdkEvent*, gpointer im_handler)
 #endif
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
-        pThis->signalFocus(false);
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+    pThis->signalFocus(false);
 #if !GTK_CHECK_VERSION(4, 0, 0)
-        return false;
+    return false;
 #endif
-    }
+}
 
-    ~IMHandler()
-    {
-        EndExtTextInput();
+IMHandler::~IMHandler()
+{
+    EndExtTextInput();
 
 #if GTK_CHECK_VERSION(4, 0, 0)
-        g_signal_handler_disconnect(m_pFocusController, m_nFocusOutSignalId);
-        g_signal_handler_disconnect(m_pFocusController, m_nFocusInSignalId);
+    g_signal_handler_disconnect(m_pFocusController, m_nFocusOutSignalId);
+    g_signal_handler_disconnect(m_pFocusController, m_nFocusInSignalId);
 #else
-        g_signal_handler_disconnect(m_pArea->getWidget(), m_nFocusOutSignalId);
-        g_signal_handler_disconnect(m_pArea->getWidget(), m_nFocusInSignalId);
+    g_signal_handler_disconnect(m_pArea->getWidget(), m_nFocusOutSignalId);
+    g_signal_handler_disconnect(m_pArea->getWidget(), m_nFocusInSignalId);
 #endif
 
-        if (gtk_widget_has_focus(m_pArea->getWidget()))
-            gtk_im_context_focus_out(m_pIMContext);
+    if (gtk_widget_has_focus(m_pArea->getWidget()))
+        gtk_im_context_focus_out(m_pIMContext);
 
-        // first give IC a chance to deinitialize
-        im_context_set_client_widget(m_pIMContext, nullptr);
-        // destroy old IC
-        g_object_unref(m_pIMContext);
-    }
+    // first give IC a chance to deinitialize
+    im_context_set_client_widget(m_pIMContext, nullptr);
+    // destroy old IC
+    g_object_unref(m_pIMContext);
+}
 
-    void updateIMSpotLocation()
+void IMHandler::updateIMSpotLocation()
+{
+    CommandEvent aCEvt(Point(), CommandEventId::CursorPos);
+    // we expect set_cursor_location to get triggered by this
+    m_pArea->signal_command(aCEvt);
+}
+
+void IMHandler::set_cursor_location(const tools::Rectangle& rRect)
+{
+    GdkRectangle aArea{static_cast<int>(rRect.Left()), static_cast<int>(rRect.Top()),
+                       static_cast<int>(rRect.GetWidth()), static_cast<int>(rRect.GetHeight())};
+    gtk_im_context_set_cursor_location(m_pIMContext, &aArea);
+}
+
+void IMHandler::signalIMCommit(GtkIMContext* /*pContext*/, gchar* pText, gpointer im_handler)
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+
+    SolarMutexGuard aGuard;
+
+    // at least editeng expects to have seen a start before accepting a commit
+    pThis->StartExtTextInput();
+
+    OUString sText(pText, strlen(pText), RTL_TEXTENCODING_UTF8);
+    CommandExtTextInputData aData(sText, nullptr, sText.getLength(), 0, false);
+    CommandEvent aCEvt(Point(), CommandEventId::ExtTextInput, false, &aData);
+    pThis->m_pArea->signal_command(aCEvt);
+
+    pThis->updateIMSpotLocation();
+
+    pThis->EndExtTextInput();
+
+    pThis->m_sPreeditText.clear();
+}
+
+void IMHandler::signalIMPreeditChanged(GtkIMContext* pIMContext, gpointer im_handler)
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+
+    SolarMutexGuard aGuard;
+
+    sal_Int32 nCursorPos(0);
+    sal_uInt8 nCursorFlags(0);
+    std::vector<ExtTextInputAttr> aInputFlags;
+    OUString sText = GtkSalFrame::GetPreeditDetails(pIMContext, aInputFlags, nCursorPos, nCursorFlags);
+
+    // change from nothing to nothing -> do not start preedit e.g. this
+    // will activate input into a calc cell without user input
+    if (sText.isEmpty() && pThis->m_sPreeditText.isEmpty())
+        return;
+
+    pThis->m_sPreeditText = sText;
+
+    CommandExtTextInputData aData(sText, aInputFlags.data(), nCursorPos, nCursorFlags, false);
+    CommandEvent aCEvt(Point(), CommandEventId::ExtTextInput, false, &aData);
+    pThis->m_pArea->signal_command(aCEvt);
+
+    pThis->updateIMSpotLocation();
+}
+
+gboolean IMHandler::signalIMRetrieveSurrounding(GtkIMContext* pContext, gpointer im_handler)
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+
+    SolarMutexGuard aGuard;
+
+    OUString sSurroundingText;
+    int nCursorIndex = pThis->m_pArea->im_context_get_surrounding(sSurroundingText);
+
+    if (nCursorIndex != -1)
     {
-        CommandEvent aCEvt(Point(), CommandEventId::CursorPos);
-        // we expect set_cursor_location to get triggered by this
-        m_pArea->signal_command(aCEvt);
+        OString sUTF = OUStringToOString(sSurroundingText, RTL_TEXTENCODING_UTF8);
+        std::u16string_view sCursorText(sSurroundingText.subView(0, nCursorIndex));
+        gtk_im_context_set_surrounding(pContext, sUTF.getStr(), sUTF.getLength(),
+            OUStringToOString(sCursorText, RTL_TEXTENCODING_UTF8).getLength());
     }
 
-    void set_cursor_location(const tools::Rectangle& rRect)
-    {
-        GdkRectangle aArea{static_cast<int>(rRect.Left()), static_cast<int>(rRect.Top()),
-                           static_cast<int>(rRect.GetWidth()), static_cast<int>(rRect.GetHeight())};
-        gtk_im_context_set_cursor_location(m_pIMContext, &aArea);
-    }
+    return true;
+}
 
-    static void signalIMCommit(GtkIMContext* /*pContext*/, gchar* pText, gpointer im_handler)
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+gboolean IMHandler::signalIMDeleteSurrounding(GtkIMContext*, gint nOffset, gint nChars,
+    gpointer im_handler)
+{
+    bool bRet = false;
 
-        SolarMutexGuard aGuard;
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
 
-        // at least editeng expects to have seen a start before accepting a commit
-        pThis->StartExtTextInput();
+    SolarMutexGuard aGuard;
 
-        OUString sText(pText, strlen(pText), RTL_TEXTENCODING_UTF8);
-        CommandExtTextInputData aData(sText, nullptr, sText.getLength(), 0, false);
-        CommandEvent aCEvt(Point(), CommandEventId::ExtTextInput, false, &aData);
-        pThis->m_pArea->signal_command(aCEvt);
+    OUString sSurroundingText;
+    sal_Int32 nCursorIndex = pThis->m_pArea->im_context_get_surrounding(sSurroundingText);
 
-        pThis->updateIMSpotLocation();
+    Selection aSelection = SalFrame::CalcDeleteSurroundingSelection(sSurroundingText, nCursorIndex, nOffset, nChars);
+    if (aSelection != Selection(SAL_MAX_UINT32, SAL_MAX_UINT32))
+        bRet = pThis->m_pArea->im_context_delete_surrounding(aSelection);
+    return bRet;
+}
 
-        pThis->EndExtTextInput();
+void IMHandler::StartExtTextInput()
+{
+    if (m_bExtTextInput)
+        return;
+    CommandEvent aCEvt(Point(), CommandEventId::StartExtTextInput);
+    m_pArea->signal_command(aCEvt);
+    m_bExtTextInput = true;
+}
 
-        pThis->m_sPreeditText.clear();
-    }
+void IMHandler::signalIMPreeditStart(GtkIMContext*, gpointer im_handler)
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+    SolarMutexGuard aGuard;
+    pThis->StartExtTextInput();
+    pThis->updateIMSpotLocation();
+}
 
-    static void signalIMPreeditChanged(GtkIMContext* pIMContext, gpointer im_handler)
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+void IMHandler::EndExtTextInput()
+{
+    if (!m_bExtTextInput)
+        return;
+    CommandEvent aCEvt(Point(), CommandEventId::EndExtTextInput);
+    m_pArea->signal_command(aCEvt);
+    m_bExtTextInput = false;
+}
 
-        SolarMutexGuard aGuard;
-
-        sal_Int32 nCursorPos(0);
-        sal_uInt8 nCursorFlags(0);
-        std::vector<ExtTextInputAttr> aInputFlags;
-        OUString sText = GtkSalFrame::GetPreeditDetails(pIMContext, aInputFlags, nCursorPos, nCursorFlags);
-
-        // change from nothing to nothing -> do not start preedit e.g. this
-        // will activate input into a calc cell without user input
-        if (sText.isEmpty() && pThis->m_sPreeditText.isEmpty())
-            return;
-
-        pThis->m_sPreeditText = sText;
-
-        CommandExtTextInputData aData(sText, aInputFlags.data(), nCursorPos, nCursorFlags, false);
-        CommandEvent aCEvt(Point(), CommandEventId::ExtTextInput, false, &aData);
-        pThis->m_pArea->signal_command(aCEvt);
-
-        pThis->updateIMSpotLocation();
-    }
-
-    static gboolean signalIMRetrieveSurrounding(GtkIMContext* pContext, gpointer im_handler)
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
-
-        SolarMutexGuard aGuard;
-
-        OUString sSurroundingText;
-        int nCursorIndex = pThis->m_pArea->im_context_get_surrounding(sSurroundingText);
-
-        if (nCursorIndex != -1)
-        {
-            OString sUTF = OUStringToOString(sSurroundingText, RTL_TEXTENCODING_UTF8);
-            std::u16string_view sCursorText(sSurroundingText.subView(0, nCursorIndex));
-            gtk_im_context_set_surrounding(pContext, sUTF.getStr(), sUTF.getLength(),
-                OUStringToOString(sCursorText, RTL_TEXTENCODING_UTF8).getLength());
-        }
-
-        return true;
-    }
-
-    static gboolean signalIMDeleteSurrounding(GtkIMContext*, gint nOffset, gint nChars,
-        gpointer im_handler)
-    {
-        bool bRet = false;
-
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
-
-        SolarMutexGuard aGuard;
-
-        OUString sSurroundingText;
-        sal_Int32 nCursorIndex = pThis->m_pArea->im_context_get_surrounding(sSurroundingText);
-
-        Selection aSelection = SalFrame::CalcDeleteSurroundingSelection(sSurroundingText, nCursorIndex, nOffset, nChars);
-        if (aSelection != Selection(SAL_MAX_UINT32, SAL_MAX_UINT32))
-            bRet = pThis->m_pArea->im_context_delete_surrounding(aSelection);
-        return bRet;
-    }
-
-    void StartExtTextInput()
-    {
-        if (m_bExtTextInput)
-            return;
-        CommandEvent aCEvt(Point(), CommandEventId::StartExtTextInput);
-        m_pArea->signal_command(aCEvt);
-        m_bExtTextInput = true;
-    }
-
-    static void signalIMPreeditStart(GtkIMContext*, gpointer im_handler)
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
-        SolarMutexGuard aGuard;
-        pThis->StartExtTextInput();
-        pThis->updateIMSpotLocation();
-    }
-
-    void EndExtTextInput()
-    {
-        if (!m_bExtTextInput)
-            return;
-        CommandEvent aCEvt(Point(), CommandEventId::EndExtTextInput);
-        m_pArea->signal_command(aCEvt);
-        m_bExtTextInput = false;
-    }
-
-    static void signalIMPreeditEnd(GtkIMContext*, gpointer im_handler)
-    {
-        IMHandler* pThis = static_cast<IMHandler*>(im_handler);
-        SolarMutexGuard aGuard;
-        pThis->updateIMSpotLocation();
-        pThis->EndExtTextInput();
-    }
+void IMHandler::signalIMPreeditEnd(GtkIMContext*, gpointer im_handler)
+{
+    IMHandler* pThis = static_cast<IMHandler*>(im_handler);
+    SolarMutexGuard aGuard;
+    pThis->updateIMSpotLocation();
+    pThis->EndExtTextInput();
+}
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
-    bool im_context_filter_keypress(const GdkEventKey* pEvent)
-    {
-        return gtk_im_context_filter_keypress(m_pIMContext, const_cast<GdkEventKey*>(pEvent));
-    }
+bool IMHandler::im_context_filter_keypress(const GdkEventKey* pEvent)
+{
+    return gtk_im_context_filter_keypress(m_pIMContext, const_cast<GdkEventKey*>(pEvent));
+}
 #endif
-};
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
 bool GtkInstanceDrawingArea::do_signal_key_press(const GdkEventKey* pEvent)
@@ -22671,40 +22768,10 @@ private:
     gulong m_nMappedSignalId;
 #endif
 
-    static void signalExpanded(GtkExpander* pExpander, GParamSpec*, gpointer widget)
+    static void signalExpanded(GtkExpander* /*pExpander*/, GParamSpec*, gpointer widget)
     {
         GtkInstanceExpander* pThis = static_cast<GtkInstanceExpander*>(widget);
         SolarMutexGuard aGuard;
-
-#if !GTK_CHECK_VERSION(4, 0, 0)
-        if (gtk_expander_get_resize_toplevel(pExpander))
-        {
-            GtkWidget *pToplevel = widget_get_toplevel(GTK_WIDGET(pExpander));
-
-            // https://gitlab.gnome.org/GNOME/gtk/issues/70
-            // I imagine at some point a release with a fix will be available in which
-            // case this can be avoided depending on version number
-            if (pToplevel && GTK_IS_WINDOW(pToplevel) && gtk_widget_get_realized(pToplevel))
-            {
-                int nToplevelWidth, nToplevelHeight;
-                int nChildHeight;
-
-                GtkWidget* child = gtk_bin_get_child(GTK_BIN(pExpander));
-                gtk_widget_get_preferred_height(child, &nChildHeight, nullptr);
-                gtk_window_get_size(GTK_WINDOW(pToplevel), &nToplevelWidth, &nToplevelHeight);
-
-                if (pThis->get_expanded())
-                    nToplevelHeight += nChildHeight;
-                else
-                    nToplevelHeight -= nChildHeight;
-
-                gtk_window_resize(GTK_WINDOW(pToplevel), nToplevelWidth, nToplevelHeight);
-            }
-        }
-#else
-        (void)pExpander;
-#endif
-
         pThis->signal_expanded();
     }
 
@@ -23225,6 +23292,36 @@ void load_ui_file(GtkBuilder* pBuilder, const OUString& rUri)
 #endif
 }
 
+#if !GTK_CHECK_VERSION(4, 0, 0)
+void fix_expander(GtkExpander* pExpander, GParamSpec*, gpointer)
+{
+    if (gtk_expander_get_resize_toplevel(pExpander))
+    {
+        GtkWidget *pToplevel = widget_get_toplevel(GTK_WIDGET(pExpander));
+
+        // https://gitlab.gnome.org/GNOME/gtk/issues/70
+        // I imagine at some point a release with a fix will be available in which
+        // case this can be avoided depending on version number
+        if (pToplevel && GTK_IS_WINDOW(pToplevel) && gtk_widget_get_realized(pToplevel))
+        {
+            int nToplevelWidth, nToplevelHeight;
+            int nChildHeight;
+
+            GtkWidget* child = gtk_bin_get_child(GTK_BIN(pExpander));
+            gtk_widget_get_preferred_height(child, &nChildHeight, nullptr);
+            gtk_window_get_size(GTK_WINDOW(pToplevel), &nToplevelWidth, &nToplevelHeight);
+
+            if (gtk_expander_get_expanded(pExpander))
+                nToplevelHeight += nChildHeight;
+            else
+                nToplevelHeight -= nChildHeight;
+
+            gtk_window_resize(GTK_WINDOW(pToplevel), nToplevelWidth, nToplevelHeight);
+        }
+    }
+}
+#endif
+
 class GtkInstanceBuilder : public weld::Builder
 {
 private:
@@ -23264,13 +23361,7 @@ private:
             {
                 OUString aIconName(icon_name, strlen(icon_name), RTL_TEXTENCODING_UTF8);
                 if (!IsAllowedBuiltInIcon(aIconName))
-                {
-                    if (GdkPixbuf* pixbuf = load_icon_by_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
-                    {
-                        gtk_image_set_from_pixbuf(pImage, pixbuf);
-                        g_object_unref(pixbuf);
-                    }
-                }
+                    image_set_from_icon_name_theme_lang(pImage, aIconName, m_aIconTheme, m_aUILang);
             }
         }
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -23284,11 +23375,7 @@ private:
                 g_free(icon_name);
                 assert(aIconName.startsWith("private:///graphicrepository/"));
                 aIconName.startsWith("private:///graphicrepository/", &aIconName);
-                if (GdkPixbuf* pixbuf = load_icon_by_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
-                {
-                    gtk_picture_set_pixbuf(GTK_PICTURE(pWidget), pixbuf);
-                    g_object_unref(pixbuf);
-                }
+                picture_set_from_icon_name_theme_lang(GTK_PICTURE(pWidget), aIconName, m_aIconTheme, m_aUILang);
             }
         }
 #endif
@@ -23301,10 +23388,8 @@ private:
                 OUString aIconName(icon_name, strlen(icon_name), RTL_TEXTENCODING_UTF8);
                 if (!IsAllowedBuiltInIcon(aIconName))
                 {
-                    if (GdkPixbuf* pixbuf = load_icon_by_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
+                    if (GtkWidget* pImage = image_new_from_icon_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
                     {
-                        GtkWidget* pImage = gtk_image_new_from_pixbuf(pixbuf);
-                        g_object_unref(pixbuf);
                         gtk_tool_button_set_icon_widget(pToolButton, pImage);
                         gtk_widget_show(pImage);
                     }
@@ -23318,6 +23403,10 @@ private:
                     gtk_widget_set_tooltip_text(pWidget, label);
             }
         }
+        else if (GTK_IS_EXPANDER(pWidget))
+        {
+            g_signal_connect(pWidget, "notify::expanded", G_CALLBACK(fix_expander), this);
+        }
 #else
         else if (GTK_IS_BUTTON(pWidget))
         {
@@ -23327,12 +23416,10 @@ private:
                 OUString aIconName(icon_name, strlen(icon_name), RTL_TEXTENCODING_UTF8);
                 if (!IsAllowedBuiltInIcon(aIconName))
                 {
-                    if (GdkPixbuf* pixbuf = load_icon_by_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
+                    if (GtkWidget* pImage = image_new_from_icon_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
                     {
-                        GtkWidget* pImage = gtk_image_new_from_pixbuf(pixbuf);
                         gtk_widget_set_halign(pImage, GTK_ALIGN_CENTER);
                         gtk_widget_set_valign(pImage, GTK_ALIGN_CENTER);
-                        g_object_unref(pixbuf);
                         gtk_button_set_child(pButton, pImage);
                         gtk_widget_show(pImage);
                     }
@@ -23347,12 +23434,10 @@ private:
                 OUString aIconName(icon_name, strlen(icon_name), RTL_TEXTENCODING_UTF8);
                 if (!IsAllowedBuiltInIcon(aIconName))
                 {
-                    if (GdkPixbuf* pixbuf = load_icon_by_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
+                    if (GtkWidget* pImage = image_new_from_icon_name_theme_lang(aIconName, m_aIconTheme, m_aUILang))
                     {
-                        GtkWidget* pImage = gtk_image_new_from_pixbuf(pixbuf);
                         gtk_widget_set_halign(pImage, GTK_ALIGN_CENTER);
                         gtk_widget_set_valign(pImage, GTK_ALIGN_CENTER);
-                        g_object_unref(pixbuf);
                         // TODO after gtk 4.6 is released require that version and drop this
                         static auto menu_button_set_child = reinterpret_cast<void (*) (GtkMenuButton*, GtkWidget*)>(dlsym(nullptr, "gtk_menu_button_set_child"));
                         if (menu_button_set_child)

@@ -232,7 +232,7 @@ namespace
 namespace sw
 {
     // TODO: use SaveBookmark (from DelBookmarks)
-    void CopyBookmarks(const SwPaM& rPam, const SwPosition& rCpyPam, SwCopyFlags eFlags)
+    void CopyBookmarks(const SwPaM& rPam, const SwPosition& rCpyPam)
     {
         const SwDoc& rSrcDoc = rPam.GetDoc();
         SwDoc& rDestDoc =  rCpyPam.GetDoc();
@@ -283,7 +283,6 @@ namespace sw
         // We have to count the "non-copied" nodes...
         SwNodeOffset nDelCount;
         SwNodeIndex aCorrIdx(InitDelCount(rPam, nDelCount));
-        auto bSkipBookmarks = static_cast<bool>(eFlags & SwCopyFlags::SkipBookmarks);
         for(const sw::mark::IMark* const pMark : vMarksToCopy)
         {
             SwPaM aTmpPam(*pCpyStt);
@@ -296,17 +295,10 @@ namespace sw
                 lcl_SetCpyPos(pMark->GetOtherMarkPos(), rStt, *pCpyStt, *aTmpPam.GetMark(), nDelCount);
             }
 
-            IDocumentMarkAccess::MarkType eType = IDocumentMarkAccess::GetType(*pMark);
-            if (bSkipBookmarks && eType == IDocumentMarkAccess::MarkType::BOOKMARK)
-            {
-                // It was requested to skip bookmarks while copying. Do that, but continue to copy
-                // other kind of marks, like fieldmarks.
-                continue;
-            }
             ::sw::mark::IMark* const pNewMark = rDestDoc.getIDocumentMarkAccess()->makeMark(
                 aTmpPam,
                 pMark->GetName(),
-                eType,
+                IDocumentMarkAccess::GetType(*pMark),
                 ::sw::mark::InsertMode::CopyText);
             // Explicitly try to get exactly the same name as in the source
             // because NavigatorReminders, DdeBookmarks etc. ignore the proposed name
@@ -1476,8 +1468,7 @@ namespace //local functions originally from docfmt.cxx
                     {
                         pCurrentNode->ResetAttr(RES_PARATR_LIST_AUTOFMT);
                         // reset also paragraph marker
-                        SwContentIndex nIdx( pCurrentNode, pCurrentNode->Len() );
-                        pCurrentNode->GetTextNode()->RstTextAttr(nIdx, 1);
+                        pCurrentNode->GetTextNode()->RstTextAttr(pCurrentNode->Len(), 1);
                     }
                     pCurrentNode = SwNodes::GoPrevious( &aIdx );
                 }
@@ -1753,18 +1744,17 @@ namespace //local functions originally from docfmt.cxx
                 if( !(nFlags & SetAttrMode::DONTREPLACE ) &&
                     pTextNd->HasHints() && !nMkPos && nPtPos == rStr.getLength())
                 {
-                    SwContentIndex aSt( pTextNd );
                     if( pHistory )
                     {
                         // Save all attributes for the Undo.
                         SwRegHistory aRHst( *pTextNd, pHistory );
                         pTextNd->GetpSwpHints()->Register( &aRHst );
-                        pTextNd->RstTextAttr( aSt, nPtPos, 0, pCharSet );
+                        pTextNd->RstTextAttr( 0, nPtPos, 0, pCharSet );
                         if( pTextNd->GetpSwpHints() )
                             pTextNd->GetpSwpHints()->DeRegister();
                     }
                     else
-                        pTextNd->RstTextAttr( aSt, nPtPos, 0, pCharSet );
+                        pTextNd->RstTextAttr( 0, nPtPos, 0, pCharSet );
                 }
 
                 if( rDoc.getIDocumentRedlineAccess().IsRedlineOn() )
@@ -2209,7 +2199,9 @@ bool DocumentContentOperationsManager::DelFullPara( SwPaM& rPam )
 
         SwContentNode *pTmpNode = rPam.GetPoint()->GetNode().GetContentNode();
         bool bGoNext = (nullptr == pTmpNode);
-        rPam.GetMark()->SetContent( 0 );
+
+        if (rPam.GetMark()->GetContentNode())
+            rPam.GetMark()->SetContent( 0 );
 
         m_rDoc.GetIDocumentUndoRedo().ClearRedo();
 
@@ -3535,9 +3527,6 @@ bool DocumentContentOperationsManager::InsertPoolItem(
     SwRootFrame const*const pLayout,
     SwTextAttr **ppNewTextAttr)
 {
-    if (utl::ConfigManager::IsFuzzing())
-        return false;
-
     SwDataChanged aTmp( rRg );
     std::unique_ptr<SwUndoAttr> pUndoAttr;
     if (m_rDoc.GetIDocumentUndoRedo().DoesUndo())
@@ -3676,7 +3665,7 @@ void DocumentContentOperationsManager::CopyWithFlyInFly(
             targetPos = pCopiedPaM->second;
         }
 
-        sw::CopyBookmarks(pCopiedPaM ? pCopiedPaM->first : aRgTmp, targetPos, flags);
+        sw::CopyBookmarks(pCopiedPaM ? pCopiedPaM->first : aRgTmp, targetPos);
     }
 
     if (rRg.aStart != rRg.aEnd)
@@ -4066,13 +4055,13 @@ bool DocumentContentOperationsManager::lcl_RstTextAttr( SwNode* pNd, void* pArgs
             // Save all attributes for the Undo.
             SwRegHistory aRHst( *pTextNode, pPara->pHistory );
             pTextNode->GetpSwpHints()->Register( &aRHst );
-            pTextNode->RstTextAttr( aSt, nEnd - aSt.GetIndex(), pPara->nWhich,
+            pTextNode->RstTextAttr( aSt.GetIndex(), nEnd - aSt.GetIndex(), pPara->nWhich,
                                   pPara->pDelSet, pPara->bInclRefToxMark, pPara->bExactRange );
             if( pTextNode->GetpSwpHints() )
                 pTextNode->GetpSwpHints()->DeRegister();
         }
         else
-            pTextNode->RstTextAttr( aSt, nEnd - aSt.GetIndex(), pPara->nWhich,
+            pTextNode->RstTextAttr( aSt.GetIndex(), nEnd - aSt.GetIndex(), pPara->nWhich,
                                   pPara->pDelSet, pPara->bInclRefToxMark, pPara->bExactRange );
     }
     return true;
@@ -4094,12 +4083,12 @@ bool DocumentContentOperationsManager::DeleteAndJoinWithRedlineImpl(SwPaM & rPam
         return false; // do not add empty redlines
     }
 
-    std::vector<SwRangeRedline*> redlines;
+    std::vector<std::unique_ptr<SwRangeRedline>> redlines;
     {
         auto pRedline(std::make_unique<SwRangeRedline>(RedlineType::Delete, rPam));
         if (pRedline->HasValidRange())
         {
-            redlines.push_back(pRedline.release());
+            redlines.push_back(std::move(pRedline));
         }
         else // sigh ... why is such a selection even possible...
         {    // split it up so we get one SwUndoRedlineDelete per inserted RL
@@ -4160,7 +4149,7 @@ bool DocumentContentOperationsManager::DeleteAndJoinWithRedlineImpl(SwPaM & rPam
         m_rDoc.getIDocumentRedlineAccess().SetRedlineFlags(
             RedlineFlags::On | RedlineFlags::ShowInsert | RedlineFlags::ShowDelete);
 
-        for (SwRangeRedline * pRedline : redlines)
+        for (std::unique_ptr<SwRangeRedline> & pRedline : redlines)
         {
             assert(pRedline->HasValidRange());
             undos.emplace_back(std::make_unique<SwUndoRedlineDelete>(
@@ -4195,14 +4184,14 @@ bool DocumentContentOperationsManager::DeleteAndJoinWithRedlineImpl(SwPaM & rPam
         }
     }
 
-    for (SwRangeRedline *const pRedline : redlines)
+    for (std::unique_ptr<SwRangeRedline> & pRedline : redlines)
     {
         // note: 1. the pRedline can still be merged & deleted
         //       2. the impl. can even DeleteAndJoin the range => no plain PaM
         std::shared_ptr<SwUnoCursor> const pCursor(m_rDoc.CreateUnoCursor(*pRedline->GetMark()));
         pCursor->SetMark();
         *pCursor->GetPoint() = *pRedline->GetPoint();
-        m_rDoc.getIDocumentRedlineAccess().AppendRedline(pRedline, true);
+        m_rDoc.getIDocumentRedlineAccess().AppendRedline(pRedline.release(), true);
         // sw_redlinehide: 2 reasons why this is needed:
         // 1. it's the first redline in node => RedlineDelText was sent but ignored
         // 2. redline spans multiple nodes => must merge text frames
@@ -5042,8 +5031,7 @@ bool DocumentContentOperationsManager::CopyImplImpl(SwPaM& rPam, SwPosition& rPo
                                            ? pEnd->GetContentIndex()
                                            : pSttTextNd->GetText().getLength())
                                          - pStt->GetContentIndex();
-                    pSttTextNd->CopyText( pDestTextNd, aDestIdx,
-                                            pStt->nContent, nCpyLen );
+                    pSttTextNd->CopyText( pDestTextNd, aDestIdx, *pStt, nCpyLen );
                     if( bEndEqualIns )
                         pEnd->AdjustContent( -nCpyLen );
                 }
@@ -5300,7 +5288,7 @@ bool DocumentContentOperationsManager::CopyImplImpl(SwPaM& rPam, SwPosition& rPo
     // Also copy all bookmarks
     if( bCopyBookmarks && m_rDoc.getIDocumentMarkAccess()->getAllMarksCount() )
     {
-        sw::CopyBookmarks(rPam, *pCopyPam->Start(), SwCopyFlags::Default);
+        sw::CopyBookmarks(rPam, *pCopyPam->Start());
     }
 
     if( RedlineFlags::DeleteRedlines & eOld )

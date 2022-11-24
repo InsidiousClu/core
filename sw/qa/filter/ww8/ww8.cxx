@@ -17,8 +17,6 @@
 
 namespace
 {
-constexpr OUStringLiteral DATA_DIRECTORY = u"/sw/qa/filter/ww8/data/";
-
 /**
  * Covers sw/source/filter/ww8/ fixes.
  *
@@ -30,13 +28,18 @@ constexpr OUStringLiteral DATA_DIRECTORY = u"/sw/qa/filter/ww8/data/";
  */
 class Test : public SwModelTestBase
 {
+public:
+    Test()
+        : SwModelTestBase("/sw/qa/filter/ww8/data/")
+    {
+    }
 };
 
 CPPUNIT_TEST_FIXTURE(Test, testNegativePageBorderDocImport)
 {
     // Given a document with a border distance that is larger than the margin, when loading that
     // document:
-    createSwDoc(DATA_DIRECTORY, "negative-page-border.doc");
+    createSwDoc("negative-page-border.doc");
 
     // Then make sure we map that to a negative border distance (move border from the edge of body
     // frame towards the center of the page, not towards the edge of the page):
@@ -73,8 +76,7 @@ CPPUNIT_TEST_FIXTURE(Test, testPlainTextContentControlExport)
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -95,8 +97,7 @@ CPPUNIT_TEST_FIXTURE(Test, testDocxComboBoxContentControlExport)
     pWrtShell->InsertContentControl(SwContentControlType::COMBO_BOX);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -136,7 +137,27 @@ CPPUNIT_TEST_FIXTURE(Test, testDocxHyperlinkShape)
 
     // When saving this document to DOCX, then make sure we don't crash on export (due to an
     // assertion failure for not-well-formed XML output):
-    save("Office Open XML Text", maTempFile);
+    save("Office Open XML Text");
+}
+
+CPPUNIT_TEST_FIXTURE(Test, testDocxContentControlDropdownEmptyDisplayText)
+{
+    // Given a document with a dropdown content control, the only list item has no display text
+    // (only a value):
+    mxComponent = loadFromDesktop("private:factory/swriter");
+    SwDoc* pDoc = getSwDoc();
+    SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
+    pWrtShell->InsertContentControl(SwContentControlType::DROP_DOWN_LIST);
+
+    // When saving to DOCX:
+    save("Office Open XML Text");
+
+    // Then make sure that no display text attribute is written:
+    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
+    // Without the accompanying fix in place, this test would have failed with:
+    // - XPath '//w:sdt/w:sdtPr/w:dropDownList/w:listItem' unexpected 'displayText' attribute
+    // i.e. we wrote an empty attribute instead of omitting it.
+    assertXPathNoAttribute(pXmlDoc, "//w:sdt/w:sdtPr/w:dropDownList/w:listItem", "displayText");
 }
 }
 

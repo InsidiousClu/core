@@ -21,7 +21,7 @@
 #include <drawinglayer/primitive2d/Primitive2DContainer.hxx>
 #include <drawinglayer/primitive2d/textlayoutdevice.hxx>
 #include <drawinglayer/processor2d/baseprocessor2d.hxx>
-#include <drawinglayer/processor2d/processorfromoutputdevice.hxx>
+#include <drawinglayer/processor2d/processor2dtools.hxx>
 #include <o3tl/safeint.hxx>
 #include <rtl/ustring.hxx>
 #include <sal/log.hxx>
@@ -895,7 +895,7 @@ void ThumbnailView::Paint(vcl::RenderContext& rRenderContext, const ::tools::Rec
     const drawinglayer::geometry::ViewInformation2D aNewViewInfos;
 
     std::unique_ptr<drawinglayer::processor2d::BaseProcessor2D> pProcessor(
-        drawinglayer::processor2d::createBaseProcessor2DFromOutputDevice(rRenderContext, aNewViewInfos));
+        drawinglayer::processor2d::createProcessor2DFromOutputDevice(rRenderContext, aNewViewInfos));
     pProcessor->process(aSeq);
 
     // draw items
@@ -1052,11 +1052,6 @@ sal_uInt16 ThumbnailView::GetItemId( const Point& rPos ) const
         return GetItemId( nItemPos );
 
     return 0;
-}
-
-sal_uInt16 ThumbnailView::getNextItemId() const
-{
-    return mItemList.empty() ? 1 : mItemList.back()->mnId + 1;
 }
 
 void ThumbnailView::setItemMaxTextLength(sal_uInt32 nLength)

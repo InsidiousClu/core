@@ -911,18 +911,6 @@ void SwViewShell::SetAddExtLeading( bool bNew )
     }
 }
 
-void SwViewShell::SetUseVirDev( bool bNewVirtual )
-{
-    IDocumentSettingAccess& rIDSA = getIDocumentSettingAccess();
-    if ( rIDSA.get(DocumentSettingId::USE_VIRTUAL_DEVICE) != bNewVirtual )
-    {
-        SwWait aWait( *GetDoc()->GetDocShell(), true );
-        // this sets the flag at the document and calls PrtDataChanged
-        IDocumentDeviceAccess& rIDDA = getIDocumentDeviceAccess();
-        rIDDA.setReferenceDeviceType( bNewVirtual, true );
-    }
-}
-
 /** Sets if paragraph and table spacing is added at bottom of table cells.
  * #106629#
  * @param[in] (bool) setting of the new value
@@ -1418,14 +1406,14 @@ bool SwViewShell::SmoothScroll( tools::Long lXDiff, tools::Long lYDiff, const to
                 // #i75172# To get a clean repaint, a new ObjectContact is needed here. Without, the
                 // repaint would not be correct since it would use the wrong DrawPage visible region.
                 // This repaint IS about painting something currently outside the visible part (!).
-                // For that purpose, AddWindowToPaintView is used which creates a new SdrPageViewWindow
+                // For that purpose, AddDeviceToPaintView is used which creates a new SdrPageViewWindow
                 // and all the necessary stuff. It's not cheap, but necessary here. Alone because repaint
                 // target really is NOT the current window.
                 // Also will automatically NOT use PreRendering and overlay (since target is VirtualDevice)
                 if(!HasDrawView())
                     MakeDrawView();
                 SdrView* pDrawView = GetDrawView();
-                pDrawView->AddWindowToPaintView(pVout, nullptr);
+                pDrawView->AddDeviceToPaintView(*pVout, nullptr);
 
                 // clear mpWin during DLPrePaint2 to get paint preparation for mpOut, but set it again
                 // immediately afterwards. There are many decisions in SW which imply that Printing
@@ -1443,7 +1431,7 @@ bool SwViewShell::SmoothScroll( tools::Long lXDiff, tools::Long lYDiff, const to
 
                 // end paint and destroy ObjectContact again
                 DLPostPaint2(true);
-                pDrawView->DeleteWindowFromPaintView(pVout);
+                pDrawView->DeleteDeviceFromPaintView(*pVout);
             }
 
             mpOut = pOld;

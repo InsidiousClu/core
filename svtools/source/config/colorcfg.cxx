@@ -66,7 +66,6 @@ class ColorConfig_Impl : public utl::ConfigItem
 {
     ColorConfigValue m_aConfigValues[ColorConfigEntryCount];
     OUString         m_sLoadedScheme;
-    bool             m_bAutoDetectSystemHC;
 
     virtual void                    ImplCommit() override;
 
@@ -94,11 +93,8 @@ public:
     using ConfigItem::SetModified;
     using ConfigItem::ClearModified;
     void                            SettingsChanged();
-    bool GetAutoDetectSystemHC() const {return m_bAutoDetectSystemHC;}
 
     DECL_LINK( DataChangedEventListener, VclSimpleEvent&, void );
-
-    void ImplUpdateApplicationSettings();
 };
 
 namespace {
@@ -121,6 +117,7 @@ uno::Sequence< OUString> GetPropertyNames(std::u16string_view rScheme)
         { std::u16string_view(u"/Links")           ,true },
         { std::u16string_view(u"/LinksVisited")    ,true },
         { std::u16string_view(u"/Spell")     ,false },
+        { std::u16string_view(u"/Grammar")     ,false },
         { std::u16string_view(u"/SmartTags")     ,false },
         { std::u16string_view(u"/Shadow")        , true },
         { std::u16string_view(u"/WriterTextGrid")  ,false },
@@ -186,8 +183,7 @@ uno::Sequence< OUString> GetPropertyNames(std::u16string_view rScheme)
 }
 
 ColorConfig_Impl::ColorConfig_Impl() :
-    ConfigItem("Office.UI/ColorScheme"),
-    m_bAutoDetectSystemHC(true)
+    ConfigItem("Office.UI/ColorScheme")
 {
     //try to register on the root node - if possible
     uno::Sequence < OUString > aNames(1);
@@ -195,8 +191,6 @@ ColorConfig_Impl::ColorConfig_Impl() :
 
     if (!utl::ConfigManager::IsFuzzing())
         Load(OUString());
-
-    ImplUpdateApplicationSettings();
 
     ::Application::AddEventListener( LINK(this, ColorConfig_Impl, DataChangedEventListener) );
 
@@ -240,15 +234,6 @@ void ColorConfig_Impl::Load(const OUString& rScheme)
         //test for visibility property
         if(pColorNames[nIndex].endsWith(g_sIsVisible))
              m_aConfigValues[i].bIsVisible = Any2Bool(pColors[nIndex++]);
-    }
-    // fdo#71511: check if we are running in a11y autodetect
-    {
-        utl::OConfigurationNode aNode = utl::OConfigurationTreeRoot::tryCreateWithComponentContext(comphelper::getProcessComponentContext(),"org.openoffice.Office.Common/Accessibility" );
-        if(aNode.isValid())
-        {
-            uno::Any aValue = aNode.getNodeValue(OUString("AutoDetectSystemHC"));
-            aValue >>= m_bAutoDetectSystemHC;
-        }
     }
 }
 
@@ -331,8 +316,6 @@ void ColorConfig_Impl::SettingsChanged()
 {
     SolarMutexGuard aVclGuard;
 
-    ImplUpdateApplicationSettings();
-
     NotifyListeners(ConfigurationHints::NONE);
 }
 
@@ -346,32 +329,6 @@ IMPL_LINK( ColorConfig_Impl, DataChangedEventListener, VclSimpleEvent&, rEvent, 
         {
             SettingsChanged();
         }
-    }
-}
-
-
-/** updates the font color in the vcl window settings */
-void ColorConfig_Impl::ImplUpdateApplicationSettings()
-{
-    Application* pApp = GetpApp();
-    if( !pApp )
-        return;
-
-    AllSettings aSettings = Application::GetSettings();
-    StyleSettings aStyleSettings( aSettings.GetStyleSettings() );
-
-    ColorConfigValue aRet = GetColorConfigValue(svtools::FONTCOLOR);
-    if(COL_AUTO == aRet.nColor)
-        aRet.nColor = ColorConfig::GetDefaultColor(svtools::FONTCOLOR);
-
-    Color aFontColor(aRet.nColor);
-
-    if( aStyleSettings.GetFontColor() != aFontColor )
-    {
-        aStyleSettings.SetFontColor( aFontColor );
-
-        aSettings.SetStyleSettings( aStyleSettings );
-        Application::SetSettings( aSettings );
     }
 }
 
@@ -416,6 +373,7 @@ Color ColorConfig::GetDefaultColor(ColorConfigEntry eEntry)
         COL_BLUE, // LINKS
         Color(0x0000cc), // LINKSVISITED
         COL_LIGHTRED, // SPELL
+        COL_LIGHTBLUE, // GRAMMAR
         COL_LIGHTMAGENTA, // SMARTTAGS
         COL_GRAY, // SHADOWCOLOR
         COL_LIGHTGRAY, // WRITERTEXTGRID
@@ -477,8 +435,8 @@ Color ColorConfig::GetDefaultColor(ColorConfigEntry eEntry)
         default:
             aRet = aAutoColors[eEntry];
     }
-    // fdo#71511: if in autodetected a11y HC mode, do pull background color from theme
-    if(m_pImpl &&  m_pImpl->GetAutoDetectSystemHC())
+    // fdo#71511: if in a11y HC mode, do pull background color from theme
+    if (Application::GetSettings().GetStyleSettings().GetHighContrastMode())
     {
         switch(eEntry)
         {

@@ -70,12 +70,22 @@
 #include <swcrsr.hxx>
 #include <hints.hxx>
 #include <frameformats.hxx>
+#include <OnlineAccessibilityCheck.hxx>
 #ifdef DBG_UTIL
 #include <sal/backtrace.hxx>
 #endif
 
 using namespace ::com::sun::star::i18n;
 
+namespace sw
+{
+
+void AccessibilityCheckStatus::reset()
+{
+    pCollection.reset();
+}
+
+}
 
 /*
  * Some local helper functions for the attribute set handle of a content node.
@@ -307,12 +317,13 @@ SwNode::SwNode( const SwNode& rWhere, const SwNodeType nNdType )
 #endif
     , m_pStartOfSection( nullptr )
 {
-    if( !rWhere.GetIndex() )
+    SwNodeOffset nWhereOffset = rWhere.GetIndex();
+    if( !nWhereOffset )
         return;
 
     SwNodes& rNodes = const_cast<SwNodes&> (rWhere.GetNodes());
-    SwNode* pNd = rNodes[ rWhere.GetIndex() -1 ];
-    rNodes.InsertNode( this, rWhere.GetIndex() );
+    SwNode* pNd = rNodes[ nWhereOffset -1 ];
+    rNodes.InsertNode( this, nWhereOffset );
     m_pStartOfSection = pNd->GetStartNode();
     if( nullptr == m_pStartOfSection )
     {
@@ -2187,5 +2198,11 @@ void SwNode::RemoveAnchoredFly(SwFrameFormat *const pFlyFormat)
     assert(it != m_aAnchoredFlys.end());
     m_aAnchoredFlys.erase(it);
 }
+
+void SwNode::resetAndQueueAccessibilityCheck()
+{
+    GetDoc().getOnlineAccessibilityCheck()->resetAndQueue(this);
+}
+
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

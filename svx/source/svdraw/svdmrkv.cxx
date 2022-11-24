@@ -23,6 +23,7 @@
 #include <svx/svdpagv.hxx>
 #include <svx/svdpage.hxx>
 #include <svx/svdotable.hxx>
+#include <svx/svdomedia.hxx>
 
 #include <osl/diagnose.h>
 #include <osl/thread.h>
@@ -1117,6 +1118,8 @@ void SdrMarkView::SetMarkHandlesForLOKit(tools::Rectangle const & rRect, const S
         {
             sSelectionText = "EMPTY";
             sSelectionTextView = "EMPTY";
+            if (!pOtherShell)
+                pViewShell->NotifyOtherViews(LOK_CALLBACK_TEXT_VIEW_SELECTION, "selection", OString());
         }
 
         if (bTableSelection)
@@ -1150,6 +1153,14 @@ void SdrMarkView::SetMarkHandlesForLOKit(tools::Rectangle const & rRect, const S
             // other views want to know about it.
             pViewShell->libreOfficeKitViewCallback(LOK_CALLBACK_GRAPHIC_SELECTION, sSelectionText.getStr());
             SfxLokHelper::notifyOtherViews(pViewShell, LOK_CALLBACK_GRAPHIC_VIEW_SELECTION, "selection", sSelectionTextView);
+        }
+
+        if (comphelper::LibreOfficeKit::isActive() && mpMarkedObj
+            && mpMarkedObj->GetObjIdentifier() == SdrObjKind::Media)
+        {
+            SdrMediaObj* mediaObj = dynamic_cast<SdrMediaObj*>(mpMarkedObj);
+            if (mediaObj)
+                mediaObj->notifyPropertiesForLOKit();
         }
     }
 }
@@ -1203,7 +1214,7 @@ void SdrMarkView::SetMarkHandles(SfxViewShell* pOtherShell)
         if(nullptr != mpMarkedObj)
         {
             bSingleTextObjMark =
-                dynamic_cast<const SdrTextObj*>( mpMarkedObj) !=  nullptr &&
+                DynCastSdrTextObj( mpMarkedObj) !=  nullptr &&
                 static_cast<SdrTextObj*>(mpMarkedObj)->IsTextFrame();
 
             // RotGrfFlyFrame: we may have limited rotation
@@ -1243,7 +1254,7 @@ void SdrMarkView::SetMarkHandles(SfxViewShell* pOtherShell)
         // Also formerly #122142#: Pretty much the same for SdrCaptionObj's in calc.
         if(static_cast<SdrView*>(this)->IsTextEdit())
         {
-            const SdrTextObj* pSdrTextObj = dynamic_cast< const SdrTextObj* >(mpMarkedObj);
+            const SdrTextObj* pSdrTextObj = DynCastSdrTextObj(mpMarkedObj);
 
             if (pSdrTextObj && pSdrTextObj->IsInEditMode())
             {
@@ -2041,7 +2052,7 @@ bool SdrMarkView::MarkNextObj(const Point& rPnt, short nTol, bool bPrev)
         nullptr != dynamic_cast< const E3dCompoundObject* >(pObjHit);
     if (bRemap)
     {
-        pScene = dynamic_cast< E3dScene* >(pObjHit->getParentSdrObjectFromSdrObject());
+        pScene = DynCastE3dScene(pObjHit->getParentSdrObjectFromSdrObject());
         bRemap = nullptr != pScene;
     }
 
@@ -2296,7 +2307,7 @@ SdrObject* SdrMarkView::CheckSingleSdrObjectHit(const Point& rPnt, sal_uInt16 nT
     const bool bCheckIfMarkable(nOptions & SdrSearchOptions::TESTMARKABLE);
     const bool bDeep(nOptions & SdrSearchOptions::DEEP);
     const bool bOLE(dynamic_cast< const SdrOle2Obj* >(pObj) !=  nullptr);
-    auto pTextObj = dynamic_cast<const SdrTextObj*>( pObj);
+    auto pTextObj = DynCastSdrTextObj( pObj);
     const bool bTXT(pTextObj && pTextObj->IsTextFrame());
     SdrObject* pRet=nullptr;
     tools::Rectangle aRect(pObj->GetCurrentBoundRect());
@@ -2370,41 +2381,37 @@ SdrObject* SdrMarkView::CheckSingleSdrObjectHit(const Point& rPnt, sal_uInt16 nT
 {
     SdrObject* pRet=nullptr;
     rpRootObj=nullptr;
-    if (pOL!=nullptr)
+    if (!pOL)
+        return nullptr;
+    const E3dScene* pRemapScene = DynCastE3dScene(pOL->getSdrObjectFromSdrObjList());
+    const size_t nObjCount(pOL->GetObjCount());
+    size_t nObjNum(nObjCount);
+
+    while (pRet==nullptr && nObjNum>0)
     {
-        const bool bRemap(
-            nullptr != pOL->getSdrObjectFromSdrObjList()
-            && nullptr != dynamic_cast< const E3dScene* >(pOL->getSdrObjectFromSdrObjList()));
-        const E3dScene* pRemapScene(bRemap ? static_cast< E3dScene* >(pOL->getSdrObjectFromSdrObjList()) : nullptr);
-        const size_t nObjCount(pOL->GetObjCount());
-        size_t nObjNum(nObjCount);
+        nObjNum--;
+        SdrObject* pObj;
 
-        while (pRet==nullptr && nObjNum>0)
+        if(pRemapScene)
         {
-            nObjNum--;
-            SdrObject* pObj;
-
-            if(bRemap)
+            pObj = pOL->GetObj(pRemapScene->RemapOrdNum(nObjNum));
+        }
+        else
+        {
+            pObj = pOL->GetObj(nObjNum);
+        }
+        if (nOptions & SdrSearchOptions::BEFOREMARK)
+        {
+            if (pMarkList!=nullptr)
             {
-                pObj = pOL->GetObj(pRemapScene->RemapOrdNum(nObjNum));
-            }
-            else
-            {
-                pObj = pOL->GetObj(nObjNum);
-            }
-            if (nOptions & SdrSearchOptions::BEFOREMARK)
-            {
-                if (pMarkList!=nullptr)
+                if ((*pMarkList).FindObject(pObj)!=SAL_MAX_SIZE)
                 {
-                    if ((*pMarkList).FindObject(pObj)!=SAL_MAX_SIZE)
-                    {
-                        return nullptr;
-                    }
+                    return nullptr;
                 }
             }
-            pRet=CheckSingleSdrObjectHit(rPnt,nTol,pObj,pPV,nOptions,pMVisLay);
-            if (pRet!=nullptr) rpRootObj=pObj;
         }
+        pRet=CheckSingleSdrObjectHit(rPnt,nTol,pObj,pPV,nOptions,pMVisLay);
+        if (pRet!=nullptr) rpRootObj=pObj;
     }
     return pRet;
 }

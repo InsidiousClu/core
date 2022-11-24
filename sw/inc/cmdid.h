@@ -198,6 +198,7 @@ class SwUINumRuleItem;
 #define FN_SET_TRACKED_CHANGES_IN_TEXT         (FN_VIEW + 67)  /* Show tracked deletions and insertions in text */
 #define FN_SET_TRACKED_DELETIONS_IN_MARGIN     (FN_VIEW + 68)  /* Show final text (deletions in margin) */
 #define FN_SET_TRACKED_INSERTIONS_IN_MARGIN    (FN_VIEW + 69)  /* Show original text (insertions in margin) */
+#define FN_OUTLINE_LEVELS_SHOWN                (FN_VIEW + 70)
 
 // Region: Insert
 #define FN_INSERT_BOOKMARK      (FN_INSERT + 2 )  /* Bookmark */
@@ -850,6 +851,7 @@ class SwUINumRuleItem;
 #define FN_STAT_SELMODE             (FN_STAT + 5)
 #define FN_STAT_BOOKMARK            (FN_STAT + 8)  /* For Popup Bookmarks*/
 #define FN_STAT_WORDCOUNT           (FN_STAT + 9)
+#define FN_STAT_ACCESSIBILITY_CHECK (FN_STAT + 10)
 
 // Region: Page preview
 #define FN_SHOW_TWO_PAGES           (FN_PGPREVIEW + 1)

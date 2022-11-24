@@ -64,15 +64,6 @@
 
 #include <desktop/crashreport.hxx>
 
-#if defined _MSC_VER
-#ifndef min
-#define min(a,b)    (((a) < (b)) ? (a) : (b))
-#endif
-#ifndef max
-#define max(a,b)    (((a) > (b)) ? (a) : (b))
-#endif
-#endif
-
 #include <prewin.h>
 
 #include <gdiplus.h>
@@ -291,7 +282,6 @@ SalData::SalData()
     mbObjClassInit = false;     // is SALOBJECTCLASS initialised
     mbInPalChange = false;      // is in WM_QUERYNEWPALETTE
     mnAppThreadId = 0;          // Id from Application-Thread
-    mbScrSvrEnabled = FALSE;    // ScreenSaver enabled
     mpFirstIcon = nullptr;      // icon cache, points to first icon, NULL if none
     mpSharedTempFontItem = nullptr;
     mpOtherTempFontItem = nullptr;
@@ -466,6 +456,15 @@ WinSalInstance::~WinSalInstance()
 #if HAVE_FEATURE_SKIA
     SkiaHelper::cleanup();
 #endif
+}
+
+void WinSalInstance::AfterAppInit()
+{
+// (1) Ideally this would be done at the place that creates the thread, but since this thread is normally
+// just the default/main thread, that is not possible.
+// (2) Don't do this on unix, where it causes tools like pstree on Linux to
+// confusingly report soffice.bin as VCL Main instead.
+    osl_setThreadName("VCL Main");
 }
 
 static LRESULT ImplSalDispatchMessage( const MSG* pMsg )

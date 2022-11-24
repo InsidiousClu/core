@@ -159,7 +159,6 @@ OfaMiscTabPage::OfaMiscTabPage(weld::Container* pPage, weld::DialogController* p
     , m_xFileDlgFrame(m_xBuilder->weld_widget("filedlgframe"))
     , m_xFileDlgROImage(m_xBuilder->weld_widget("lockimage"))
     , m_xFileDlgCB(m_xBuilder->weld_check_button("filedlg"))
-    , m_xPrintDlgCB(m_xBuilder->weld_check_button("printdlg"))
     , m_xDocStatusCB(m_xBuilder->weld_check_button("docstatus"))
     , m_xYearFrame(m_xBuilder->weld_widget("yearframe"))
     , m_xYearValueField(m_xBuilder->weld_spin_button("year"))
@@ -1508,10 +1507,17 @@ void OfaLanguagesTabPage::Reset( const SfxItemSet* rSet )
     {
         const LocaleDataWrapper& rLocaleWrapper( Application::GetSettings().GetLocaleDataWrapper() );
         aDatePatternsString = lcl_getDatePatternsConfigString( rLocaleWrapper);
+        // Let's assume patterns are valid at this point.
+        m_bDatePatternsValid = true;
     }
-    // Let's assume patterns are valid at this point.
-    m_bDatePatternsValid = true;
+    else
+    {
+        bool bModified = false;
+        m_bDatePatternsValid = validateDatePatterns( bModified, aDatePatternsString);
+    }
     m_xDatePatternsED->set_text(aDatePatternsString);
+    m_xDatePatternsED->set_message_type( m_bDatePatternsValid ?
+            weld::EntryMessageType::Normal : weld::EntryMessageType::Error);
     bReadonly = pLangConfig->aSysLocaleOptions.IsReadOnly(SvtSysLocaleOptions::EOption::DatePatterns);
     m_xDatePatternsED->set_sensitive(!bReadonly);
     m_xDatePatternsFT->set_sensitive(!bReadonly);
@@ -1691,20 +1697,39 @@ IMPL_LINK_NOARG(OfaLanguagesTabPage, LocaleSettingHdl, weld::ComboBox&, void)
     OUString aDatePatternsString = lcl_getDatePatternsConfigString( aLocaleWrapper);
     m_bDatePatternsValid = true;
     m_xDatePatternsED->set_text( aDatePatternsString);
+    m_xDatePatternsED->set_message_type(weld::EntryMessageType::Normal);
 }
 
 IMPL_LINK( OfaLanguagesTabPage, DatePatternsHdl, weld::Entry&, rEd, void )
 {
-    const OUString aPatterns(rEd.get_text());
-    OUStringBuffer aBuf( aPatterns);
-    sal_Int32 nChar = 0;
-    bool bValid = true;
+    OUString aPatterns(rEd.get_text());
     bool bModified = false;
-    if (!aPatterns.isEmpty())
+    const bool bValid = validateDatePatterns( bModified, aPatterns);
+    if (bModified)
     {
+        // gtk3 keeps the cursor position on equal length set_text() but at
+        // least the 'gen' backend does not and resets to 0.
+        const int nCursorPos = rEd.get_position();
+        rEd.set_text(aPatterns);
+        rEd.set_position(nCursorPos);
+    }
+    if (bValid)
+        rEd.set_message_type(weld::EntryMessageType::Normal);
+    else
+        rEd.set_message_type(weld::EntryMessageType::Error);
+    m_bDatePatternsValid = bValid;
+}
+
+bool OfaLanguagesTabPage::validateDatePatterns( bool& rbModified, OUString& rPatterns )
+{
+    bool bValid = true;
+    if (!rPatterns.isEmpty())
+    {
+        OUStringBuffer aBuf( rPatterns);
+        sal_Int32 nChar = 0;
         for (sal_Int32 nIndex=0; nIndex >= 0 && bValid; ++nChar)
         {
-            const OUString aPat( aPatterns.getToken( 0, ';', nIndex));
+            const OUString aPat( rPatterns.getToken( 0, ';', nIndex));
             if (aPat.isEmpty() && nIndex < 0)
             {
                 // Indicating failure when about to append a pattern is too
@@ -1719,6 +1744,18 @@ IMPL_LINK( OfaLanguagesTabPage, DatePatternsHdl, weld::Entry&, rEd, void )
                 bool bY, bM, bD;
                 bY = bM = bD = false;
                 bool bSep = true;
+                if (aPat.getLength() == 3)
+                {
+                    // Disallow a pattern that would match a numeric input with
+                    // decimal separator, like M.D
+                    const LanguageType eLang = m_xLocaleSettingLB->get_active_id();
+                    const LocaleDataWrapper aLocaleWrapper(( LanguageTag(eLang)));
+                    if (    aPat[1] == aLocaleWrapper.getNumDecimalSep().toChar()
+                         || aPat[1] == aLocaleWrapper.getNumDecimalSepAlt().toChar())
+                    {
+                        bValid = false;
+                    }
+                }
                 for (sal_Int32 i = 0; i < aPat.getLength() && bValid; /*nop*/)
                 {
                     const sal_Int32 j = i;
@@ -1733,7 +1770,7 @@ IMPL_LINK( OfaLanguagesTabPage, DatePatternsHdl, weld::Entry&, rEd, void )
                             else if (c == 'y')
                             {
                                 aBuf[nChar] = 'Y';
-                                bModified = true;
+                                rbModified = true;
                             }
                             bY = true;
                             bSep = false;
@@ -1745,7 +1782,7 @@ IMPL_LINK( OfaLanguagesTabPage, DatePatternsHdl, weld::Entry&, rEd, void )
                             else if (c == 'm')
                             {
                                 aBuf[nChar] = 'M';
-                                bModified = true;
+                                rbModified = true;
                             }
                             bM = true;
                             bSep = false;
@@ -1757,7 +1794,7 @@ IMPL_LINK( OfaLanguagesTabPage, DatePatternsHdl, weld::Entry&, rEd, void )
                             else if (c == 'd')
                             {
                                 aBuf[nChar] = 'D';
-                                bModified = true;
+                                rbModified = true;
                             }
                             bD = true;
                             bSep = false;
@@ -1775,20 +1812,10 @@ IMPL_LINK( OfaLanguagesTabPage, DatePatternsHdl, weld::Entry&, rEd, void )
                 bValid &= (bY || bM || bD);
             }
         }
+        if (rbModified)
+            rPatterns = aBuf.makeStringAndClear();
     }
-    if (bModified)
-    {
-        // gtk3 keeps the cursor position on equal length set_text() but at
-        // least the 'gen' backend does not and resets to 0.
-        const int nCursorPos = rEd.get_position();
-        rEd.set_text(aBuf.makeStringAndClear());
-        rEd.set_position(nCursorPos);
-    }
-    if (bValid)
-        rEd.set_message_type(weld::EntryMessageType::Normal);
-    else
-        rEd.set_message_type(weld::EntryMessageType::Error);
-    m_bDatePatternsValid = bValid;
+    return bValid;
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -76,6 +76,7 @@
 #include <modcfg.hxx>
 #include <frameformats.hxx>
 #include <textboxhelper.hxx>
+#include <textcontentcontrol.hxx>
 #include <memory>
 
 using namespace ::com::sun::star::i18n;
@@ -1032,7 +1033,7 @@ static bool lcl_SetTextFormatColl( SwNode* pNode, void* pArgs )
         {
             // Check, if the list style of the paragraph will change.
             bool bChangeOfListStyleAtParagraph( true );
-            SwTextNode& rTNd(dynamic_cast<SwTextNode&>(*pCNd));
+            SwTextNode& rTNd(*pCNd->GetTextNode());
             {
                 SwNumRule* pNumRuleAtParagraph(rTNd.GetNumRule());
                 if ( pNumRuleAtParagraph )
@@ -1406,7 +1407,7 @@ void SwDoc::CopyPageDescHeaderFooterImpl( bool bCpyHeader,
             // TODO: investigate calling CopyWithFlyInFly?
             SwPaM const source(aRg.aStart, aRg.aEnd);
             SwPosition dest(*pSttNd);
-            sw::CopyBookmarks(source, dest, SwCopyFlags::Default);
+            sw::CopyBookmarks(source, dest);
             pNewFormat->SetFormatAttr( SwFormatContent( pSttNd ));
         }
         else
@@ -1958,6 +1959,7 @@ void SwDoc::dumpAsXml(xmlTextWriterPtr pWriter) const
     m_PageDescs.dumpAsXml(pWriter);
     maDBData.dumpAsXml(pWriter);
     mpMarkManager->dumpAsXml(pWriter);
+    m_pContentControlManager->dumpAsXml(pWriter);
     m_pUndoManager->dumpAsXml(pWriter);
     m_pDocumentSettingManager->dumpAsXml(pWriter);
     getIDocumentFieldsAccess().GetFieldTypes()->dumpAsXml(pWriter);

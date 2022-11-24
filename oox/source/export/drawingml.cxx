@@ -110,6 +110,7 @@
 #include <o3tl/safeint.hxx>
 #include <o3tl/string_view.hxx>
 #include <tools/stream.hxx>
+#include <tools/UnitConversion.hxx>
 #include <unotools/fontdefs.hxx>
 #include <vcl/cvtgrf.hxx>
 #include <vcl/svapp.hxx>
@@ -234,7 +235,7 @@ void WriteGradientPath(const awt::Gradient& rGradient, const FSHelperPtr& pFS, c
 }
 
 // not thread safe
-int DrawingML::mnImageCounter = 1;
+std::stack<sal_Int32> DrawingML::mnImageCounter;
 int DrawingML::mnWdpImageCounter = 1;
 std::map<OUString, OUString> DrawingML::maWdpCache;
 sal_Int32 DrawingML::mnDrawingMLCount = 0;
@@ -267,7 +268,6 @@ sal_Int16 DrawingML::GetScriptType(const OUString& rStr)
 
 void DrawingML::ResetCounters()
 {
-    mnImageCounter = 1;
     mnWdpImageCounter = 1;
     maWdpCache.clear();
 }
@@ -280,11 +280,13 @@ void DrawingML::ResetMlCounters()
 
 void DrawingML::PushExportGraphics()
 {
+    mnImageCounter.push(1);
     maExportGraphics.emplace();
 }
 
 void DrawingML::PopExportGraphics()
 {
+    mnImageCounter.pop();
     maExportGraphics.pop();
 }
 
@@ -1393,7 +1395,7 @@ OUString DrawingML::WriteImage( const Graphic& rGraphic , bool bRelPathToMedia )
         Reference<XOutputStream> xOutStream = mpFB->openFragmentStream(
             OUStringBuffer()
                 .appendAscii(GetComponentDir())
-                .append("/media/image" + OUString::number(mnImageCounter))
+                .append("/media/image" + OUString::number(mnImageCounter.top()))
                 .appendAscii(pExtension)
                 .makeStringAndClear(),
             sMediaType);
@@ -1409,7 +1411,7 @@ OUString DrawingML::WriteImage( const Graphic& rGraphic , bool bRelPathToMedia )
         sPath = OUStringBuffer()
                     .appendAscii(sRelationCompPrefix.getStr())
                     .appendAscii(sRelPathToMedia.getStr())
-                    .append(static_cast<sal_Int32>(mnImageCounter++))
+                    .append(static_cast<sal_Int32>(mnImageCounter.top()++))
                     .appendAscii(pExtension)
                     .makeStringAndClear();
 
@@ -1488,7 +1490,7 @@ void DrawingML::WriteMediaNonVisualProperties(const css::uno::Reference<css::dra
         Reference<XOutputStream> xOutStream = mpFB->openFragmentStream(OUStringBuffer()
                                                                        .appendAscii(GetComponentDir())
                                                                        .append("/media/media" +
-                                                                            OUString::number(mnImageCounter) +
+                                                                            OUString::number(mnImageCounter.top()) +
                                                                             aExtension)
                                                                        .makeStringAndClear(),
                                                                        aMimeType);
@@ -1500,7 +1502,7 @@ void DrawingML::WriteMediaNonVisualProperties(const css::uno::Reference<css::dra
 
         // create the relation
         OUString aPath = OUStringBuffer().appendAscii(GetRelationCompPrefix())
-                                         .append("media/media" + OUString::number(mnImageCounter++) + aExtension)
+                                         .append("media/media" + OUString::number(mnImageCounter.top()++) + aExtension)
                                          .makeStringAndClear();
         aVideoFileRelId = mpFB->addRelation(mpFS->getOutputStream(), oox::getRelationship(eMediaType), aPath);
         aMediaRelId = mpFB->addRelation(mpFS->getOutputStream(), oox::getRelationship(Relationship::MEDIA), aPath);
@@ -3021,7 +3023,7 @@ void DrawingML::WriteLinespacing(const LineSpacing& rSpacing, float fFirstCharHe
     }
 }
 
-bool DrawingML::WriteParagraphProperties( const Reference< XTextContent >& rParagraph, float fFirstCharHeight, sal_Int32 nElement)
+bool DrawingML::WriteParagraphProperties(const Reference<XTextContent>& rParagraph, const Reference<XPropertySet>& rXShapePropSet, float fFirstCharHeight, sal_Int32 nElement)
 {
     Reference< XPropertySet > rXPropSet( rParagraph, UNO_QUERY );
     Reference< XPropertyState > rXPropState( rParagraph, UNO_QUERY );
@@ -3111,6 +3113,24 @@ bool DrawingML::WriteParagraphProperties( const Reference< XTextContent >& rPara
             return false;
     }
 
+    // for autofitted textboxes, scale the indents
+    if (GetProperty(rXShapePropSet, "TextFitToSize") && mAny.get<TextFitToSizeType>() == TextFitToSizeType_AUTOFIT)
+    {
+        SvxShapeText* pTextShape = dynamic_cast<SvxShapeText*>(rXShapePropSet.get());
+        if (pTextShape)
+        {
+            SdrTextObj* pTextObject = DynCastSdrTextObj(pTextShape->GetSdrObject());
+            if (pTextObject)
+            {
+                const auto nFontScaleY = pTextObject->GetFontScaleY();
+                nLeftMargin = nLeftMargin * nFontScaleY / 100;
+                nLineIndentation = nLineIndentation * nFontScaleY / 100;
+                nParaLeftMargin = nParaLeftMargin * nFontScaleY / 100;
+                nParaFirstLineIndent = nParaFirstLineIndent * nFontScaleY / 100;
+            }
+        }
+    }
+
     if (nParaLeftMargin) // For Paragraph
         mpFS->startElementNS( XML_a, nElement,
                            XML_lvl, sax_fastparser::UseIf(OString::number(nLevel), nLevel > 0),
@@ -3198,7 +3218,7 @@ void DrawingML::WriteLstStyles(const css::uno::Reference<css::text::XTextContent
             fFirstCharHeight = xFirstRunPropSet->getPropertyValue("CharHeight").get<float>();
 
         mpFS->startElementNS(XML_a, XML_lstStyle);
-        if( !WriteParagraphProperties(rParagraph, fFirstCharHeight, XML_lvl1pPr) )
+        if( !WriteParagraphProperties(rParagraph, rXShapePropSet, fFirstCharHeight, XML_lvl1pPr) )
             mpFS->startElementNS(XML_a, XML_lvl1pPr);
         WriteRunProperties(xFirstRunPropSet, false, XML_defRPr, true, rbOverridingCharHeight,
                            rnCharHeight, GetScriptType(rRun->getString()), rXShapePropSet);
@@ -3240,7 +3260,7 @@ void DrawingML::WriteParagraph( const Reference< XTextContent >& rParagraph,
                     rnCharHeight = 100 * fFirstCharHeight;
                     rbOverridingCharHeight = true;
                 }
-                WriteParagraphProperties(rParagraph, fFirstCharHeight, XML_pPr);
+                WriteParagraphProperties(rParagraph, rXShapePropSet, fFirstCharHeight, XML_pPr);
                 bPropertiesWritten = true;
             }
             WriteRun( run, rbOverridingCharHeight, rnCharHeight, rXShapePropSet);
@@ -3317,21 +3337,27 @@ void DrawingML::WriteText(const Reference<XInterface>& rXIface, bool bBodyPr, bo
     // Transform the text distance values so they are compatible with OOXML insets
     if (xShape.is())
     {
-        sal_Int32 nTextHeight = xShape->getSize().Width;
+        sal_Int32 nTextHeight = xShape->getSize().Height; // Hmm, default
 
-        auto* pCustomShape = dynamic_cast<SdrObjCustomShape*>(SdrObject::getSdrObjectFromXShape(xShape));
+        // CustomShape can have text area different from shape rectangle
+        auto* pCustomShape
+            = dynamic_cast<SdrObjCustomShape*>(SdrObject::getSdrObjectFromXShape(xShape));
         if (pCustomShape)
         {
-            tools::Rectangle aAnchorRect;
-            pCustomShape->TakeTextAnchorRect(aAnchorRect);
-            nTextHeight = aAnchorRect.GetSize().getHeight();
+            const EnhancedCustomShape2d aCustomShape2d(*pCustomShape);
+            nTextHeight = aCustomShape2d.GetTextRect().getOpenHeight();
+            if (DOCUMENT_DOCX == meDocumentType)
+                nTextHeight = convertTwipToMm100(nTextHeight);
         }
 
         if (nTop + nBottom >= nTextHeight)
         {
-            sal_Int32 nDiff = std::abs(std::min(nTop, nBottom));
-            nTop += nDiff;
-            nBottom += nDiff;
+            // Effective bottom would be above effective top of text area. LO normalizes the
+            // effective text area in such case implicitly for rendering. MS needs indents so that
+            // the result is the normalized effective text area.
+            std::swap(nTop, nBottom);
+            nTop = nTextHeight - nTop;
+            nBottom = nTextHeight - nBottom;
         }
     }
 
@@ -3778,7 +3804,7 @@ void DrawingML::WriteText(const Reference<XInterface>& rXIface, bool bBodyPr, bo
                 SvxShapeText* pTextShape = dynamic_cast<SvxShapeText*>(rXIface.get());
                 if (pTextShape)
                 {
-                    SdrTextObj* pTextObject = dynamic_cast<SdrTextObj*>(pTextShape->GetSdrObject());
+                    SdrTextObj* pTextObject = DynCastSdrTextObj(pTextShape->GetSdrObject());
                     if (pTextObject)
                         nFontScale = pTextObject->GetFontScaleY() * 1000;
                 }
@@ -3810,7 +3836,7 @@ void DrawingML::WriteText(const Reference<XInterface>& rXIface, bool bBodyPr, bo
         return;
 
     SdrObject* pSdrObject = xShape.is() ? SdrObject::getSdrObjectFromXShape(xShape) : nullptr;
-    const SdrTextObj* pTxtObj = dynamic_cast<SdrTextObj*>( pSdrObject );
+    const SdrTextObj* pTxtObj = DynCastSdrTextObj( pSdrObject );
     if (pTxtObj && mpTextExport)
     {
         std::optional<OutlinerParaObject> pParaObj;
@@ -3848,7 +3874,7 @@ void DrawingML::WriteText(const Reference<XInterface>& rXIface, bool bBodyPr, bo
         if( aAny >>= xParagraph )
         {
             mpFS->startElementNS(XML_a, XML_p);
-            WriteParagraphProperties(xParagraph, nCharHeight, XML_pPr);
+            WriteParagraphProperties(xParagraph, rXPropSet, nCharHeight, XML_pPr);
             sal_Int16 nDummy = -1;
             WriteRunProperties(rXPropSet, false, XML_endParaRPr, false,
                                bOverridingCharHeight, nCharHeight, nDummy, rXPropSet);
@@ -4867,7 +4893,7 @@ void DrawingML::WriteConnectorConnections( sal_Int32 nStartGlueId, sal_Int32 nEn
 
 sal_Unicode DrawingML::SubstituteBullet( sal_Unicode cBulletId, css::awt::FontDescriptor& rFontDesc )
 {
-    if ( IsStarSymbol(rFontDesc.Name) )
+    if ( IsOpenSymbol(rFontDesc.Name) )
     {
         rtl_TextEncoding eCharSet = rFontDesc.CharSet;
         cBulletId = msfilter::util::bestFitOpenSymbolToMSFont(cBulletId, eCharSet, rFontDesc.Name);
@@ -5855,25 +5881,25 @@ void DrawingML::WriteDiagram(const css::uno::Reference<css::drawing::XShape>& rX
     OUString dataFileName = "diagrams/data" + OUString::number(nDiagramId) + ".xml";
     OUString dataRelId =
         mpFB->addRelation(mpFS->getOutputStream(), oox::getRelationship(Relationship::DIAGRAMDATA),
-                          OUStringConcatenation(sRelationCompPrefix + dataFileName));
+                          Concat2View(sRelationCompPrefix + dataFileName));
 
     // add layout relation
     OUString layoutFileName = "diagrams/layout" + OUString::number(nDiagramId) + ".xml";
     OUString layoutRelId = mpFB->addRelation(mpFS->getOutputStream(),
                                               oox::getRelationship(Relationship::DIAGRAMLAYOUT),
-                                              OUStringConcatenation(sRelationCompPrefix + layoutFileName));
+                                              Concat2View(sRelationCompPrefix + layoutFileName));
 
     // add style relation
     OUString styleFileName = "diagrams/quickStyle" + OUString::number(nDiagramId) + ".xml";
     OUString styleRelId = mpFB->addRelation(mpFS->getOutputStream(),
                                               oox::getRelationship(Relationship::DIAGRAMQUICKSTYLE),
-                                              OUStringConcatenation(sRelationCompPrefix + styleFileName));
+                                              Concat2View(sRelationCompPrefix + styleFileName));
 
     // add color relation
     OUString colorFileName = "diagrams/colors" + OUString::number(nDiagramId) + ".xml";
     OUString colorRelId = mpFB->addRelation(mpFS->getOutputStream(),
                                               oox::getRelationship(Relationship::DIAGRAMCOLORS),
-                                              OUStringConcatenation(sRelationCompPrefix + colorFileName));
+                                              Concat2View(sRelationCompPrefix + colorFileName));
 
     OUString drawingFileName;
     if (drawingDom.is())
@@ -5882,7 +5908,7 @@ void DrawingML::WriteDiagram(const css::uno::Reference<css::drawing::XShape>& rX
         drawingFileName = "diagrams/drawing" + OUString::number(nDiagramId) + ".xml";
         OUString drawingRelId = mpFB->addRelation(
             mpFS->getOutputStream(), oox::getRelationship(Relationship::DIAGRAMDRAWING),
-            OUStringConcatenation(sRelationCompPrefix + drawingFileName));
+            Concat2View(sRelationCompPrefix + drawingFileName));
 
         // the data dom contains a reference to the drawing relation. We need to update it with the new generated
         // relation value before writing the dom to a file
@@ -6013,7 +6039,7 @@ void DrawingML::writeDiagramRels(const uno::Sequence<uno::Sequence<uno::Any>>& x
         PropertySet aProps(xOutStream);
         aProps.setAnyProperty(PROP_RelId, uno::Any(sRelId.toInt32()));
 
-        mpFB->addRelation(xOutStream, sType, OUStringConcatenation("../" + sFragment));
+        mpFB->addRelation(xOutStream, sType, Concat2View("../" + sFragment));
 
         OUString sDir = OUString::createFromAscii(GetComponentDir());
         uno::Reference<io::XOutputStream> xBinOutStream

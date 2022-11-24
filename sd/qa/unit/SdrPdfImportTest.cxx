@@ -7,8 +7,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include <test/bootstrapfixture.hxx>
-#include <unotest/macros_test.hxx>
+#include <test/unoapi_test.hxx>
 
 #include <comphelper/scopeguard.hxx>
 #include <comphelper/propertysequence.hxx>
@@ -69,30 +68,14 @@ private:
 };
 }
 
-class SdrPdfImportTest : public test::BootstrapFixture, public unotest::MacrosTest
+class SdrPdfImportTest : public UnoApiTest
 {
-protected:
-    uno::Reference<lang::XComponent> mxComponent;
-
 public:
-    virtual void setUp() override;
-    virtual void tearDown() override;
+    SdrPdfImportTest()
+        : UnoApiTest("/sd/qa/unit/data/")
+    {
+    }
 };
-
-void SdrPdfImportTest::setUp()
-{
-    test::BootstrapFixture::setUp();
-
-    mxDesktop.set(frame::Desktop::create(mxComponentContext));
-}
-
-void SdrPdfImportTest::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    test::BootstrapFixture::tearDown();
-}
 
 // Load the PDF in Draw, which will load the PDF as an Graphic, then
 // mark the graphic object and trigger "break" function. This should
@@ -108,7 +91,7 @@ CPPUNIT_TEST_FIXTURE(SdrPdfImportTest, testImportSimpleText)
     // We need to enable PDFium import (and make sure to disable after the test)
     EnvVarGuard UsePDFiumGuard("LO_IMPORT_USE_PDFIUM", "1");
 
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/SimplePDF.pdf"));
+    loadFromURL(u"SimplePDF.pdf");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pImpressDocument->GetDocShell()->GetViewShell();
     CPPUNIT_ASSERT(pViewShell);
@@ -154,7 +137,7 @@ CPPUNIT_TEST_FIXTURE(SdrPdfImportTest, testImportSimpleText)
     // Object should be a text object containing one paragraph with
     // content "This is PDF!"
 
-    SdrTextObj* pTextObject = dynamic_cast<SdrTextObj*>(pImportedObject);
+    SdrTextObj* pTextObject = DynCastSdrTextObj(pImportedObject);
     CPPUNIT_ASSERT(pTextObject);
     OutlinerParaObject* pOutlinerParagraphObject = pTextObject->GetOutlinerParaObject();
     const EditTextObject& aEdit = pOutlinerParagraphObject->GetTextObject();
@@ -177,8 +160,7 @@ CPPUNIT_TEST_FIXTURE(SdrPdfImportTest, testAnnotationsImportExport)
 
     auto pPdfiumLibrary = vcl::pdf::PDFiumLibrary::get();
 
-    mxComponent
-        = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/PdfWithAnnotation.pdf"));
+    loadFromURL(u"PdfWithAnnotation.pdf");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pImpressDocument->GetDocShell()->GetViewShell();
     CPPUNIT_ASSERT(pViewShell);
@@ -231,25 +213,16 @@ CPPUNIT_TEST_FIXTURE(SdrPdfImportTest, testAnnotationsImportExport)
     }
 
     { // save as PDF and check annotations
-        utl::TempFileNamed aTempFile;
-        aTempFile.EnableKillingFile();
-
         uno::Reference<frame::XStorable> xStorable(mxComponent, uno::UNO_QUERY);
         utl::MediaDescriptor aMediaDescriptor;
         aMediaDescriptor["FilterName"] <<= OUString("writer_pdf_Export");
         uno::Sequence<beans::PropertyValue> aFilterData(
             comphelper::InitPropertySequence({ { "ExportBookmarks", uno::Any(true) } }));
         aMediaDescriptor["FilterData"] <<= aFilterData;
-        xStorable->storeToURL(aTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
-        mxComponent->dispose();
-
-        SvFileStream aFile(aTempFile.GetURL(), StreamMode::READ);
-        SvMemoryStream aMemory;
-        aMemory.WriteStream(aFile);
+        xStorable->storeToURL(maTempFile.GetURL(), aMediaDescriptor.getAsConstPropertyValueList());
 
         // Check PDF for annotations
-        auto pPDFDocument
-            = pPdfiumLibrary->openDocument(aMemory.GetData(), aMemory.GetSize(), OString());
+        auto pPDFDocument = parsePDFExport();
         CPPUNIT_ASSERT(pPDFDocument);
         CPPUNIT_ASSERT_EQUAL(1, pPDFDocument->getPageCount());
 
@@ -267,7 +240,7 @@ CPPUNIT_TEST_FIXTURE(SdrPdfImportTest, testAnnotationsImportExport)
                              pPDFAnnotation2->getSubType()); // Pop-up annotation
 
         // Load document again
-        mxComponent = loadFromDesktop(aTempFile.GetURL());
+        mxComponent = loadFromDesktop(maTempFile.GetURL());
         auto pNewImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
         sd::ViewShell* pNewViewShell = pNewImpressDocument->GetDocShell()->GetViewShell();
         CPPUNIT_ASSERT(pNewViewShell);

@@ -10,9 +10,7 @@
 #include <sal/config.h>
 #include <config_fonts.h>
 
-#include <test/bootstrapfixture.hxx>
-#include <test/xmltesttools.hxx>
-#include <unotest/macros_test.hxx>
+#include <test/unoapixml_test.hxx>
 
 #include <com/sun/star/frame/Desktop.hpp>
 #include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
@@ -39,9 +37,8 @@ using namespace css::graphic;
 using drawinglayer::primitive2d::Primitive2DSequence;
 using drawinglayer::primitive2d::Primitive2DContainer;
 
-class Test : public test::BootstrapFixture, public XmlTestTools, public unotest::MacrosTest
+class Test : public UnoApiXmlTest
 {
-    uno::Reference<lang::XComponent> mxComponent;
     const OString aXPathPrefix = "/primitive2D/metafile/transform/";
 
     void testPolyPolygon();
@@ -72,6 +69,7 @@ class Test : public test::BootstrapFixture, public XmlTestTools, public unotest:
     void TestEmfPlusDrawPathWithMiterLimit();
     void TestEmfPlusFillClosedCurve();
     void TestExtTextOutOpaqueAndClipTransform();
+    void TestNegativeWinOrg();
 
     void TestBitBltStretchBltWMF();
     void TestExtTextOutOpaqueAndClipWMF();
@@ -91,9 +89,10 @@ class Test : public test::BootstrapFixture, public XmlTestTools, public unotest:
     Primitive2DSequence parseEmf(std::u16string_view aSource);
 
 public:
-    void setUp() override;
-    void tearDown() override;
-    uno::Reference<lang::XComponent>& getComponent() { return mxComponent; }
+    Test()
+        : UnoApiXmlTest("/emfio/qa/cppunit/emf/data/")
+    {
+    }
 
     CPPUNIT_TEST_SUITE(Test);
     CPPUNIT_TEST(testPolyPolygon);
@@ -124,6 +123,7 @@ public:
     CPPUNIT_TEST(TestEmfPlusDrawPathWithMiterLimit);
     CPPUNIT_TEST(TestEmfPlusFillClosedCurve);
     CPPUNIT_TEST(TestExtTextOutOpaqueAndClipTransform);
+    CPPUNIT_TEST(TestNegativeWinOrg);
 
     CPPUNIT_TEST(TestBitBltStretchBltWMF);
     CPPUNIT_TEST(TestExtTextOutOpaqueAndClipWMF);
@@ -140,21 +140,6 @@ public:
     CPPUNIT_TEST(TestPdfInEmf);
     CPPUNIT_TEST_SUITE_END();
 };
-
-void Test::setUp()
-{
-    test::BootstrapFixture::setUp();
-
-    mxDesktop.set(frame::Desktop::create(mxComponentContext));
-}
-
-void Test::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    test::BootstrapFixture::tearDown();
-}
 
 Primitive2DSequence Test::parseEmf(std::u16string_view aSource)
 {
@@ -1034,16 +1019,19 @@ void Test::TestEmfPlusSave()
 
     assertXPath(pDocument, aXPathPrefix + "mask/polypolygon", "path", "m0 0h33544v21311h-33544z");
 
-    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polypolygoncolor/polypolygon", "path",
+    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polypolygoncolor[1]/polypolygon", "path",
                 "m327.458333333333 638.222222222222h437007.1875v295555.555555556h-437007.1875z");
-    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polypolygoncolor", "color", "#ff0cad");
+    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polypolygoncolor[1]", "color",
+                "#ff0cad");
 
-    assertXPath(pDocument, aXPathPrefix + "mask/polypolygoncolor/polypolygon", "path",
+    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polypolygoncolor[2]/polypolygon", "path",
                 "m10853.4145539602 7321.41354709201h41952690v29630720h-41952690z");
-    assertXPath(pDocument, aXPathPrefix + "mask/polypolygoncolor", "color", "#00ffad");
+    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polypolygoncolor[2]", "color",
+                "#00ffad");
 
-    assertXPath(pDocument, aXPathPrefix + "mask/polygonstrokearrow/line", "color", "#000000");
-    assertXPathContent(pDocument, aXPathPrefix + "mask/polygonstrokearrow/polygon",
+    assertXPath(pDocument, aXPathPrefix + "mask/group/mask/polygonstrokearrow/line", "color",
+                "#000000");
+    assertXPathContent(pDocument, aXPathPrefix + "mask/group/mask/polygonstrokearrow/polygon",
                        "10853.4145539602,7321.41354709201 10853.4145539602,4907.54325697157 "
                        "12832.6557236512,4907.54325697157");
 }
@@ -1218,6 +1206,24 @@ void Test::TestExtTextOutOpaqueAndClipTransform()
                 "Opaque ClipP-");
     assertXPath(pDocument, aXPathPrefix + "group[3]/mask/group/textsimpleportion", "fontcolor",
                 "#000000");
+}
+
+void Test::TestNegativeWinOrg()
+{
+    Primitive2DSequence aSequence = parseEmf(u"/emfio/qa/cppunit/emf/data/TestNegativeWinOrg.emf");
+    CPPUNIT_ASSERT_EQUAL(1, static_cast<int>(aSequence.getLength()));
+    drawinglayer::Primitive2dXmlDump dumper;
+    xmlDocUniquePtr pDocument = dumper.dumpAndParse(Primitive2DContainer(aSequence));
+    CPPUNIT_ASSERT(pDocument);
+
+    // The crop box (EMR_EXTSELECTCLIPRGN) would not factor in WinOrg coordinates
+    // and be lower and more to the right than it actually is which would cut the
+    // text in the emf above in half.
+    assertXPath(pDocument, aXPathPrefix + "mask/group[1]/mask/polypolygon", 1);
+    assertXPath(pDocument, aXPathPrefix + "mask/group[1]/mask/polypolygon", "minx", "0");
+    assertXPath(pDocument, aXPathPrefix + "mask/group[1]/mask/polypolygon", "miny", "272");
+    assertXPath(pDocument, aXPathPrefix + "mask/group[1]/mask/polypolygon", "maxx", "6800");
+    assertXPath(pDocument, aXPathPrefix + "mask/group[1]/mask/polypolygon", "maxy", "644");
 }
 
 void Test::TestBitBltStretchBltWMF()
@@ -1604,11 +1610,10 @@ void Test::TestPdfInEmf()
     }
 
     // Load a PPTX file, which has a shape, with a bitmap fill, which is an EMF, containing a PDF.
-    OUString aURL = m_directories.getURLFromSrc(u"emfio/qa/cppunit/emf/data/pdf-in-emf.pptx");
-    getComponent() = loadFromDesktop(aURL);
+    loadFromURL(u"pdf-in-emf.pptx");
 
     // Get the EMF.
-    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(getComponent(), uno::UNO_QUERY);
+    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XDrawPage> xDrawPage(xDrawPagesSupplier->getDrawPages()->getByIndex(0),
                                                  uno::UNO_QUERY);
     uno::Reference<beans::XPropertySet> xShape(xDrawPage->getByIndex(0), uno::UNO_QUERY);

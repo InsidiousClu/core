@@ -173,7 +173,7 @@ static SfxObjectShell* lcl_CreateWorkingDocument(
     const WorkingDocType aType, const SwWrtShell &rSourceWrtShell,
     const vcl::Window *pSourceWindow,
     SwDBManager** const ppDBManager,
-    SwView** const pView, SwWrtShell** const pWrtShell, SwDoc** const pDoc );
+    SwView** const pView, SwWrtShell** const pWrtShell, rtl::Reference<SwDoc>* const pDoc );
 
 static bool lcl_getCountFromResultSet( sal_Int32& rCount, const SwDSParam* pParam )
 {
@@ -434,7 +434,7 @@ bool SwDBManager::Merge( const SwMergeDescriptor& rMergeDesc )
 
     SfxObjectShellLock  xWorkObjSh;
     SwWrtShell         *pWorkShell            = nullptr;
-    SwDoc              *pWorkDoc              = nullptr;
+    rtl::Reference<SwDoc> pWorkDoc;
     SwDBManager        *pWorkDocOrigDBManager = nullptr;
 
     switch( rMergeDesc.nMergeType )
@@ -905,7 +905,7 @@ static SfxObjectShell* lcl_CreateWorkingDocument(
     // optional in and output to swap the DB manager
     SwDBManager** const ppDBManager,
     // optional output
-    SwView** const pView, SwWrtShell** const pWrtShell, SwDoc** const pDoc )
+    SwView** const pView, SwWrtShell** const pWrtShell, rtl::Reference<SwDoc>* const pDoc )
 {
     const SwDoc *pSourceDoc = rSourceWrtShell.GetDoc();
     SfxObjectShellRef xWorkObjectShell = pSourceDoc->CreateCopy( true, (aType == WorkingDocType::TARGET) );
@@ -1170,6 +1170,7 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
         }
     }
     const bool bIsPDFexport = pStoreToFilter && pStoreToFilter->GetFilterName() == "writer_pdf_Export";
+    const bool bIsMultiFile = bMT_FILE && !bCreateSingleFile;
 
     m_aMergeStatus = MergeStatus::Ok;
 
@@ -1177,8 +1178,8 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
     SwView*           pTargetView     = rMergeDescriptor.pMailMergeConfigItem ?
                                         rMergeDescriptor.pMailMergeConfigItem->GetTargetView() : nullptr;
     SwWrtShell*       pTargetShell    = nullptr;
-    SwDoc*            pTargetDoc      = nullptr;
     SfxObjectShellRef xTargetDocShell;
+    rtl::Reference<SwDoc> pTargetDoc;
 
     std::unique_ptr< utl::TempFileNamed > aTempFile;
     sal_uInt16 nStartingPageNo = 0;
@@ -1282,7 +1283,7 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
         // it is more safe to use SfxObjectShellLock here
         SfxObjectShellLock xWorkDocSh;
         SwView*            pWorkView             = nullptr;
-        SwDoc*             pWorkDoc              = nullptr;
+        rtl::Reference<SwDoc> pWorkDoc;
         SwDBManager*       pWorkDocOrigDBManager = nullptr;
         SwWrtShell*        pWorkShell            = nullptr;
         bool               bWorkDocInitialized   = false;
@@ -1362,7 +1363,7 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
                 // Create a copy of the source document and work with that one instead of the source.
                 // If we're not in the single file mode (which requires modifying the document for the merging),
                 // it is enough to do this just once. Currently PDF also has to be treated special.
-                if( !bWorkDocInitialized || bCreateSingleFile || bIsPDFexport )
+                if( !bWorkDocInitialized || bCreateSingleFile || bIsPDFexport || bIsMultiFile )
                 {
                     assert( !xWorkDocSh.Is());
                     pWorkDocOrigDBManager = this;
@@ -1459,6 +1460,13 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
                     assert( bNeedsTempFiles );
                     assert( pWorkShell->IsExpFieldsLocked() );
 
+                    if (bIsMultiFile && pWorkDoc->HasInvisibleContent())
+                    {
+                        pWorkDoc->RemoveInvisibleContent();
+                        pWorkShell->CalcLayout();
+                        pWorkShell->ConvertFieldsToText();
+                    }
+
                     // fields are locked, so it's fine to
                     // restore the old / empty DB manager for save
                     pWorkDoc->SetDBManager( pWorkDocOrigDBManager );
@@ -1500,9 +1508,10 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
                         }
                     }
                 }
-                if( bCreateSingleFile || bIsPDFexport )
+                if( bCreateSingleFile || bIsPDFexport || bIsMultiFile)
                 {
                     pWorkDoc->SetDBManager( pWorkDocOrigDBManager );
+                    pWorkDoc.clear();
                     xWorkDocSh->DoClose();
                     xWorkDocSh = nullptr;
                 }
@@ -1535,8 +1544,10 @@ bool SwDBManager::MergeMailFiles(SwWrtShell* pSourceShell,
                 Printer::FinishPrintJob( pWorkView->GetPrinterController());
             if( !bIsPDFexport )
             {
-                pWorkDoc->SetDBManager( pWorkDocOrigDBManager );
-                xWorkDocSh->DoClose();
+                if (pWorkDoc)
+                    pWorkDoc->SetDBManager(pWorkDocOrigDBManager);
+                if (xWorkDocSh.Is())
+                    xWorkDocSh->DoClose();
             }
         }
         else if( IsMergeOk() ) // && bCreateSingleFile

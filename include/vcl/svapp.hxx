@@ -66,6 +66,7 @@ class MouseEvent;
 class GestureEventPan;
 struct ImplSVEvent;
 struct ConvertData;
+namespace basegfx { class SystemDependentDataManager; }
 
 namespace com::sun::star::uno {
     class XComponentContext;
@@ -80,8 +81,6 @@ namespace com::sun::star::awt {
     class XWindow;
 }
 
-// helper needed by SalLayout implementations as well as svx/source/dialog/svxbmpnumbalueset.cxx
-VCL_DLLPUBLIC sal_UCS4 GetMirroredChar( sal_UCS4 );
 VCL_DLLPUBLIC sal_UCS4 GetLocalizedChar( sal_UCS4, LanguageType );
 
 enum class SystemWindowFlags {
@@ -830,6 +829,12 @@ public:
     */
     static OutputDevice*        GetDefaultDevice();
 
+    /** access the DataManager for buffering system-dependent data
+
+     @returns the global instance of the SystemDependentDataManager
+    */
+    static basegfx::SystemDependentDataManager& GetSystemDependentDataManager();
+
     /** Get the first top-level window of the application.
 
      @returns Pointer to top-level window (a Window object)
@@ -926,7 +931,7 @@ public:
 
      @returns true if the PNG could be loaded, otherwise returns false.
     */
-    static bool                 LoadBrandBitmap (const char* pName, BitmapEx &rBitmap);
+    static bool                 LoadBrandBitmap (std::u16string_view pName, BitmapEx &rBitmap);
 
     ///@}
 

@@ -25,6 +25,7 @@
 #include <unotools/configmgr.hxx>
 #include <unotools/linguprops.hxx>
 #include <unotools/lingucfg.hxx>
+#include <officecfg/Office/Common.hxx>
 #include <viewopt.hxx>
 #include <globals.h>
 #include <sfx2/infobar.hxx>
@@ -33,6 +34,7 @@
 #include <svx/srchdlg.hxx>
 #include <sfx2/viewfrm.hxx>
 #include <sfx2/bindings.hxx>
+#include <sfx2/dispatch.hxx>
 #include <sfx2/sidebar/SidebarChildWindow.hxx>
 #include <uivwimp.hxx>
 #include <avmedia/mediaplayer.hxx>
@@ -50,6 +52,7 @@
 #include <cmdid.h>
 #include <globdoc.hxx>
 #include <wview.hxx>
+#include <OnlineAccessibilityCheck.hxx>
 
 #define ShellClass_SwView
 #define ShellClass_Text
@@ -326,6 +329,12 @@ void SwView::StateViewOptions(SfxItemSet &rSet)
             case SID_AUTOSPELL_CHECK:
                 aBool.SetValue( pOpt->IsOnlineSpell() );
             break;
+            case SID_ACCESSIBILITY_CHECK_ONLINE:
+            {
+                bool bOnlineAccessibilityCheck = officecfg::Office::Common::Accessibility::OnlineAccessibilityCheck::get();
+                aBool.SetValue(bOnlineAccessibilityCheck);
+            }
+            break;
             case FN_SHADOWCURSOR:
                 if ( pOpt->getBrowseMode() )
                 {
@@ -573,6 +582,28 @@ void SwView::ExecViewOptions(SfxRequest &rReq)
             }
         }
         break;
+
+    case SID_ACCESSIBILITY_CHECK_ONLINE:
+    {
+        if (pArgs && pArgs->HasItem(FN_PARAM_1, &pItem))
+        {
+            bSet = static_cast<const SfxBoolItem*>(pItem)->GetValue();
+        }
+        else if (STATE_TOGGLE == eState)
+        {
+            bool bOnlineCheck = officecfg::Office::Common::Accessibility::OnlineAccessibilityCheck::get();
+            bSet = !bOnlineCheck;
+        }
+        std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
+        officecfg::Office::Common::Accessibility::OnlineAccessibilityCheck::set(bSet, batch);
+        batch->commit();
+
+        SwDocShell *pDocSh = GetDocShell();
+        SwDoc* pDocument = pDocSh? pDocSh->GetDoc() : nullptr;
+        if (pDocument)
+            pDocument->getOnlineAccessibilityCheck()->updateCheckerActivity();
+    }
+    break;
 
     case FN_SHADOWCURSOR:
         if( STATE_TOGGLE == eState )

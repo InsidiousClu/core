@@ -497,11 +497,11 @@ void SwHTMLWriter::OutFrameFormat( AllHtmlFlags nMode, const SwFrameFormat& rFra
         DecIndentLevel();
         if( m_bLFPossible )
             OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
         m_bLFPossible = true;
     }
     else if( HtmlContainerFlags::Span == nCntnrMode )
-        HTMLOutFuncs::Out_AsciiTag( Strm(), OStringConcatenation(GetNamespace() + OOO_STRING_SVTOOLS_HTML_span), false );
+        HTMLOutFuncs::Out_AsciiTag( Strm(), Concat2View(GetNamespace() + OOO_STRING_SVTOOLS_HTML_span), false );
 }
 
 OString SwHTMLWriter::OutFrameFormatOptions( const SwFrameFormat &rFrameFormat,
@@ -1447,7 +1447,7 @@ Writer& OutHTML_ImageStart( HtmlWriter& rHtml, Writer& rWrt, const SwFrameFormat
 
     if( !aIMapName.isEmpty() )
     {
-        rHtml.attribute(OOO_STRING_SVTOOLS_HTML_O_usemap, OUStringConcatenation("#" + aIMapName));
+        rHtml.attribute(OOO_STRING_SVTOOLS_HTML_O_usemap, Concat2View("#" + aIMapName));
     }
 
     if (bReplacement)
@@ -1676,7 +1676,7 @@ static Writer & OutHTML_FrameFormatAsMulticol( Writer& rWrt,
     rHTMLWrt.DecIndentLevel();  // indent the content of Multicol;
     if( rHTMLWrt.m_bLFPossible )
         rHTMLWrt.OutNewLine();
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_multicol), false );
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_multicol), false );
     rHTMLWrt.m_bLFPossible = true;
 
     return rWrt;
@@ -1764,7 +1764,7 @@ static Writer& OutHTML_FrameFormatAsDivOrSpan( Writer& rWrt,
     rHTMLWrt.DecIndentLevel();  // indent the content of Multicol;
     if( rHTMLWrt.m_bLFPossible )
         rHTMLWrt.OutNewLine();
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + aTag), false );
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + aTag), false );
 
     if( !aEndTags.isEmpty() )
         rWrt.Strm().WriteOString( aEndTags );
@@ -1797,8 +1797,8 @@ static void OutHTML_ImageOLEStart(SwHTMLWriter& rHTMLWrt, const Graphic& rGraphi
     // Refer to this data.
     aFileName = URIHelper::simpleNormalizedMakeRelative(rHTMLWrt.GetBaseURL(), aFileName);
     rHTMLWrt.Strm().WriteOString(
-        OStringConcatenation("<" + rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_object));
-    rHTMLWrt.Strm().WriteOString(OStringConcatenation(" data=\"" + aFileName.toUtf8() + "\""));
+        Concat2View("<" + rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_object));
+    rHTMLWrt.Strm().WriteOString(Concat2View(" data=\"" + aFileName.toUtf8() + "\""));
     rHTMLWrt.Strm().WriteOString(" type=\"text/rtf\"");
     rHTMLWrt.Strm().WriteOString(">");
     rHTMLWrt.OutNewLine();
@@ -1810,7 +1810,7 @@ static void OutHTML_ImageOLEEnd(SwHTMLWriter& rHTMLWrt)
     if (rHTMLWrt.mbReqIF && rHTMLWrt.m_bExportImagesAsOLE)
     {
         rHTMLWrt.Strm().WriteOString(
-            OStringConcatenation("</" + rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_object ">"));
+            Concat2View("</" + rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_object ">"));
     }
 }
 
@@ -2095,7 +2095,7 @@ Writer& OutHTML_HeaderFooter( Writer& rWrt, const SwFrameFormat& rFrameFormat,
     sOut.append(OOO_STRING_SVTOOLS_HTML_division " "
             OOO_STRING_SVTOOLS_HTML_O_title "=\"")
         .append( bHeader ? "header" : "footer" ).append("\"");
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + sOut) );
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + sOut) );
 
     rHTMLWrt.IncIndentLevel();  // indent the content of Multicol;
 
@@ -2129,7 +2129,7 @@ Writer& OutHTML_HeaderFooter( Writer& rWrt, const SwFrameFormat& rFrameFormat,
     if( !bHeader && !aSpacer.isEmpty() )
     {
         rHTMLWrt.OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + aSpacer) );
+        HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + aSpacer) );
     }
 
     {
@@ -2150,41 +2150,41 @@ Writer& OutHTML_HeaderFooter( Writer& rWrt, const SwFrameFormat& rFrameFormat,
     if( bHeader && !aSpacer.isEmpty() )
     {
         rHTMLWrt.OutNewLine();
-        HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + aSpacer) );
+        HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + aSpacer) );
     }
 
     rHTMLWrt.DecIndentLevel();  // indent the content of Multicol;
     rHTMLWrt.OutNewLine();
-    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), OStringConcatenation(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
+    HTMLOutFuncs::Out_AsciiTag( rWrt.Strm(), Concat2View(rHTMLWrt.GetNamespace() + OOO_STRING_SVTOOLS_HTML_division), false );
 
     rHTMLWrt.m_nHeaderFooterSpace = 0;
 
     return rWrt;
 }
 
-void SwHTMLWriter::AddLinkTarget( const OUString& rURL )
+void SwHTMLWriter::AddLinkTarget( std::u16string_view aURL )
 {
-    if( rURL.isEmpty() || rURL[0] != '#' )
+    if( aURL.empty() || aURL[0] != '#' )
         return;
 
     // There might be a '|' as delimiter (if the link has been inserted
     // freshly) or a '%7c' or a '%7C' if the document has been saved and
     // loaded already.
-    sal_Int32 nPos = rURL.getLength();
+    sal_Int32 nPos = aURL.size();
     bool bFound = false, bEncoded = false;
     while( !bFound && nPos > 0 )
     {
-        sal_Unicode c = rURL[ --nPos ];
+        sal_Unicode c = aURL[ --nPos ];
         switch( c )
         {
         case cMarkSeparator:
             bFound = true;
             break;
         case '%':
-            bFound = (rURL.getLength() - nPos) >=3 && rURL[ nPos+1 ] == '7';
+            bFound = (aURL.size() - nPos) >=3 && aURL[ nPos+1 ] == '7';
             if(bFound)
             {
-                c = rURL[ nPos+2 ];
+                c = aURL[ nPos+2 ];
                 bFound = (c == 'C' || c == 'c');
             }
             if( bFound )
@@ -2194,10 +2194,10 @@ void SwHTMLWriter::AddLinkTarget( const OUString& rURL )
     if( !bFound || nPos < 2 ) // at least "#a|..."
         return;
 
-    OUString aURL( rURL.copy( 1 ) );
+    aURL = aURL.substr( 1 );
 
     // nPos-1+1/3 (-1 because of Erase)
-    OUString sCmp = aURL.copy(bEncoded ? nPos+2 : nPos).replaceAll(" ","");
+    OUString sCmp = OUString(aURL.substr(bEncoded ? nPos+2 : nPos)).replaceAll(" ","");
     if( sCmp.isEmpty() )
         return;
 
@@ -2210,17 +2210,18 @@ void SwHTMLWriter::AddLinkTarget( const OUString& rURL )
         sCmp == "table" )
     {
         // Just remember it in a sorted array
+        OUString aURL2(aURL);
         if( bEncoded )
         {
-            aURL = aURL.replaceAt( nPos - 1, 3, rtl::OUStringChar(cMarkSeparator)  );
+            aURL2 = aURL2.replaceAt( nPos - 1, 3, rtl::OUStringChar(cMarkSeparator)  );
         }
-        m_aImplicitMarks.insert( aURL );
+        m_aImplicitMarks.insert( aURL2 );
     }
     else if( sCmp == "outline" )
     {
         // Here, we need position and name. That's why we sort a
         // sal_uInt16 and a string array ourselves.
-        OUString aOutline( aURL.copy( 0, nPos-1 ) );
+        OUString aOutline( aURL.substr( 0, nPos-1 ) );
         SwPosition aPos( *m_pCurrentPam->GetPoint() );
         if( m_pDoc->GotoOutline( aPos, aOutline ) )
         {
@@ -2232,11 +2233,12 @@ void SwHTMLWriter::AddLinkTarget( const OUString& rURL )
                 nIns++;
 
             m_aOutlineMarkPoss.insert( m_aOutlineMarkPoss.begin()+nIns, nIdx );
+            OUString aURL2(aURL);
             if( bEncoded )
             {
-                aURL = aURL.replaceAt( nPos - 1, 3, rtl::OUStringChar(cMarkSeparator) );
+                aURL2 = aURL2.replaceAt( nPos - 1, 3, rtl::OUStringChar(cMarkSeparator) );
             }
-            m_aOutlineMarks.insert( m_aOutlineMarks.begin()+nIns, aURL );
+            m_aOutlineMarks.insert( m_aOutlineMarks.begin()+nIns, aURL2 );
         }
     }
 }

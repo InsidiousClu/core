@@ -766,6 +766,7 @@ void Dialog::StateChanged( StateChangedType nType )
             std::vector<vcl::LOKPayloadItem> aItems;
             aItems.emplace_back("type", "dialog");
             aItems.emplace_back("size", GetSizePixel().toString());
+            aItems.emplace_back("unique_id", this->get_id().toUtf8());
             if (!GetText().isEmpty())
                 aItems.emplace_back("title", GetText().toUtf8());
 
@@ -1017,9 +1018,9 @@ bool Dialog::ImplStartExecute()
     aObject.EventName = "DialogExecute";
     xEventBroadcaster->documentEventOccured(aObject);
     if (bModal)
-        UITestLogger::getInstance().log(OUStringConcatenation("Open Modal " + get_id()));
+        UITestLogger::getInstance().log(Concat2View("Open Modal " + get_id()));
     else
-        UITestLogger::getInstance().log(OUStringConcatenation("Open Modeless " + get_id()));
+        UITestLogger::getInstance().log(Concat2View("Open Modeless " + get_id()));
 
     bool bTunnelingEnabled = mpDialogImpl->m_bLOKTunneling;
     if (comphelper::LibreOfficeKit::isActive() && bTunnelingEnabled)
@@ -1032,6 +1033,7 @@ bool Dialog::ImplStartExecute()
             // otherwise, this should make sure that the window has the correct size.
             std::vector<vcl::LOKPayloadItem> aItems;
             aItems.emplace_back("size", GetSizePixel().toString());
+            aItems.emplace_back("unique_id", this->get_id().toUtf8());
             pNotifier->notifyWindow(GetLOKWindowId(), "size_changed", aItems);
         }
     }
@@ -1400,6 +1402,7 @@ void Dialog::Resize()
     {
         std::vector<vcl::LOKPayloadItem> aItems;
         aItems.emplace_back("size", GetSizePixel().toString());
+        aItems.emplace_back("unique_id", this->get_id().toUtf8());
         pNotifier->notifyWindow(GetLOKWindowId(), "size_changed", aItems);
     }
 }

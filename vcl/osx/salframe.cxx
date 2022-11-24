@@ -52,6 +52,7 @@
 // needed for theming
 // FIXME: move theming code to salnativewidgets.cxx
 #include <Carbon/Carbon.h>
+#include <quartz/CGHelpers.hxx>
 #include <postmac.h>
 
 
@@ -1149,6 +1150,48 @@ static void getAppleScrollBarVariant(StyleSettings &rSettings)
     }
 }
 
+static Color getNSBoxBackgroundColor(NSColor* pSysColor)
+{
+    // Figuring out what a NSBox will draw for windowBackground, etc. seems very difficult.
+    // So just draw to a 1x1 surface and read what actually gets drawn
+    // This is similar to getPixel
+#if defined OSL_BIGENDIAN
+    struct
+    {
+        unsigned char b, g, r, a;
+    } aPixel;
+#else
+    struct
+    {
+        unsigned char a, r, g, b;
+    } aPixel;
+#endif
+
+    // create a one-pixel bitmap context
+    CGContextRef xOnePixelContext = CGBitmapContextCreate(
+        &aPixel, 1, 1, 8, 32, GetSalData()->mxRGBSpace,
+        uint32_t(kCGImageAlphaNoneSkipFirst) | uint32_t(kCGBitmapByteOrder32Big));
+
+    NSGraphicsContext* graphicsContext = [NSGraphicsContext graphicsContextWithCGContext:xOnePixelContext flipped:NO];
+
+    NSRect rect = { NSZeroPoint, NSMakeSize(1, 1) };
+    NSBox* pBox = [[NSBox alloc] initWithFrame: rect];
+
+    [pBox setBoxType: NSBoxCustom];
+    [pBox setFillColor: pSysColor];
+    SAL_WNODEPRECATED_DECLARATIONS_PUSH // setBorderType first deprecated in macOS 10.15
+    [pBox setBorderType: NSNoBorder];
+    SAL_WNODEPRECATED_DECLARATIONS_POP
+
+    [pBox displayRectIgnoringOpacity: rect inContext: graphicsContext];
+
+    [pBox release];
+
+    CGContextRelease(xOnePixelContext);
+
+    return Color(aPixel.r, aPixel.g, aPixel.b);
+}
+
 static Color getColor( NSColor* pSysColor, const Color& rDefault, NSWindow* pWin )
 {
     Color aRet( rDefault );
@@ -1165,12 +1208,6 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
             CGFloat r = 0, g = 0, b = 0, a = 0;
             [pRBGColor getRed: &r green: &g blue: &b alpha: &a];
             aRet = Color( int(r*255.999), int(g*255.999), int(b*255.999) );
-            /*
-            do not release here; leads to duplicate free in yield
-            it seems the converted color comes out autoreleased, although this
-            is not documented
-            [pRBGColor release];
-            */
         }
     }
     return aRet;
@@ -1225,18 +1262,43 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
 
     StyleSettings aStyleSettings = rSettings.GetStyleSettings();
 
-    // Background Color
-    Color aBackgroundColor( 0xEC, 0xEC, 0xEC );
-    aStyleSettings.BatchSetBackgrounds( aBackgroundColor, false );
-    aStyleSettings.SetLightBorderColor( aBackgroundColor );
 
-    Color aInactiveTabColor( aBackgroundColor );
+    bool bUseDarkMode(false);
+    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+    if (userDefaults != nil)
+    {
+        NSString* setting = [userDefaults stringForKey: @"AppleInterfaceStyle"];
+        bUseDarkMode = (setting && [setting isEqual: @"Dark"]);
+    }
+    // there is no sukapura_dark, at the time of writing at least, so whatever
+    // is considered the default dark icon set will be used
+    OUString sThemeName(!bUseDarkMode ? u"sukapura" : u"sukapura_dark");
+    aStyleSettings.SetPreferredIconTheme(sThemeName, bUseDarkMode);
+
+    Color aControlBackgroundColor(getNSBoxBackgroundColor([NSColor controlBackgroundColor]));
+    Color aWindowBackgroundColor(getNSBoxBackgroundColor([NSColor windowBackgroundColor]));
+    Color aUnderPageBackgroundColor(getNSBoxBackgroundColor([NSColor underPageBackgroundColor]));
+
+    // Background Color
+    aStyleSettings.BatchSetBackgrounds( aWindowBackgroundColor, false );
+    aStyleSettings.SetLightBorderColor( aWindowBackgroundColor );
+
+    Color aInactiveTabColor( aWindowBackgroundColor );
     aInactiveTabColor.DecreaseLuminance( 32 );
     aStyleSettings.SetInactiveTabColor( aInactiveTabColor );
 
     Color aShadowColor( aStyleSettings.GetShadowColor() );
     aShadowColor.IncreaseLuminance( 32 );
+
+    aShadowColor = getColor( [NSColor systemGrayColor ],
+                                      aShadowColor, mpNSWindow );
+
     aStyleSettings.SetShadowColor( aShadowColor );
+
+    Color aDarkShadowColor = getColor( [[NSColor systemGrayColor] shadowWithLevel: 0.5 ],
+                                      aStyleSettings.GetDarkShadowColor(), mpNSWindow );
+
+    aStyleSettings.SetDarkShadowColor(aDarkShadowColor);
 
     // get the system font settings
     vcl::Font aAppFont = aStyleSettings.GetAppFont();
@@ -1266,6 +1328,11 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
                                          aStyleSettings.GetHighlightTextColor(), mpNSWindow ) );
     aStyleSettings.SetHighlightTextColor( aHighlightTextColor );
 
+    aStyleSettings.SetLinkColor(getColor( [NSColor linkColor],
+                                           aStyleSettings.GetLinkColor(), mpNSWindow ) );
+    aStyleSettings.SetVisitedLinkColor(getColor( [NSColor purpleColor],
+                                                  aStyleSettings.GetVisitedLinkColor(), mpNSWindow ) );
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     Color aMenuHighlightColor( getColor( [NSColor selectedMenuItemColor],
@@ -1276,7 +1343,7 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
                                              aStyleSettings.GetMenuHighlightTextColor(), mpNSWindow ) );
     aStyleSettings.SetMenuHighlightTextColor( aMenuHighlightTextColor );
 
-    aStyleSettings.SetMenuColor( aBackgroundColor );
+    aStyleSettings.SetMenuColor( aWindowBackgroundColor );
     Color aMenuTextColor( getColor( [NSColor textColor],
                                     aStyleSettings.GetMenuTextColor(), mpNSWindow ) );
     aStyleSettings.SetMenuTextColor( aMenuTextColor );
@@ -1284,7 +1351,7 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
     aStyleSettings.SetMenuBarRolloverTextColor( aMenuTextColor );
     aStyleSettings.SetMenuBarHighlightTextColor(aStyleSettings.GetMenuHighlightTextColor());
 
-    aStyleSettings.SetListBoxWindowBackgroundColor( aBackgroundColor );
+    aStyleSettings.SetListBoxWindowBackgroundColor( aWindowBackgroundColor );
     aStyleSettings.SetListBoxWindowTextColor( aMenuTextColor );
     aStyleSettings.SetListBoxWindowHighlightColor( aMenuHighlightColor );
     aStyleSettings.SetListBoxWindowHighlightTextColor( aMenuHighlightTextColor );
@@ -1297,10 +1364,17 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
     // black otherwise
 
     NSOperatingSystemVersion aOSVersion = { .majorVersion = 10, .minorVersion = 16, .patchVersion = 0 };
-    Color aControlTextColor(getColor([NSColor controlTextColor], COL_BLACK, mpNSWindow));
-    Color aSelectedControlTextColor(getColor([NSColor selectedControlTextColor], COL_BLACK, mpNSWindow));
-    Color aAlternateSelectedControlTextColor(getColor([NSColor alternateSelectedControlTextColor], COL_WHITE, mpNSWindow));
+    Color aControlTextColor(getColor([NSColor controlTextColor], COL_BLACK, mpNSWindow ));
+    Color aSelectedControlTextColor(getColor([NSColor selectedControlTextColor], COL_BLACK, mpNSWindow ));
+    Color aAlternateSelectedControlTextColor(getColor([NSColor alternateSelectedControlTextColor], COL_WHITE, mpNSWindow ));
+    aStyleSettings.SetWindowColor(aWindowBackgroundColor);
+    aStyleSettings.SetListBoxWindowBackgroundColor(aWindowBackgroundColor);
     aStyleSettings.SetButtonTextColor(aControlTextColor);
+    aStyleSettings.SetLabelTextColor(aControlTextColor);
+    aStyleSettings.SetRadioCheckTextColor(aControlTextColor);
+    aStyleSettings.SetFieldTextColor(aControlTextColor);
+    aStyleSettings.SetFieldRolloverTextColor(aControlTextColor);
+    aStyleSettings.SetFieldColor(aControlBackgroundColor);
     aStyleSettings.SetDefaultActionButtonTextColor(aAlternateSelectedControlTextColor);
     aStyleSettings.SetActionButtonTextColor(aControlTextColor);
     aStyleSettings.SetFlatButtonTextColor(aControlTextColor);
@@ -1325,15 +1399,24 @@ SAL_WNODEPRECATED_DECLARATIONS_POP
         aStyleSettings.SetDefaultButtonTextColor(aSelectedControlTextColor);
     }
 
+    aStyleSettings.SetWorkspaceColor(aUnderPageBackgroundColor);
+    aStyleSettings.SetDialogTextColor(aControlTextColor);
+
+    aStyleSettings.SetHelpColor(aControlBackgroundColor);
+    aStyleSettings.SetHelpTextColor(aControlTextColor);
+    aStyleSettings.SetToolTextColor(aControlTextColor);
+
     // Set text colors for tabs according to OS settings
 
     aStyleSettings.SetTabTextColor(aControlTextColor);
+    aStyleSettings.SetTabRolloverTextColor(aControlTextColor);
     if ([NSProcessInfo.processInfo isOperatingSystemAtLeastVersion: aOSVersion])
         aStyleSettings.SetTabHighlightTextColor(aSelectedControlTextColor);
     else
         aStyleSettings.SetTabHighlightTextColor(aAlternateSelectedControlTextColor);
 
     aStyleSettings.SetCursorBlinkTime( mnBlinkCursorDelay );
+    aStyleSettings.SetCursorSize(1);
 
     // no mnemonics on macOS
     aStyleSettings.SetOptions( aStyleSettings.GetOptions() | StyleSettingsOptions::NoMnemonics );

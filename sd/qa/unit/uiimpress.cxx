@@ -7,7 +7,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "sdmodeltestbase.hxx"
+#include <test/unoapi_test.hxx>
 #include <LibreOfficeKit/LibreOfficeKitEnums.h>
 
 #include <com/sun/star/beans/XPropertySet.hpp>
@@ -39,6 +39,7 @@
 #include <svx/xlndsit.hxx>
 #include <SlideSorterViewShell.hxx>
 #include <SlideSorter.hxx>
+#include <controller/SlsClipboard.hxx>
 #include <controller/SlideSorterController.hxx>
 #include <controller/SlsPageSelector.hxx>
 #include <svl/stritem.hxx>
@@ -47,6 +48,8 @@
 #include <comphelper/propertyvalue.hxx>
 #include <comphelper/sequenceashashmap.hxx>
 
+#include <drawdoc.hxx>
+#include <DrawDocShell.hxx>
 #include <ViewShell.hxx>
 #include <app.hrc>
 #include <sdpage.hxx>
@@ -57,39 +60,20 @@
 using namespace ::com::sun::star;
 
 /// Impress UI tests.
-class SdUiImpressTest : public test::BootstrapFixture, public unotest::MacrosTest
+class SdUiImpressTest : public UnoApiTest
 {
-protected:
-    uno::Reference<lang::XComponent> mxComponent;
-
 public:
-    virtual void setUp() override;
-    virtual void tearDown() override;
+    SdUiImpressTest()
+        : UnoApiTest("/sd/qa/unit/data/")
+    {
+    }
 
     void checkCurrentPageNumber(sal_uInt16 nNum);
     void typeString(SdXImpressDocument* rImpressDocument, const std::u16string_view& rStr);
     void typeKey(SdXImpressDocument* rImpressDocument, const sal_uInt16 nKey);
     void insertStringToObject(sal_uInt16 nObj, const std::u16string_view& rStr, bool bUseEscape);
     sd::slidesorter::SlideSorterViewShell* getSlideSorterViewShell();
-    FileFormat* getFormat(sal_Int32 nExportType);
-    void save(sd::DrawDocShell* pShell, FileFormat const* pFormat,
-              utl::TempFileNamed const& rTempFile);
 };
-
-void SdUiImpressTest::setUp()
-{
-    test::BootstrapFixture::setUp();
-
-    mxDesktop.set(frame::Desktop::create(mxComponentContext));
-}
-
-void SdUiImpressTest::tearDown()
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    test::BootstrapFixture::tearDown();
-}
 
 void SdUiImpressTest::checkCurrentPageNumber(sal_uInt16 nNum)
 {
@@ -166,46 +150,6 @@ sd::slidesorter::SlideSorterViewShell* SdUiImpressTest::getSlideSorterViewShell(
     return pSSVS;
 }
 
-FileFormat* SdUiImpressTest::getFormat(sal_Int32 nExportType)
-{
-    FileFormat* pFormat = &aFileFormats[0];
-    if (o3tl::make_unsigned(nExportType) < SAL_N_ELEMENTS(aFileFormats))
-        pFormat = &aFileFormats[nExportType];
-    return pFormat;
-}
-
-void SdUiImpressTest::save(sd::DrawDocShell* pShell, FileFormat const* pFormat,
-                           utl::TempFileNamed const& rTempFile)
-{
-    SfxMedium aStoreMedium(rTempFile.GetURL(), StreamMode::STD_WRITE);
-    if (std::strcmp(pFormat->pName, "odg") == 0)
-    { // Draw
-        SotClipboardFormatId nExportFormat = SotClipboardFormatId::NONE;
-        if (pFormat->nFormatType == ODG_FORMAT_TYPE)
-            nExportFormat = SotClipboardFormatId::STARDRAW_8;
-        auto pExportFilter = std::make_shared<SfxFilter>(
-            OUString::createFromAscii(pFormat->pFilterName), OUString(), pFormat->nFormatType,
-            nExportFormat, OUString::createFromAscii(pFormat->pTypeName), OUString(),
-            OUString::createFromAscii(pFormat->pUserData), "private:factory/sdraw*");
-        pExportFilter->SetVersion(SOFFICE_FILEFORMAT_CURRENT);
-        aStoreMedium.SetFilter(pExportFilter);
-    }
-    else // Impress
-    {
-        SotClipboardFormatId nExportFormat = SotClipboardFormatId::NONE;
-        if (pFormat->nFormatType == ODP_FORMAT_TYPE)
-            nExportFormat = SotClipboardFormatId::STARCHART_8;
-        auto pExportFilter = std::make_shared<SfxFilter>(
-            OUString::createFromAscii(pFormat->pFilterName), OUString(), pFormat->nFormatType,
-            nExportFormat, OUString::createFromAscii(pFormat->pTypeName), OUString(),
-            OUString::createFromAscii(pFormat->pUserData), "private:factory/simpress*");
-        pExportFilter->SetVersion(SOFFICE_FILEFORMAT_CURRENT);
-        aStoreMedium.SetFilter(pExportFilter);
-    }
-    pShell->DoSaveAs(aStoreMedium);
-    pShell->DoClose();
-}
-
 static void lcl_search(const OUString& rKey, bool bFindAll = false, bool bBackwards = false)
 {
     Scheduler::ProcessEventsToIdle();
@@ -224,7 +168,7 @@ static void lcl_search(const OUString& rKey, bool bFindAll = false, bool bBackwa
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf111522)
 {
     // Load the document and create two new windows.
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf111522.odp"));
+    loadFromURL(u"tdf111522.odp");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pImpressDocument->GetDocShell()->GetViewShell();
     pViewShell->GetViewFrame()->GetDispatcher()->Execute(SID_NEWWINDOW, SfxCallMode::SYNCHRON);
@@ -287,7 +231,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf111522)
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf126197)
 {
     // Load the document and create two new windows.
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf126197.odp"));
+    loadFromURL(u"tdf126197.odp");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pImpressDocument->GetDocShell()->GetViewShell();
     pViewShell->GetViewFrame()->GetDispatcher()->Execute(SID_NEWWINDOW, SfxCallMode::SYNCHRON);
@@ -318,7 +262,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf126197)
 
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf124708)
 {
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf124708.ppt"));
+    loadFromURL(u"tdf124708.ppt");
 
     dispatchCommand(mxComponent, ".uno:NextPage", {});
     Scheduler::ProcessEventsToIdle();
@@ -356,7 +300,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf143412)
     SdPage* pActualPage = pViewShell->GetActualPage();
     CPPUNIT_ASSERT_EQUAL(static_cast<size_t>(2), pActualPage->GetObjCount());
 
-    OUString aImageURL = m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf143412.svg");
+    OUString aImageURL = createFileURL(u"tdf143412.svg");
     uno::Sequence<beans::PropertyValue> aArgs(comphelper::InitPropertySequence({
         { "FileName", uno::Any(aImageURL) },
     }));
@@ -382,6 +326,52 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf143412)
     dispatchCommand(mxComponent, ".uno:ConvertIntoMetaFile", {});
 
     CPPUNIT_ASSERT_EQUAL(static_cast<size_t>(3), pActualPage->GetObjCount());
+}
+
+CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf96206)
+{
+    // Copying/pasting slide referring to a non-default master with a text duplicated the master
+
+    loadFromURL(u"odp/tdf96206.odp");
+
+    sd::slidesorter::SlideSorterViewShell* pSSVS = getSlideSorterViewShell();
+    auto& rSSController = pSSVS->GetSlideSorter().GetController();
+
+    SdXImpressDocument* pXImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
+    SdDrawDocument* pDoc = pXImpressDocument->GetDoc();
+    const sal_uInt16 nMasterPageCnt1 = pDoc->GetMasterSdPageCount(PageKind::Standard);
+    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), nMasterPageCnt1);
+    rSSController.GetClipboard().DoCopy();
+    rSSController.GetClipboard().DoPaste();
+    const sal_uInt16 nMasterPageCnt2 = pDoc->GetMasterSdPageCount(PageKind::Standard);
+    CPPUNIT_ASSERT_EQUAL(nMasterPageCnt1, nMasterPageCnt2);
+}
+
+CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf96708)
+{
+    loadFromURL(u"odp/tdf96708.odp");
+
+    sd::slidesorter::SlideSorterViewShell* pSSVS = getSlideSorterViewShell();
+    auto& rSSController = pSSVS->GetSlideSorter().GetController();
+    auto& rPageSelector = rSSController.GetPageSelector();
+
+    SdXImpressDocument* pXImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
+    SdDrawDocument* pDoc = pXImpressDocument->GetDoc();
+    const sal_uInt16 nMasterPageCnt1 = pDoc->GetMasterSdPageCount(PageKind::Standard);
+    CPPUNIT_ASSERT_EQUAL(sal_uInt16(4), nMasterPageCnt1);
+    rSSController.GetClipboard().DoCopy();
+    rPageSelector.SelectAllPages();
+
+    // Now wait for timers to trigger creation of auto-layout
+    osl::Thread::wait(std::chrono::milliseconds(100));
+    Scheduler::ProcessEventsToIdle();
+
+    rSSController.GetClipboard().DoPaste();
+
+    const sal_uInt16 nMasterPageCnt2 = pDoc->GetMasterSdPageCount(PageKind::Standard);
+    //FIXME: tdf#151802: Number of master pages should be 4, it's 5 instead
+    //CPPUNIT_ASSERT_EQUAL(nMasterPageCnt1, nMasterPageCnt2);
+    CPPUNIT_ASSERT_EQUAL(sal_uInt16(5), nMasterPageCnt2);
 }
 
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf139996)
@@ -420,8 +410,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf128651)
     // Error was, that undo and redo changes size of the shape. Affected actions were e.g.
     // extrusion on/off, shadow on/off, changes on line or fill attributes.
     // All these actions do not change the snap rectangle.
-    mxComponent = loadFromDesktop(
-        m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf128651_CustomShapeUndo.odp"));
+    loadFromURL(u"tdf128651_CustomShapeUndo.odp");
     auto pXImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pXImpressDocument->GetDocShell()->GetViewShell();
     SdPage* pActualPage = pViewShell->GetActualPage();
@@ -772,7 +761,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf127481)
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testPageFillColor)
 {
     // Load the document and create two new windows.
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf126197.odp"));
+    loadFromURL(u"tdf126197.odp");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pImpressDocument->GetDocShell()->GetViewShell();
 
@@ -798,7 +787,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testPageFillColor)
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testPageFillGradient)
 {
     // Load the document and create two new windows.
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/tdf126197.odp"));
+    loadFromURL(u"tdf126197.odp");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pImpressDocument->GetDocShell()->GetViewShell();
 
@@ -829,8 +818,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testPageFillGradient)
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf134053)
 {
     // Error was, that dashes and dots were longer than in MS Office.
-    mxComponent = loadFromDesktop(
-        m_directories.getURLFromSrc(u"sd/qa/unit/data/pptx/tdf134053_dashdot.pptx"));
+    loadFromURL(u"pptx/tdf134053_dashdot.pptx");
     auto pXImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pXImpressDocument->GetDocShell()->GetViewShell();
     SdPage* pActualPage = pViewShell->GetActualPage();
@@ -856,7 +844,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf134053)
 
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testSpellOnlineParameter)
 {
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(u"sd/qa/unit/data/empty.fodp"));
+    loadFromURL(u"empty.fodp");
     auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     bool bSet = pImpressDocument->GetDoc()->GetOnlineSpell();
 
@@ -899,6 +887,31 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf38669)
     CPPUNIT_ASSERT_EQUAL(OUString(u"°"), xShape->getString());
 }
 
+CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf151417)
+{
+    mxComponent = loadFromDesktop("private:factory/simpress",
+                                  "com.sun.star.presentation.PresentationDocument");
+    auto pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
+    CPPUNIT_ASSERT(pImpressDocument);
+
+    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
+    uno::Reference<container::XIndexAccess> xDraws = xDrawPagesSupplier->getDrawPages();
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xDraws->getCount());
+
+    uno::Reference<drawing::XDrawPage> xDrawPage(xDrawPagesSupplier->getDrawPages()->getByIndex(0),
+                                                 uno::UNO_QUERY);
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(2), xDrawPage->getCount());
+
+    uno::Sequence<beans::PropertyValue> aArgs(
+        comphelper::InitPropertySequence({ { "KeyModifier", uno::Any(KEY_MOD1) } }));
+
+    // Without the fix in place, this test would have crashed here
+    dispatchCommand(mxComponent, ".uno:Edit", aArgs);
+    Scheduler::ProcessEventsToIdle();
+
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(3), xDrawPage->getCount());
+}
+
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf123841)
 {
     // To check if selecting unfilled rectangle produces unfilled rectangle
@@ -939,8 +952,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testSearchAllInDocumentAndNotes)
     // "find all" produces a crash when the search string exists in notes
     // and the document
 
-    mxComponent = loadFromDesktop(
-        m_directories.getURLFromSrc(u"/sd/qa/unit/data/odp/search-all-notes.odp"));
+    loadFromURL(u"odp/search-all-notes.odp");
 
     auto pXImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     sd::ViewShell* pViewShell = pXImpressDocument->GetDocShell()->GetViewShell();
@@ -953,8 +965,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testSearchAllInDocumentAndNotes)
 // for some reason, the search for "second" (or "Second") didn't return page 2 in WIN and MACOS
 CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf123658_SearchAfterSlideChange)
 {
-    mxComponent = loadFromDesktop(
-        m_directories.getURLFromSrc(u"/sd/qa/unit/data/odp/tdf123658_SearchAfterSlideChange.odp"));
+    loadFromURL(u"odp/tdf123658_SearchAfterSlideChange.odp");
 
     auto pXImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
 
@@ -1119,10 +1130,7 @@ CPPUNIT_TEST_FIXTURE(SdUiImpressTest, testTdf127696)
     dispatchCommand(mxComponent, ".uno:OutlineFont", {});
 
     // Save it as PPTX and load it again.
-    utl::TempFileNamed aTempFile;
-    save(dynamic_cast<SdXImpressDocument*>(mxComponent.get())->GetDocShell(), getFormat(PPTX),
-         aTempFile);
-    mxComponent = loadFromDesktop(aTempFile.GetURL());
+    saveAndReload("Impress Office Open XML");
 
     uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XDrawPage> xDrawPage(xDrawPagesSupplier->getDrawPages()->getByIndex(1),

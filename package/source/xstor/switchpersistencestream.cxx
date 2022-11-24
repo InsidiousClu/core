@@ -22,6 +22,7 @@
 #include <com/sun/star/io/NotConnectedException.hpp>
 #include <com/sun/star/io/TempFile.hpp>
 #include <comphelper/storagehelper.hxx>
+#include <unotools/tempfile.hxx>
 #include <utility>
 #include "switchpersistencestream.hxx"
 
@@ -62,17 +63,13 @@ struct SPStreamData_Impl
 };
 
 SwitchablePersistenceStream::SwitchablePersistenceStream(
-        uno::Reference< uno::XComponentContext > xContext,
         const uno::Reference< io::XStream >& xStream )
-: m_xContext(std::move( xContext ))
 {
     SwitchPersistenceTo( xStream );
 }
 
 SwitchablePersistenceStream::SwitchablePersistenceStream(
-        uno::Reference< uno::XComponentContext > xContext,
         const uno::Reference< io::XInputStream >& xInputStream )
-: m_xContext(std::move( xContext ))
 {
     SwitchPersistenceTo( xInputStream );
 }
@@ -157,7 +154,7 @@ void SwitchablePersistenceStream::CopyAndSwitchPersistenceTo( const uno::Referen
 
     if ( !xTargetStream.is() )
     {
-        xTargetStream.set( io::TempFile::create(m_xContext), uno::UNO_QUERY_THROW );
+        xTargetStream.set( new utl::TempFileFastService );
         xTargetSeek.set( xTargetStream, uno::UNO_QUERY_THROW );
     }
     else

@@ -29,22 +29,21 @@
 #include "font/LogicalFontInstance.hxx"
 #include "glyphid.hxx"
 
-enum class GlyphItemFlags : sal_uInt16
+enum class GlyphItemFlags : sal_uInt8
 {
     NONE = 0,
     IS_IN_CLUSTER = 0x01,
     IS_RTL_GLYPH = 0x02,
-    IS_DIACRITIC = 0x04,
-    IS_VERTICAL = 0x08,
-    IS_SPACING = 0x10,
-    IS_DROPPED = 0x40,
-    IS_CLUSTER_START = 0x80,
-    IS_UNSAFE_TO_BREAK = 0x100, // HB_GLYPH_FLAG_UNSAFE_TO_BREAK from harfbuzz
-    IS_SAFE_TO_INSERT_KASHIDA = 0x200 // HB_GLYPH_FLAG_SAFE_TO_INSERT_TATWEEL from harfbuzz
+    IS_VERTICAL = 0x04,
+    IS_SPACING = 0x08,
+    IS_DROPPED = 0x10,
+    IS_CLUSTER_START = 0x20,
+    IS_UNSAFE_TO_BREAK = 0x40, // HB_GLYPH_FLAG_UNSAFE_TO_BREAK from harfbuzz
+    IS_SAFE_TO_INSERT_KASHIDA = 0x80 // HB_GLYPH_FLAG_SAFE_TO_INSERT_TATWEEL from harfbuzz
 };
 namespace o3tl
 {
-template <> struct typed_flags<GlyphItemFlags> : is_typed_flags<GlyphItemFlags, 0x3df>
+template <> struct typed_flags<GlyphItemFlags> : is_typed_flags<GlyphItemFlags, 0xff>
 {
 };
 };
@@ -78,7 +77,6 @@ public:
 
     bool IsInCluster() const { return bool(m_nFlags & GlyphItemFlags::IS_IN_CLUSTER); }
     bool IsRTLGlyph() const { return bool(m_nFlags & GlyphItemFlags::IS_RTL_GLYPH); }
-    bool IsDiacritic() const { return bool(m_nFlags & GlyphItemFlags::IS_DIACRITIC); }
     bool IsVertical() const { return bool(m_nFlags & GlyphItemFlags::IS_VERTICAL); }
     bool IsSpacing() const { return bool(m_nFlags & GlyphItemFlags::IS_SPACING); }
     bool IsDropped() const { return bool(m_nFlags & GlyphItemFlags::IS_DROPPED); }

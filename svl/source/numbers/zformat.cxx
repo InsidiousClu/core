@@ -17,9 +17,9 @@
  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
  */
 
-#include <stdio.h>
 #include <string_view>
 
+#include <o3tl/sprintf.hxx>
 #include <o3tl/string_view.hxx>
 #include <comphelper/string.hxx>
 #include <sal/log.hxx>
@@ -62,6 +62,8 @@ const double EXP_ABS_UPPER_BOUND = 1.0E15;  // use exponential notation above th
                                             // also sal/rtl/math.cxx
                                             // doubleToString()
 
+constexpr sal_Int32 kTimeSignificantRound = 7;  // Round (date+)time at 7 decimals
+                                                // (+5 of 86400 == 12 significant digits).
 } // namespace
 
 const double D_MAX_U_INT32 = double(0xffffffff);      // 4294967295.0
@@ -707,7 +709,7 @@ OUString SvNumberformat::ImpObtainCalendarAndNumerals( OUStringBuffer& rString, 
     if ( nNumeralID >= 0x02 && nNumeralID <= 0x13 )
         nNatNum = 1;
     if ( nNatNum )
-        rString.insert( nPos, OUStringConcatenation("[NatNum"+OUString::number(nNatNum)+"]"));
+        rString.insert( nPos, Concat2View("[NatNum"+OUString::number(nNatNum)+"]"));
     return sCalendar;
 }
 
@@ -717,6 +719,32 @@ bool NatNumTakesParameters(sal_Int16 nNum)
 {
     return (nNum == css::i18n::NativeNumberMode::NATNUM12);
 }
+}
+
+// is there a 3-letter bank code in NatNum12 param (but not
+// followed by an equal mark, like in the date code "NNN=")?
+static bool lcl_isNatNum12Currency( const OUString& sParam )
+{
+    sal_Int32 nUpper = 0;
+    sal_Int32 nLen = sParam.getLength();
+    for (sal_Int32 n = 0; n < nLen; ++n)
+    {
+        sal_Unicode c = sParam[n];
+        if ( 'A' <= c && c <= 'Z' )
+        {
+            ++nUpper;
+        }
+        else if ( c == ' ' && nUpper == 3 && (n == 3 || sParam[n - 4] == ' ') )
+        {
+            return true;
+        }
+        else
+        {
+            nUpper = 0;
+        }
+    }
+
+    return nUpper == 3 && (nLen == 3 || sParam[nLen - 4] == ' ');
 }
 
 SvNumberformat::SvNumberformat(OUString& rString,
@@ -936,6 +964,9 @@ SvNumberformat::SvNumberformat(OUString& rString,
                         {
                             if (sParams.isEmpty())
                                 sParams = "cardinal"; // default NatNum12 format is "cardinal"
+                            else if (sParams.indexOf("CURRENCY") >= 0)
+                                sParams = sParams.replaceAll("CURRENCY",
+                                    rLoc().getCurrBankSymbol());
                             NumFor[nIndex].SetNatNumParams(sParams);
                             sStr += " " + sParams;
                         }
@@ -1174,7 +1205,11 @@ SvNumberformat::SvNumberformat(OUString& rString,
                         // type check
                         if (nIndex == 0)
                         {
-                            eType = NumFor[nIndex].Info().eScannedType;
+                            if ( NumFor[nIndex].GetNatNum().GetNatNum() == 12 &&
+                                    lcl_isNatNum12Currency(NumFor[nIndex].GetNatNum().GetParams()) )
+                                eType = SvNumFormatType::CURRENCY;
+                            else
+                                eType = NumFor[nIndex].Info().eScannedType;
                         }
                         else if (nIndex == 3)
                         {   // #77026# Everything recognized IS text
@@ -2907,7 +2942,7 @@ bool SvNumberformat::ImpGetFractionOutput(double fNumber,
     else
     {
         char aBuf[100];
-        sprintf( aBuf, "%.f", fNum ); // simple rounded integer (#100211# - checked)
+        o3tl::sprintf( aBuf, "%.f", fNum ); // simple rounded integer
         sStr.appendAscii( aBuf );
         impTransliterate(sStr, NumFor[nIx].GetNatNum());
     }
@@ -3069,10 +3104,10 @@ bool SvNumberformat::ImpGetTimeOutput(double fNumber,
     bool bInputLine;
     sal_Int32 nCntPost;
     if ( rScan.GetStandardPrec() == SvNumberFormatter::INPUTSTRING_PRECISION &&
-         0 < rInfo.nCntPost && rInfo.nCntPost < 7 )
-    {   // round at 7 decimals (+5 of 86400 == 12 significant digits)
+         0 < rInfo.nCntPost && rInfo.nCntPost < kTimeSignificantRound )
+    {
         bInputLine = true;
-        nCntPost = 7;
+        nCntPost = kTimeSignificantRound;
     }
     else
     {
@@ -3953,21 +3988,22 @@ bool SvNumberformat::ImpGetDateTimeOutput(double fNumber,
 
     const ImpSvNumberformatInfo& rInfo = NumFor[nIx].Info();
     bool bInputLine;
-    sal_Int32 nCntPost;
+    sal_Int32 nCntPost, nFirstRounding;
     if ( rScan.GetStandardPrec() == SvNumberFormatter::INPUTSTRING_PRECISION &&
-         0 < rInfo.nCntPost && rInfo.nCntPost < 7 )
+         0 < rInfo.nCntPost && rInfo.nCntPost < kTimeSignificantRound )
     {
-        // round at 7 decimals (+5 of 86400 == 12 significant digits)
         bInputLine = true;
-        nCntPost = 7;
+        nCntPost = nFirstRounding = kTimeSignificantRound;
     }
     else
     {
         bInputLine = false;
         nCntPost = rInfo.nCntPost;
+        // For clock format (not []) do not round up to seconds and thus days.
+        nFirstRounding = (rInfo.bThousand ? nCntPost : kTimeSignificantRound);
     }
     double fTime = (fNumber - floor( fNumber )) * 86400.0;
-    fTime = ::rtl::math::round( fTime, int(nCntPost) );
+    fTime = ::rtl::math::round( fTime, int(nFirstRounding) );
     if (fTime >= 86400.0)
     {
         // result of fNumber==x.999999999... rounded up, use correct date/time
@@ -5661,7 +5697,7 @@ OUString SvNumberformat::impTransliterateImpl(const OUString& rStr,
     sal_Int32 nField = -1;
     do
     {
-        nField = rNum.GetParams().indexOf(OUStringConcatenation(rKeywords[nDateKey] + "="), ++nField);
+        nField = rNum.GetParams().indexOf(Concat2View(rKeywords[nDateKey] + "="), ++nField);
     }
     while (nField != -1 && nField != 0 &&
             (rNum.GetParams()[nField - 1] != ',' &&

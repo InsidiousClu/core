@@ -17,8 +17,8 @@
 #include <vcl/gdimtf.hxx>
 #include <vcl/filter/PDFiumLibrary.hxx>
 #include <comphelper/propertyvalue.hxx>
-#include <unotools/mediadescriptor.hxx>
 #include <editeng/fhgtitem.hxx>
+#include <editeng/wghtitem.hxx>
 
 #include <docsh.hxx>
 #include <unotxdoc.hxx>
@@ -36,17 +36,24 @@
 #include <IDocumentRedlineAccess.hxx>
 #include <formatcontentcontrol.hxx>
 #include <strings.hrc>
-
-constexpr OUStringLiteral DATA_DIRECTORY = u"/sw/qa/core/text/data/";
+#include <ndtxt.hxx>
+#include <txatbase.hxx>
+#include <textcontentcontrol.hxx>
 
 /// Covers sw/source/core/text/ fixes.
 class SwCoreTextTest : public SwModelTestBase
 {
+public:
+    SwCoreTextTest()
+        : SwModelTestBase("/sw/qa/core/text/data/")
+    {
+    }
 };
 
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testFootnoteConnect)
 {
-    SwDoc* pDoc = createSwDoc(DATA_DIRECTORY, "footnote-connect.fodt");
+    createSwDoc("footnote-connect.fodt");
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     // Jump to the start of the next page.
     pWrtShell->SttNxtPg();
@@ -65,7 +72,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testFootnoteConnect)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testSemiTransparentText)
 {
     // Create an in-memory empty document.
-    loadURL("private:factory/swriter", nullptr);
+    createSwDoc();
 
     // Set text to half-transparent and type a character.
     uno::Reference<beans::XPropertySet> xParagraph(getParagraph(1), uno::UNO_QUERY);
@@ -118,10 +125,10 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testBibliographyUrlPdfExport)
     xText->insertTextContent(xCursor, xContent, /*bAbsorb=*/false);
 
     // When exporting to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure the field links the source.
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPdfPage = pPdfDocument->openPage(/*nIndex=*/0);
     // Without the accompanying fix in place, this test would have failed, the field was not
     // clickable (while it was clickable on the UI).
@@ -130,10 +137,12 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testBibliographyUrlPdfExport)
 
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testTabOverMarginSection)
 {
-    createSwDoc(DATA_DIRECTORY, "tabovermargin-section.fodt");
+    createSwDoc("tabovermargin-section.fodt");
     xmlDocUniquePtr pXmlDoc = parseLayoutDump();
     sal_Int32 nWidth
-        = getXPath(pXmlDoc, "//Text[@nType='PortionType::TabRight']", "nWidth").toInt32();
+        = getXPath(pXmlDoc, "//SwParaPortion/SwLineLayout/child::*[@type='PortionType::TabRight']",
+                   "width")
+              .toInt32();
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected less than: 5000
     // - Actual  : 9372
@@ -145,7 +154,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testTabOverMarginSection)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testLineHeight)
 {
     // Given a document with an as-char image, height in twips not fitting into sal_uInt16:
-    createSwDoc(DATA_DIRECTORY, "line-height.fodt");
+    createSwDoc("line-height.fodt");
 
     // When laying out that document:
     xmlDocUniquePtr pXmlDoc = parseLayoutDump();
@@ -161,7 +170,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testLineHeight)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testLineWidth)
 {
     // Given a document with an as-char image, width in twips not fitting into sal_uInt16:
-    SwDoc* pDoc = createSwDoc(DATA_DIRECTORY, "line-width.fodt");
+    createSwDoc("line-width.fodt");
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     sal_Int32 nOldLeft = pWrtShell->GetCharRect().Left();
 
@@ -182,7 +192,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testChineseAutoFirstLineIndent)
     // The test document contains two simple multi-line paragraph. For both paragraphs, the first line indent
     // is set to 'auto'. Line spacing is 100% for the 1st paragraph and 200% for the 2nd paragraph.
     // Also, there is a "AutoFirstLineIndentDisregardLineSpace" capability flag set in the document.
-    createSwDoc(DATA_DIRECTORY, "firstLineIndent-withFlag.fodt");
+    createSwDoc("firstLineIndent-withFlag.fodt");
 
     xmlDocUniquePtr pXmlDoc = parseLayoutDump();
 
@@ -201,7 +211,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testChineseAutoFirstLineIndent)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testRuby)
 {
     // Given a document with multiple ruby portions:
-    SwDoc* pDoc = createSwDoc(DATA_DIRECTORY, "ruby.fodt");
+    createSwDoc("ruby.fodt");
+    SwDoc* pDoc = getSwDoc();
 
     // When laying out that document:
     SwRootFrame* pLayout = pDoc->getIDocumentLayoutAccess().GetCurrentLayout();
@@ -242,13 +253,12 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testEmptyNumberingPageSplit)
 {
     // Given a document with 2 pages: the only para on page 1 is a numbering without a number
     // portion:
-    createSwDoc(DATA_DIRECTORY, "empty-numbering-page-split.fodt");
+    createSwDoc("empty-numbering-page-split.fodt");
 
     // When inserting an image that doesn't fit the body frame:
     // Then make sure that the layout update after insertion finishes:
     uno::Sequence<beans::PropertyValue> aArgs = {
-        comphelper::makePropertyValue("FileName",
-                                      m_directories.getURLFromSrc(DATA_DIRECTORY) + "image.png"),
+        comphelper::makePropertyValue("FileName", createFileURL(u"image.png")),
     };
     // Without the accompanying fix in place, this never finished.
     dispatchCommand(mxComponent, ".uno:InsertGraphic", aArgs);
@@ -257,7 +267,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testEmptyNumberingPageSplit)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreak)
 {
     // Given a document with a fly frame and two characters wrapped around it:
-    createSwDoc(DATA_DIRECTORY, "clearing-break.fodt");
+    createSwDoc("clearing-break.fodt");
     // Insert a clearing break between "A" and "B":
     uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xDocument->getText();
@@ -287,7 +297,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreak)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakAtStart)
 {
     // Given a document with a fly frame and a character wrapped around it:
-    createSwDoc(DATA_DIRECTORY, "clearing-break-start.fodt");
+    createSwDoc("clearing-break-start.fodt");
     // Insert a clearing break before "X":
     uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xDocument->getText();
@@ -318,7 +328,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakLeft)
 {
     // Given a document with two anchored objects (left height is 5cm, right height is 7.5cm) and a
     // clearing break (type=left):
-    loadURL("private:factory/swriter", nullptr);
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xDocument->getText();
@@ -369,7 +379,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakLeft)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakLeftRTL)
 {
     // Given a document with an anchored object in an RTL para and a clearing break (type=left):
-    loadURL("private:factory/swriter", nullptr);
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xDocument->getText();
@@ -410,7 +420,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakLeftRTL)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakVertical)
 {
     // Given a document with an anchored object in a vertical page and a clearing break (type=all):
-    loadURL("private:factory/swriter", nullptr);
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xDocument->getText();
@@ -453,7 +463,7 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakVertical)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakHeader)
 {
     // Given a document with a shape in the header and a clearing break in the body text:
-    createSwDoc(DATA_DIRECTORY, "clearing-break-header.fodt");
+    createSwDoc("clearing-break-header.fodt");
 
     // When laying out that document:
     xmlDocUniquePtr pXmlDoc = parseLayoutDump();
@@ -469,7 +479,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testClearingLineBreakHeader)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testAsCharImageDocModelFromViewPoint)
 {
     // Given a document with an as-char image:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY);
     uno::Reference<beans::XPropertySet> xTextGraphic(
         xFactory->createInstance("com.sun.star.text.TextGraphicObject"), uno::UNO_QUERY);
@@ -512,7 +523,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testAsCharImageDocModelFromViewPoint)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testRedlineDelete)
 {
     // Given a document with A4 paper size, some text, redlining on, but hidden:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwDocShell* pDocShell = pDoc->GetDocShell();
     SwWrtShell* pWrtShell = pDocShell->GetWrtShell();
     {
@@ -552,7 +564,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testRedlineDelete)
 
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testTdf120715_CursorMoveWhenTypingSpaceAtCenteredLineEnd)
 {
-    SwDoc* pDoc = createSwDoc(DATA_DIRECTORY, "tdf43100_tdf120715_cursorOnSpacesOverMargin.docx");
+    createSwDoc("tdf43100_tdf120715_cursorOnSpacesOverMargin.docx");
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
 
     // Make a paint to force the call of AddExtraBlankWidth, that calculate width for holePortions.
@@ -574,7 +587,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testTdf43100_CursorMoveToSpacesOverMargin)
     // These differences are based on its paragraphs
     // - alignment (left, center, right, justified),
     // - line count (1 line, 2 lines, blank line containing only spaces)
-    SwDoc* pDoc = createSwDoc(DATA_DIRECTORY, "tdf43100_tdf120715_cursorOnSpacesOverMargin.docx");
+    createSwDoc("tdf43100_tdf120715_cursorOnSpacesOverMargin.docx");
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
 
     // Make a paint to force the call of AddExtraBlankWidth, that calculate width for holePortions.
@@ -621,7 +635,8 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testTdf43100_CursorMoveToSpacesOverMargin)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testContentControlPDF)
 {
     // Given a file with a content control:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     pWrtShell->InsertContentControl(SwContentControlType::RICH_TEXT);
     pWrtShell->SttEndDoc(/*bStt=*/true);
@@ -629,13 +644,23 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testContentControlPDF)
     sal_Int32 nPlaceHolderLen = SwResId(STR_CONTENT_CONTROL_PLACEHOLDER).getLength();
     pWrtShell->Right(SwCursorSkipMode::Chars, /*bSelect=*/true, nPlaceHolderLen,
                      /*bBasicCall=*/false);
-    pWrtShell->Insert("mydesc");
+    pWrtShell->Insert("mycontent");
+    const SwPosition* pStart = pWrtShell->GetCursor()->Start();
+    SwTextNode* pTextNode = pStart->GetNode().GetTextNode();
+    sal_Int32 nIndex = pStart->GetContentIndex();
+    SwTextAttr* pAttr
+        = pTextNode->GetTextAttrAt(nIndex, RES_TXTATR_CONTENTCONTROL, sw::GetTextAttrMode::Parent);
+    auto pTextContentControl = static_txtattr_cast<SwTextContentControl*>(pAttr);
+    const SwFormatContentControl& rFormatContentControl = pTextContentControl->GetContentControl();
+    std::shared_ptr<SwContentControl> pContentControl = rFormatContentControl.GetContentControl();
+    // Alias/title, to be mapped to PDF's description.
+    pContentControl->SetAlias("mydesc");
 
     // When exporting to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure that a fillable form widget is emitted:
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 1
@@ -653,15 +678,16 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testContentControlPDF)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testCheckboxContentControlPDF)
 {
     // Given a file with a checkbox content control:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     pWrtShell->InsertContentControl(SwContentControlType::CHECKBOX);
 
     // When exporting to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure that a checkbox form widget is emitted:
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 1
@@ -678,15 +704,16 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testCheckboxContentControlPDF)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testDropdownContentControlPDF)
 {
     // Given a file with a dropdown content control:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     pWrtShell->InsertContentControl(SwContentControlType::DROP_DOWN_LIST);
 
     // When exporting to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure that a dropdown form widget is emitted:
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 1
@@ -703,15 +730,16 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testDropdownContentControlPDF)
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testDateContentControlPDF)
 {
     // Given a file with a date content control:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     pWrtShell->InsertContentControl(SwContentControlType::DATE);
 
     // When exporting to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure that a date form widget is emitted:
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 1
@@ -723,12 +751,16 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testDateContentControlPDF)
     // Also check the form widget type (our date is a mode of text in PDF terms):
     CPPUNIT_ASSERT_EQUAL(vcl::pdf::PDFFormFieldType::TextField,
                          pAnnotation->getFormFieldType(pPdfDocument.get()));
+    OUString aAction = pAnnotation->getFormAdditionalActionJavaScript(
+        pPdfDocument.get(), vcl::pdf::PDFAnnotAActionType::KeyStroke);
+    CPPUNIT_ASSERT_EQUAL(OUString("AFDate_KeystrokeEx(\"mm/dd/yy\");"), aAction);
 }
 
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testContentControlPDFFont)
 {
     // Given a document with a custom 24pt font size and a content control:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     SfxItemSetFixed<RES_CHRATR_FONTSIZE, RES_CHRATR_FONTSIZE> aSet(pWrtShell->GetAttrPool());
     SvxFontHeightItem aItem(480, 100, RES_CHRATR_FONTSIZE);
@@ -737,32 +769,34 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testContentControlPDFFont)
     pWrtShell->InsertContentControl(SwContentControlType::RICH_TEXT);
 
     // When exporting that document to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure that the widget in the PDF result has that custom font size:
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
+    pPage->onAfterLoadPage(pPdfDocument.get());
     CPPUNIT_ASSERT_EQUAL(1, pPage->getAnnotationCount());
     std::unique_ptr<vcl::pdf::PDFiumAnnotation> pAnnotation = pPage->getAnnotation(0);
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 24
     // - Actual  : 8
     // i.e. i.e. the font size was some default, not the 24pt specified in the model.
-    CPPUNIT_ASSERT_EQUAL(24.0f, pAnnotation->getFormFontSize(pPdfDocument.get()));
+    CPPUNIT_ASSERT_EQUAL(24.0f, pAnnotation->getFontSize(pPdfDocument.get()));
 }
 
 CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testComboContentControlPDF)
 {
     // Given a file with a combo box content control:
-    SwDoc* pDoc = createSwDoc();
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
     SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
     pWrtShell->InsertContentControl(SwContentControlType::COMBO_BOX);
 
     // When exporting to PDF:
-    StoreToTempFile("writer_pdf_Export");
+    save("writer_pdf_Export");
 
     // Then make sure that a combo box form widget is emitted:
-    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = LoadPdfFromTempFile();
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
     std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 1
@@ -775,6 +809,57 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testComboContentControlPDF)
                          pAnnotation->getFormFieldType(pPdfDocument.get()));
     // 19th bit: combo box, not dropdown.
     CPPUNIT_ASSERT(pAnnotation->getFormFieldFlags(pPdfDocument.get()) & 0x00040000);
+}
+
+CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testRichContentControlPDF)
+{
+    // Given a file with a rich content control, its value set to "xxx<b>yyy</b>":
+    createSwDoc();
+    SwDoc* pDoc = getSwDoc();
+    SwWrtShell* pWrtShell = pDoc->GetDocShell()->GetWrtShell();
+    pWrtShell->InsertContentControl(SwContentControlType::RICH_TEXT);
+    pWrtShell->SttEndDoc(/*bStt=*/true);
+    pWrtShell->Right(SwCursorSkipMode::Chars, /*bSelect=*/false, 1, /*bBasicCall=*/false);
+    sal_Int32 nPlaceHolderLen = SwResId(STR_CONTENT_CONTROL_PLACEHOLDER).getLength();
+    pWrtShell->Right(SwCursorSkipMode::Chars, /*bSelect=*/true, nPlaceHolderLen,
+                     /*bBasicCall=*/false);
+    pWrtShell->Insert("xxxyyy");
+    pWrtShell->Left(SwCursorSkipMode::Chars, /*bSelect=*/true, 3, /*bBasicCall=*/false);
+    SfxItemSetFixed<RES_CHRATR_WEIGHT, RES_CHRATR_WEIGHT> aSet(pWrtShell->GetAttrPool());
+    SvxWeightItem aItem(WEIGHT_BOLD, RES_CHRATR_WEIGHT);
+    aSet.Put(aItem);
+    pWrtShell->SetAttrSet(aSet);
+
+    // When exporting to PDF:
+    save("writer_pdf_Export");
+
+    // Then make sure that a single fillable form widget is emitted:
+    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument = parsePDFExport();
+    std::unique_ptr<vcl::pdf::PDFiumPage> pPage = pPdfDocument->openPage(0);
+    // Without the accompanying fix in place, this test would have failed with:
+    // - Expected: 1
+    // - Actual  : 2
+    // i.e. "xxx<b>yyy</b>" was exported as 2 widgets, not 1.
+    CPPUNIT_ASSERT_EQUAL(1, pPage->getAnnotationCount());
+}
+
+CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testNumberPortionFormat)
+{
+    // Given a document with a single paragraph, direct formatting asks 24pt font size for the
+    // numbering and the text portion:
+    createSwDoc("number-portion-format.odt");
+
+    // When laying out that document:
+    xmlDocUniquePtr pXmlDoc = parseLayoutDump();
+
+    // Then make sure that the numbering portion has the correct font size:
+    // Without the accompanying fix in place, this test would have failed with:
+    // - Expected: 480
+    // - Actual  : 240
+    // i.e. the numbering portion font size was 12pt, not 24pt (but only when the doc had a
+    // bookmark).
+    assertXPath(pXmlDoc, "//SwParaPortion/SwLineLayout/child::*[@type='PortionType::Number']",
+                "font-height", "480");
 }
 
 CPPUNIT_PLUGIN_IMPLEMENT();

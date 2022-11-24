@@ -542,8 +542,6 @@ void SvxMSDffManager::SolveSolver( const SvxMSDffSolverContainer& rSolver )
                             case SdrObjKind::PathFill :
                             case SdrObjKind::FreehandLine :
                             case SdrObjKind::FreehandFill :
-                            case SdrObjKind::SplineLine :
-                            case SdrObjKind::SplineFill :
                             case SdrObjKind::PathPoly :
                             case SdrObjKind::PathPolyLine :
                             {
@@ -3666,7 +3664,7 @@ void SvxMSDffManager::ReadObjText( SvStream& rStream, SdrObject* pObj )
 // our outliner is too complicate to be used properly,
 void SvxMSDffManager::ReadObjText( const OUString& rText, SdrObject* pObj )
 {
-    SdrTextObj* pText = dynamic_cast<SdrTextObj*>( pObj  );
+    SdrTextObj* pText = DynCastSdrTextObj( pObj  );
     if ( !pText )
         return;
 

@@ -59,6 +59,8 @@ OpenJDK at least, but probably not true for Lemotes JDK */
 #else
 #define JFW_PLUGIN_ARCH "mips64el"
 #endif
+#elif defined RISCV64
+#define JFW_PLUGIN_ARCH "riscv64"
 #elif defined S390X
 #define JFW_PLUGIN_ARCH "s390x"
 #elif defined S390
@@ -165,17 +167,18 @@ protected:
 
     virtual char const* const* getLibraryPaths(int* size) = 0;
 
+    typedef rtl::Reference<VendorBase> (*createInstance_func)();
+    friend rtl::Reference<VendorBase>
+    createInstance(createInstance_func pFunc,
+                   const std::vector<std::pair<OUString, OUString>>& properties);
+
+private:
     OUString m_sVendor;
     OUString m_sVersion;
     OUString m_sHome;
     OUString m_sRuntimeLibrary;
     OUString m_sLD_LIBRARY_PATH;
     OUString m_sArch;
-
-    typedef rtl::Reference<VendorBase> (*createInstance_func)();
-    friend rtl::Reference<VendorBase>
-    createInstance(createInstance_func pFunc,
-                   const std::vector<std::pair<OUString, OUString>>& properties);
 };
 }
 

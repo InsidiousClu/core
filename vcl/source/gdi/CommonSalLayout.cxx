@@ -445,7 +445,6 @@ bool GenericSalLayout::LayoutText(vcl::text::ImplLayoutArgs& rArgs, const SalLay
             hb_buffer_add_utf16(
                 pHbBuffer, reinterpret_cast<uint16_t const *>(pStr), nLength,
                 nMinRunPos, nRunLen);
-            hb_buffer_set_cluster_level(pHbBuffer, HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
 
             // The shapers that we want HarfBuzz to use, in the order of
             // preference.
@@ -539,9 +538,6 @@ bool GenericSalLayout::LayoutText(vcl::text::ImplLayoutArgs& rArgs, const SalLay
 
                 sal_UCS4 aChar
                     = rArgs.mrStr.iterateCodePoints(&o3tl::temporary(sal_Int32(nCharPos)), 0);
-
-                if (u_getIntPropertyValue(aChar, UCHAR_GENERAL_CATEGORY) == U_NON_SPACING_MARK)
-                    nGlyphFlags |= GlyphItemFlags::IS_DIACRITIC;
 
                 if (u_isUWhiteSpace(aChar))
                     nGlyphFlags |= GlyphItemFlags::IS_SPACING;
@@ -790,14 +786,6 @@ void GenericSalLayout::ApplyDXArray(const double* pDXArray, const sal_Bool* pKas
                 if (!m_GlyphItems[j].IsInCluster())
                     break;
                 m_GlyphItems[j].adjustLinearPosX(nDelta + nDiff);
-            }
-
-            // Move any non-spacing marks to keep attached to this cluster.
-            while (j > 0)
-            {
-                if (!m_GlyphItems[j].IsDiacritic())
-                    break;
-                m_GlyphItems[j--].adjustLinearPosX(nDiff);
             }
 
             // This is a Kashida insertion position, mark it. Kashida glyphs

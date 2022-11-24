@@ -32,7 +32,6 @@ PlaceEditDialog::PlaceEditDialog(weld::Window* pParent)
     , m_xEDUsername(m_xBuilder->weld_entry("login"))
     , m_xFTUsernameLabel(m_xBuilder->weld_label("loginLabel"))
     , m_xBTOk(m_xBuilder->weld_button("ok"))
-    , m_xBTCancel(m_xBuilder->weld_button("cancel"))
     , m_xBTDelete(m_xBuilder->weld_button("delete"))
     , m_xBTRepoRefresh(m_xBuilder->weld_button("repositoriesRefresh"))
     , m_xCBPassword(m_xBuilder->weld_check_button("rememberPassword"))
@@ -84,7 +83,6 @@ PlaceEditDialog::PlaceEditDialog(weld::Window* pParent, const std::shared_ptr<Pl
     , m_xEDUsername(m_xBuilder->weld_entry("login"))
     , m_xFTUsernameLabel(m_xBuilder->weld_label("loginLabel"))
     , m_xBTOk(m_xBuilder->weld_button("ok"))
-    , m_xBTCancel(m_xBuilder->weld_button("cancel"))
     , m_xBTDelete(m_xBuilder->weld_button("delete"))
     , m_xBTRepoRefresh(m_xBuilder->weld_button("repositoriesRefresh"))
     , m_xCBPassword(m_xBuilder->weld_check_button("rememberPassword"))
@@ -192,7 +190,7 @@ void PlaceEditDialog::InitDetails( )
     auto nSize = std::min(aTypesUrlsList.getLength(), aTypesNamesList.getLength());
     for ( sal_Int32 i = 0; i < nSize; ++i )
     {
-        OUString sUrl = aTypesUrlsList[i].replaceFirst("<host", OUStringConcatenation("<" + SvtResId(STR_SVT_HOST))).replaceFirst("port>",  OUStringConcatenation(SvtResId(STR_SVT_PORT) + ">"));
+        OUString sUrl = aTypesUrlsList[i].replaceFirst("<host", Concat2View("<" + SvtResId(STR_SVT_HOST))).replaceFirst("port>",  Concat2View(SvtResId(STR_SVT_PORT) + ">"));
 
         if ((sUrl == GDRIVE_BASE_URL && bSkipGDrive) ||
             (sUrl.startsWith( ALFRESCO_CLOUD_BASE_URL) && bSkipAlfresco) ||

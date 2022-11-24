@@ -66,6 +66,46 @@ using namespace ::com::sun::star::lang;
 using namespace ::com::sun::star::beans;
 using namespace ::com::sun::star::uno;
 
+struct FilterEntry
+{
+protected:
+    OUString     m_sTitle;
+    OUString     m_sFilter;
+
+    css::uno::Sequence< css::beans::StringPair >       m_aSubFilters;
+
+public:
+    FilterEntry( OUString _aTitle, OUString _aFilter )
+        :m_sTitle(std::move( _aTitle ))
+        ,m_sFilter(std::move( _aFilter ))
+    {
+    }
+
+    const OUString& getTitle() const { return m_sTitle; }
+    const OUString& getFilter() const { return m_sFilter; }
+
+    /// determines if the filter has sub filter (i.e., the filter is a filter group in real)
+    bool        hasSubFilters( ) const;
+
+    /** retrieves the filters belonging to the entry
+    */
+    void       getSubFilters( css::uno::Sequence< css::beans::StringPair >& _rSubFilterList );
+
+    // helpers for iterating the sub filters
+    const css::beans::StringPair*   beginSubFilters() const { return m_aSubFilters.begin(); }
+    const css::beans::StringPair*   endSubFilters() const { return m_aSubFilters.end(); }
+};
+
+bool FilterEntry::hasSubFilters() const
+{
+    return m_aSubFilters.hasElements();
+}
+
+void FilterEntry::getSubFilters( css::uno::Sequence< css::beans::StringPair >& _rSubFilterList )
+{
+    _rSubFilterList = m_aSubFilters;
+}
+
 void SalGtkFilePicker::dialog_mapped_cb(GtkWidget *, SalGtkFilePicker *pobjFP)
 {
     pobjFP->InitialMapping();
@@ -357,46 +397,6 @@ void SalGtkFilePicker::impl_directoryChanged( const FilePickerEvent& aEvent )
 void SalGtkFilePicker::impl_controlStateChanged( const FilePickerEvent& aEvent )
 {
     if (m_xListener.is()) m_xListener->controlStateChanged( aEvent );
-}
-
-struct FilterEntry
-{
-protected:
-    OUString     m_sTitle;
-    OUString     m_sFilter;
-
-    css::uno::Sequence< css::beans::StringPair >       m_aSubFilters;
-
-public:
-    FilterEntry( OUString _aTitle, OUString _aFilter )
-        :m_sTitle(std::move( _aTitle ))
-        ,m_sFilter(std::move( _aFilter ))
-    {
-    }
-
-    const OUString& getTitle() const { return m_sTitle; }
-    const OUString& getFilter() const { return m_sFilter; }
-
-    /// determines if the filter has sub filter (i.e., the filter is a filter group in real)
-    bool        hasSubFilters( ) const;
-
-    /** retrieves the filters belonging to the entry
-    */
-    void       getSubFilters( css::uno::Sequence< css::beans::StringPair >& _rSubFilterList );
-
-    // helpers for iterating the sub filters
-    const css::beans::StringPair*   beginSubFilters() const { return m_aSubFilters.begin(); }
-    const css::beans::StringPair*   endSubFilters() const { return m_aSubFilters.end(); }
-};
-
-bool FilterEntry::hasSubFilters() const
-{
-    return m_aSubFilters.hasElements();
-}
-
-void FilterEntry::getSubFilters( css::uno::Sequence< css::beans::StringPair >& _rSubFilterList )
-{
-    _rSubFilterList = m_aSubFilters;
 }
 
 static bool
@@ -802,7 +802,7 @@ uno::Sequence<OUString> SAL_CALL SalGtkFilePicker::getSelectedFiles()
                         if ( m_pFilterVector)
                             for (auto const& filter : *m_pFilterVector)
                             {
-                                if( lcl_matchFilter( filter.getFilter(), OUStringConcatenation(OUString::Concat("*.") + sExtension) ) )
+                                if( lcl_matchFilter( filter.getFilter(), Concat2View(OUString::Concat("*.") + sExtension) ) )
                                 {
                                     if( aNewFilter.isEmpty() )
                                         aNewFilter = filter.getTitle();
@@ -1099,6 +1099,10 @@ GtkWidget *SalGtkFilePicker::getWidget( sal_Int16 nControlId, GType *pType )
             pWidget = m_pToggles[elem]; tType = GTK_TYPE_CHECK_BUTTON; \
             break
 #define MAP_BUTTON( elem ) \
+        case CommonFilePickerElementIds::PUSHBUTTON_##elem: \
+            pWidget = m_pButtons[elem]; tType = GTK_TYPE_BUTTON; \
+            break
+#define MAP_EXT_BUTTON( elem ) \
         case ExtendedFilePickerElementIds::PUSHBUTTON_##elem: \
             pWidget = m_pButtons[elem]; tType = GTK_TYPE_BUTTON; \
             break
@@ -1121,7 +1125,9 @@ GtkWidget *SalGtkFilePicker::getWidget( sal_Int16 nControlId, GType *pType )
         MAP_TOGGLE( LINK );
         MAP_TOGGLE( PREVIEW );
         MAP_TOGGLE( SELECTION );
-        MAP_BUTTON( PLAY );
+        MAP_BUTTON( OK );
+        MAP_BUTTON( CANCEL );
+        MAP_EXT_BUTTON( PLAY );
         MAP_LIST( VERSION );
         MAP_LIST( TEMPLATE );
         MAP_LIST( IMAGE_TEMPLATE );
@@ -1130,6 +1136,10 @@ GtkWidget *SalGtkFilePicker::getWidget( sal_Int16 nControlId, GType *pType )
         MAP_LIST_LABEL( TEMPLATE );
         MAP_LIST_LABEL( IMAGE_TEMPLATE );
         MAP_LIST_LABEL( IMAGE_ANCHOR );
+    case CommonFilePickerElementIds::LISTBOX_FILTER_LABEL:
+        // the filter list in gtk typically is not labeled, but has a built-in
+        // tooltip to indicate what it does
+        break;
     default:
         SAL_WARN( "vcl.gtk", "Handle unknown control " << nControlId);
         break;
@@ -1351,6 +1361,10 @@ uno::Any SAL_CALL SalGtkFilePicker::getValue( sal_Int16 nControlId, sal_Int16 nC
 
 void SAL_CALL SalGtkFilePicker::enableControl( sal_Int16 nControlId, sal_Bool bEnable )
 {
+    // skip this built-in one which is Enabled by default
+    if (nControlId == ExtendedFilePickerElementIds::LISTBOX_FILTER_SELECTOR && bEnable)
+        return;
+
     SolarMutexGuard g;
 
     OSL_ASSERT( m_pDialog != nullptr );
@@ -1383,7 +1397,8 @@ void SAL_CALL SalGtkFilePicker::setLabel( sal_Int16 nControlId, const OUString& 
 
     if( !( pWidget = getWidget( nControlId, &tType ) ) )
     {
-        SAL_WARN( "vcl.gtk", "Set label on unknown control " << nControlId);
+        SAL_WARN_IF(nControlId != CommonFilePickerElementIds::LISTBOX_FILTER_LABEL,
+                    "vcl.gtk", "Set label '" << rLabel << "' on unknown control " << nControlId);
         return;
     }
 
@@ -1775,18 +1790,17 @@ void SalGtkFilePicker::impl_initialize(GtkWidget* pParentWidget, sal_Int16 templ
     }
 
     gtk_file_chooser_set_action( GTK_FILE_CHOOSER( m_pDialog ), eAction);
-    gtk_dialog_add_button(GTK_DIALOG( m_pDialog ),
-                          getCancelText().getStr(),
-                          GTK_RESPONSE_CANCEL);
-    for( int nTVIndex = 0; nTVIndex < BUTTON_LAST; nTVIndex++ )
+    m_pButtons[CANCEL] = gtk_dialog_add_button(GTK_DIALOG(m_pDialog), getCancelText().getStr(), GTK_RESPONSE_CANCEL);
+    mbButtonVisibility[CANCEL] = true;
+
+    if (mbButtonVisibility[PLAY])
     {
-        if( mbButtonVisibility[nTVIndex] )
-        {
-            OString aPlay = OUStringToOString( getResString( PUSHBUTTON_PLAY ), RTL_TEXTENCODING_UTF8 );
-            m_pButtons[ nTVIndex ] = gtk_dialog_add_button( GTK_DIALOG( m_pDialog ), aPlay.getStr(), 1 );
-        }
+        OString aPlay = OUStringToOString(getResString(PUSHBUTTON_PLAY), RTL_TEXTENCODING_UTF8);
+        m_pButtons[PLAY] = gtk_dialog_add_button(GTK_DIALOG(m_pDialog), aPlay.getStr(), 1);
     }
-    gtk_dialog_add_button( GTK_DIALOG( m_pDialog ), first_button_text, GTK_RESPONSE_ACCEPT );
+
+    m_pButtons[OK] = gtk_dialog_add_button(GTK_DIALOG(m_pDialog), first_button_text, GTK_RESPONSE_ACCEPT);
+    mbButtonVisibility[OK] = true;
 
     gtk_dialog_set_default_response( GTK_DIALOG (m_pDialog), GTK_RESPONSE_ACCEPT );
 

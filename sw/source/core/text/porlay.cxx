@@ -1967,7 +1967,7 @@ std::vector<std::tuple<SwScriptInfo::MarkKind, Color, OUString>>
     // mark order: ] | [
     // color order: [c1 [c2 [c3 ... c3] c2] c1]
     sort(aColors.begin(), aColors.end(),
-                 [](std::tuple<MarkKind, Color, OUString>(a), std::tuple<MarkKind, Color, OUString>(b)) {
+                 [](std::tuple<MarkKind, Color, OUString> const a, std::tuple<MarkKind, Color, OUString> const b) {
          return (MarkKind::End == std::get<0>(a) && MarkKind::End != std::get<0>(b)) ||
              (MarkKind::Point == std::get<0>(a) && MarkKind::Start == std::get<0>(b)) ||
              // if both are end or start, order by color
@@ -2574,13 +2574,13 @@ void SwScriptInfo::MarkKashidasInvalid(sal_Int32 const nCnt,
     }
 }
 
-TextFrameIndex SwScriptInfo::ThaiJustify( const OUString& rText, sal_Int32* pKernArray,
+TextFrameIndex SwScriptInfo::ThaiJustify( std::u16string_view aText, sal_Int32* pKernArray,
                                      TextFrameIndex const nStt,
                                      TextFrameIndex const nLen,
                                      TextFrameIndex nNumberOfBlanks,
                                      tools::Long nSpaceAdd )
 {
-    SAL_WARN_IF( nStt + nLen > TextFrameIndex(rText.getLength()), "sw.core", "String in ThaiJustify too small" );
+    SAL_WARN_IF( nStt + nLen > TextFrameIndex(aText.size()), "sw.core", "String in ThaiJustify too small" );
 
     SwTwips nNumOfTwipsToDistribute = nSpaceAdd * sal_Int32(nNumberOfBlanks) /
                                       SPACING_PRECISION_FACTOR;
@@ -2590,7 +2590,7 @@ TextFrameIndex SwScriptInfo::ThaiJustify( const OUString& rText, sal_Int32* pKer
 
     for (sal_Int32 nI = 0; nI < sal_Int32(nLen); ++nI)
     {
-        const sal_Unicode cCh = rText[sal_Int32(nStt) + nI];
+        const sal_Unicode cCh = aText[sal_Int32(nStt) + nI];
 
         // check if character is not above or below base
         if ( ( 0xE34 > cCh || cCh > 0xE3A ) &&

@@ -135,7 +135,7 @@ static void lcl_linenumberingHeaderFooter( const uno::Reference<container::XName
     const StyleSheetPropertyMap* pStyleSheetProperties = pEntry->pProperties.get();
     if ( !pStyleSheetProperties )
         return;
-    sal_Int32 nListId = pStyleSheetProperties->GetListId();
+    sal_Int32 nListId = pStyleSheetProperties->props().GetListId();
     if( xStyles.is() )
     {
         if( xStyles->hasByName( rname ) )
@@ -204,7 +204,7 @@ static uno::Any lcl_GetPropertyFromParaStyleSheetNoNum(PropertyIds eId, StyleShe
                 pEntry->pProperties->getProperty(eId);
             if (aProperty)
             {
-                if (pEntry->pProperties->GetListId())
+                if (pEntry->pProperties->props().GetListId())
                     // It is a paragraph style with list. Paragraph list styles are not taken into account
                     return uno::Any();
                 else
@@ -324,6 +324,7 @@ DomainMapper_Impl::DomainMapper_Impl(
         m_xTextFactory( xModel, uno::UNO_QUERY ),
         m_xComponentContext(std::move( xContext )),
         m_bForceGenericFields(!utl::ConfigManager::IsFuzzing() && officecfg::Office::Common::Filter::Microsoft::Import::ForceImportWWFieldsAsGenericFields::get()),
+        m_bIsDecimalComma( false ),
         m_bSetUserFieldContent( false ),
         m_bSetCitation( false ),
         m_bSetDateValue( false ),
@@ -894,7 +895,7 @@ void DomainMapper_Impl::PopSdt()
     xCursor->gotoRange(xEnd, /*bExpand=*/true);
 
     std::optional<OUString> oData = m_pSdtHelper->getValueFromDataBinding();
-    if (oData.has_value() && m_pSdtHelper->getControlType() != SdtControlType::datePicker)
+    if (oData.has_value())
     {
         // Data binding has a value for us, prefer that over the in-document value.
         xCursor->setString(*oData);
@@ -937,6 +938,23 @@ void DomainMapper_Impl::PopSdt()
                                                uno::Any(m_pSdtHelper->GetColor()));
     }
 
+    if (!m_pSdtHelper->GetAlias().isEmpty())
+    {
+        xContentControlProps->setPropertyValue("Alias",
+                                               uno::Any(m_pSdtHelper->GetAlias()));
+    }
+
+    if (!m_pSdtHelper->GetTag().isEmpty())
+    {
+        xContentControlProps->setPropertyValue("Tag",
+                                               uno::Any(m_pSdtHelper->GetTag()));
+    }
+
+    if (m_pSdtHelper->GetId())
+    {
+        xContentControlProps->setPropertyValue("Id", uno::Any(m_pSdtHelper->GetId()));
+    }
+
     if (m_pSdtHelper->getControlType() == SdtControlType::checkBox)
     {
         xContentControlProps->setPropertyValue("Checkbox", uno::Any(true));
@@ -968,7 +986,11 @@ void DomainMapper_Impl::PopSdt()
                 pItems[i] = aItem;
             }
             xContentControlProps->setPropertyValue("ListItems", uno::Any(aItems));
-            if (m_pSdtHelper->getControlType() == SdtControlType::comboBox)
+            if (m_pSdtHelper->getControlType() == SdtControlType::dropDown)
+            {
+                xContentControlProps->setPropertyValue("DropDown", uno::Any(true));
+            }
+            else
             {
                 xContentControlProps->setPropertyValue("ComboBox", uno::Any(true));
             }
@@ -980,6 +1002,7 @@ void DomainMapper_Impl::PopSdt()
         xContentControlProps->setPropertyValue("Picture", uno::Any(true));
     }
 
+    bool bDateFromDataBinding = false;
     if (m_pSdtHelper->getControlType() == SdtControlType::datePicker)
     {
         xContentControlProps->setPropertyValue("Date", uno::Any(true));
@@ -988,8 +1011,14 @@ void DomainMapper_Impl::PopSdt()
                                                uno::Any(aDateFormat.replaceAll("'", "\"")));
         xContentControlProps->setPropertyValue("DateLanguage",
                                                uno::Any(m_pSdtHelper->getLocale().makeStringAndClear()));
+        OUString aCurrentDate = m_pSdtHelper->getDate().makeStringAndClear();
+        if (oData.has_value())
+        {
+            aCurrentDate = *oData;
+            bDateFromDataBinding = true;
+        }
         xContentControlProps->setPropertyValue("CurrentDate",
-                                               uno::Any(m_pSdtHelper->getDate().makeStringAndClear()));
+                                               uno::Any(aCurrentDate));
     }
 
     if (m_pSdtHelper->getControlType() == SdtControlType::plainText)
@@ -998,6 +1027,13 @@ void DomainMapper_Impl::PopSdt()
     }
 
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
+
+    if (bDateFromDataBinding)
+    {
+        OUString aDateString;
+        xContentControlProps->getPropertyValue("DateString") >>= aDateString;
+        xCursor->setString(aDateString);
+    }
 
     m_pSdtHelper->clear();
 }
@@ -1525,7 +1561,7 @@ void DomainMapper_Impl::CheckUnregisteredFrameConversion( )
             sal_Int32 nWidth =
                 rAppendContext.pLastParagraphProperties->Getw() > 0 ?
                     rAppendContext.pLastParagraphProperties->Getw() :
-                    pStyleProperties->Getw();
+                    pStyleProperties->props().Getw();
             bool bAutoWidth = nWidth < 1;
             if( bAutoWidth )
                 nWidth = DEFAULT_FRAME_MIN_WIDTH;
@@ -1534,16 +1570,16 @@ void DomainMapper_Impl::CheckUnregisteredFrameConversion( )
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_HEIGHT),
                 rAppendContext.pLastParagraphProperties->Geth() > 0 ?
                     rAppendContext.pLastParagraphProperties->Geth() :
-                    pStyleProperties->Geth() > 0 ? pStyleProperties->Geth() : DEFAULT_FRAME_MIN_HEIGHT));
+                    pStyleProperties->props().Geth() > 0 ? pStyleProperties->props().Geth() : DEFAULT_FRAME_MIN_HEIGHT));
 
             sal_Int16 nhRule = sal_Int16(
                 rAppendContext.pLastParagraphProperties->GethRule() >= 0 ?
                     rAppendContext.pLastParagraphProperties->GethRule() :
-                    pStyleProperties->GethRule());
+                    pStyleProperties->props().GethRule());
             if ( nhRule < 0 )
             {
                 if ( rAppendContext.pLastParagraphProperties->Geth() >= 0 ||
-                    pStyleProperties->GethRule() >= 0 )
+                    pStyleProperties->props().GethRule() >= 0 )
                 {
                     // [MS-OE376] Word uses a default value of "atLeast" for
                     // this attribute when the value of the h attribute is not 0.
@@ -1566,55 +1602,59 @@ void DomainMapper_Impl::CheckUnregisteredFrameConversion( )
             sal_Int16 nHoriOrient = sal_Int16(
                 rAppendContext.pLastParagraphProperties->GetxAlign() >= 0 ?
                     rAppendContext.pLastParagraphProperties->GetxAlign() :
-                    pStyleProperties->GetxAlign() >= 0 ? pStyleProperties->GetxAlign() : text::HoriOrientation::NONE );
+                    pStyleProperties->props().GetxAlign() >= 0 ? pStyleProperties->props().GetxAlign() : text::HoriOrientation::NONE );
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_HORI_ORIENT), nHoriOrient));
 
             //set a non negative default value
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_HORI_ORIENT_POSITION),
                 rAppendContext.pLastParagraphProperties->IsxValid() ?
                     rAppendContext.pLastParagraphProperties->Getx() :
-                    pStyleProperties->IsxValid() ? pStyleProperties->Getx() : DEFAULT_VALUE));
+                    pStyleProperties->props().IsxValid()
+                        ? pStyleProperties->props().Getx() : DEFAULT_VALUE));
 
             //Default the anchor in case FramePr_hAnchor is missing ECMA 17.3.1.11
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_HORI_ORIENT_RELATION), sal_Int16(
                 rAppendContext.pLastParagraphProperties->GethAnchor() >= 0 ?
                     rAppendContext.pLastParagraphProperties->GethAnchor() :
-                pStyleProperties->GethAnchor() >=0 ? pStyleProperties->GethAnchor() : text::RelOrientation::FRAME )));
+                pStyleProperties->props().GethAnchor() >=0 ? pStyleProperties->props().GethAnchor() : text::RelOrientation::FRAME )));
 
             sal_Int16 nVertOrient = sal_Int16(
                 rAppendContext.pLastParagraphProperties->GetyAlign() >= 0 ?
                     rAppendContext.pLastParagraphProperties->GetyAlign() :
-                    pStyleProperties->GetyAlign() >= 0 ? pStyleProperties->GetyAlign() : text::VertOrientation::NONE );
+                    pStyleProperties->props().GetyAlign() >= 0 ? pStyleProperties->props().GetyAlign() : text::VertOrientation::NONE );
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_VERT_ORIENT), nVertOrient));
 
             //set a non negative default value
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_VERT_ORIENT_POSITION),
                 rAppendContext.pLastParagraphProperties->IsyValid() ?
                     rAppendContext.pLastParagraphProperties->Gety() :
-                    pStyleProperties->IsyValid() ? pStyleProperties->Gety() : DEFAULT_VALUE));
+                    pStyleProperties->props().IsyValid()
+                        ? pStyleProperties->props().Gety() : DEFAULT_VALUE));
 
             //Default the anchor in case FramePr_vAnchor is missing ECMA 17.3.1.11
             if (rAppendContext.pLastParagraphProperties->GetWrap() == text::WrapTextMode::WrapTextMode_MAKE_FIXED_SIZE &&
-                pStyleProperties->GetWrap() == text::WrapTextMode::WrapTextMode_MAKE_FIXED_SIZE)
+                pStyleProperties->props().GetWrap()
+                    == text::WrapTextMode::WrapTextMode_MAKE_FIXED_SIZE)
             {
                 aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_VERT_ORIENT_RELATION), sal_Int16(
                     rAppendContext.pLastParagraphProperties->GetvAnchor() >= 0 ?
                     rAppendContext.pLastParagraphProperties->GetvAnchor() :
-                    pStyleProperties->GetvAnchor() >= 0 ? pStyleProperties->GetvAnchor() : text::RelOrientation::FRAME)));
+                    pStyleProperties->props().GetvAnchor() >= 0 ? pStyleProperties->props().GetvAnchor() : text::RelOrientation::FRAME)));
             }
             else
             {
                 aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_VERT_ORIENT_RELATION), sal_Int16(
                     rAppendContext.pLastParagraphProperties->GetvAnchor() >= 0 ?
                     rAppendContext.pLastParagraphProperties->GetvAnchor() :
-                    pStyleProperties->GetvAnchor() >= 0 ? pStyleProperties->GetvAnchor() : text::RelOrientation::PAGE_PRINT_AREA)));
+                    pStyleProperties->props().GetvAnchor() >= 0 ? pStyleProperties->props().GetvAnchor() : text::RelOrientation::PAGE_PRINT_AREA)));
             }
 
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_SURROUND),
                 rAppendContext.pLastParagraphProperties->GetWrap() != text::WrapTextMode::WrapTextMode_MAKE_FIXED_SIZE
                 ? rAppendContext.pLastParagraphProperties->GetWrap()
-                : pStyleProperties->GetWrap() != text::WrapTextMode::WrapTextMode_MAKE_FIXED_SIZE
-                  ? pStyleProperties->GetWrap()
+                : pStyleProperties->props().GetWrap()
+                      != text::WrapTextMode::WrapTextMode_MAKE_FIXED_SIZE
+                  ? pStyleProperties->props().GetWrap()
                   : text::WrapTextMode_NONE ));
 
             /** FDO#73546 : distL & distR should be unsigned integers <Ecma 20.4.3.6>
@@ -1625,7 +1665,8 @@ void DomainMapper_Impl::CheckUnregisteredFrameConversion( )
             sal_Int32 nLeftDist = nRightDist =
                 rAppendContext.pLastParagraphProperties->GethSpace() >= 0 ?
                 rAppendContext.pLastParagraphProperties->GethSpace() :
-                pStyleProperties->GethSpace() >= 0 ? pStyleProperties->GethSpace() : 0;
+                pStyleProperties->props().GethSpace() >= 0
+                    ? pStyleProperties->props().GethSpace() : 0;
 
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_LEFT_MARGIN), nHoriOrient == text::HoriOrientation::LEFT ? 0 : nLeftDist));
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_RIGHT_MARGIN), nHoriOrient == text::HoriOrientation::RIGHT ? 0 : nRightDist));
@@ -1634,7 +1675,8 @@ void DomainMapper_Impl::CheckUnregisteredFrameConversion( )
             sal_Int32 nTopDist = nBottomDist =
                 rAppendContext.pLastParagraphProperties->GetvSpace() >= 0 ?
                 rAppendContext.pLastParagraphProperties->GetvSpace() :
-                pStyleProperties->GetvSpace() >= 0 ? pStyleProperties->GetvSpace() : 0;
+                pStyleProperties->props().GetvSpace() >= 0
+                    ? pStyleProperties->props().GetvSpace() : 0;
 
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_TOP_MARGIN), nVertOrient == text::VertOrientation::TOP ? 0 : nTopDist));
             aFrameProperties.push_back(comphelper::makePropertyValue(getPropertyName(PROP_BOTTOM_MARGIN), nVertOrient == text::VertOrientation::BOTTOM ? 0 : nBottomDist));
@@ -1743,7 +1785,7 @@ static sal_Int32 lcl_getListId(const StyleSheetEntryPtr& rEntry, const StyleShee
     if (!pEntryProperties)
         return -1;
 
-    sal_Int32 nListId = pEntryProperties->GetListId();
+    sal_Int32 nListId = pEntryProperties->props().GetListId();
     // The style itself has a list id.
     if (nListId >= 0)
         return nListId;
@@ -1891,7 +1933,7 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
     const StyleSheetEntryPtr pEntry = GetStyleSheetTable()->FindStyleSheetByConvertedStyleName( GetCurrentParaStyleName() );
     OSL_ENSURE( pEntry, "no style sheet found" );
     const StyleSheetPropertyMap* pStyleSheetProperties = pEntry ? pEntry->pProperties.get() : nullptr;
-    sal_Int32 nListId = pParaContext ? pParaContext->GetListId() : -1;
+    sal_Int32 nListId = pParaContext ? pParaContext->props().GetListId() : -1;
     bool isNumberingViaStyle(false);
     bool isNumberingViaRule = nListId > -1;
     if ( !bRemove && pStyleSheetProperties && pParaContext )
@@ -2099,8 +2141,8 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
              */
 
             bool bIsDropCap =
-                pParaContext->IsFrameMode() &&
-                sal::static_int_cast<Id>(pParaContext->GetDropCap()) != NS_ooxml::LN_Value_doc_ST_DropCap_none;
+                pParaContext->props().IsFrameMode() &&
+                sal::static_int_cast<Id>(pParaContext->props().GetDropCap()) != NS_ooxml::LN_Value_doc_ST_DropCap_none;
 
             style::DropCapFormat aDrop;
             ParagraphPropertiesPtr pToBeSavedProperties;
@@ -2115,7 +2157,7 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
                 xParaProperties->setPropertyToDefault(getPropertyName(PROP_CHAR_ESCAPEMENT));
                 xParaProperties->setPropertyToDefault(getPropertyName(PROP_CHAR_HEIGHT));
                 //handles (2) and part of (6)
-                pToBeSavedProperties = new ParagraphProperties(*pParaContext);
+                pToBeSavedProperties = new ParagraphProperties(pParaContext->props());
                 sal_Int32 nCount = xParaCursor->getString().getLength();
                 pToBeSavedProperties->SetDropCapLength(nCount > 0 && nCount < 255 ? static_cast<sal_Int8>(nCount) : 1);
             }
@@ -2131,10 +2173,10 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
                     sal_Int32 nHSpace = rAppendContext.pLastParagraphProperties->GethSpace();
                     aDrop.Distance  = nHSpace > 0 && nHSpace < SAL_MAX_INT16 ? static_cast<sal_Int16>(nHSpace) : 0;
                     //completes (5)
-                    if( pParaContext->IsFrameMode() )
-                        pToBeSavedProperties = new ParagraphProperties(*pParaContext);
+                    if( pParaContext->props().IsFrameMode() )
+                        pToBeSavedProperties = new ParagraphProperties(pParaContext->props());
                 }
-                else if(*rAppendContext.pLastParagraphProperties == *pParaContext )
+                else if(*rAppendContext.pLastParagraphProperties == pParaContext->props() )
                 {
                     //handles (7)
                     rAppendContext.pLastParagraphProperties->SetEndingRange(rAppendContext.xInsertPosition.is() ? rAppendContext.xInsertPosition : xTextAppend->getEnd());
@@ -2146,9 +2188,9 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
                     CheckUnregisteredFrameConversion( );
 
                     // If different frame properties are set on this paragraph, keep them.
-                    if ( !bIsDropCap && pParaContext->IsFrameMode() )
+                    if ( !bIsDropCap && pParaContext->props().IsFrameMode() )
                     {
-                        pToBeSavedProperties = new ParagraphProperties(*pParaContext);
+                        pToBeSavedProperties = new ParagraphProperties(pParaContext->props());
                         lcl_AddRangeAndStyle(pToBeSavedProperties, xTextAppend, pPropertyMap, rAppendContext);
                     }
                 }
@@ -2157,9 +2199,9 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
             {
                 // (1) doesn't need handling
 
-                if( !bIsDropCap && pParaContext->IsFrameMode() )
+                if( !bIsDropCap && pParaContext->props().IsFrameMode() )
                 {
-                    pToBeSavedProperties = new ParagraphProperties(*pParaContext);
+                    pToBeSavedProperties = new ParagraphProperties(pParaContext->props());
                     lcl_AddRangeAndStyle(pToBeSavedProperties, xTextAppend, pPropertyMap, rAppendContext);
                 }
             }
@@ -2450,7 +2492,7 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
                     xParaCursor->gotoStartOfParagraph(false);
                     if (m_nTableDepth > 0)
                     {
-                        TableParagraph aPending{xParaCursor, xCur, pParaContext, xParaProps, std::set<OUString>()};
+                        TableParagraph aPending{xParaCursor, xCur, pParaContext, xParaProps};
                         getTableManager().getCurrentParagraphs()->push_back(aPending);
                     }
 
@@ -2576,13 +2618,14 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
     }
 
     bool bIgnoreFrameState = IsInHeaderFooter();
-    if( (!bIgnoreFrameState && pParaContext && pParaContext->IsFrameMode()) || (bIgnoreFrameState && GetIsPreviousParagraphFramed()) )
+    if( (!bIgnoreFrameState && pParaContext && pParaContext->props().IsFrameMode()) || (bIgnoreFrameState && GetIsPreviousParagraphFramed()) )
         SetIsPreviousParagraphFramed(true);
     else
         SetIsPreviousParagraphFramed(false);
 
     m_bRemoveThisParagraph = false;
-    if( !IsInHeaderFooter() && !IsInShape() && (!pParaContext || !pParaContext->IsFrameMode()) )
+    if( !IsInHeaderFooter() && !IsInShape()
+        && (!pParaContext || !pParaContext->props().IsFrameMode()) )
     { // If the paragraph is in a frame, shape or header/footer, it's not a paragraph of the section itself.
         SetIsFirstParagraphInSection(false);
         // don't count an empty deleted paragraph as first paragraph in section to avoid of
@@ -2598,7 +2641,7 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
 
     if (m_bIsInComments && pParaContext)
     {
-        if (const OUString sParaId = pParaContext->GetParaId(); !sParaId.isEmpty())
+        if (const OUString sParaId = pParaContext->props().GetParaId(); !sParaId.isEmpty())
         {
             if (const auto& item = m_aCommentProps.find(sParaId); item != m_aCommentProps.end())
             {
@@ -2613,7 +2656,7 @@ void DomainMapper_Impl::finishParagraph( const PropertyMapPtr& pPropertyMap, con
     if (pParaContext)
     {
         // Reset the frame properties for the next paragraph
-        pParaContext->ResetFrameProperties();
+        pParaContext->props().ResetFrameProperties();
     }
 
     SetIsOutsideAParagraph(true);
@@ -5525,6 +5568,15 @@ OUString DomainMapper_Impl::convertFieldFormula(const OUString& input) {
     /* Prepare replace of ABOVE/BELOW/LEFT/RIGHT by adding spaces around them */
     icu::RegexMatcher rmatch6("\\b(ABOVE|BELOW|LEFT|RIGHT)\\b", usInput, rMatcherFlags, status);
     usInput = rmatch6.replaceAll(icu::UnicodeString(" $1 "), status);
+
+    /* DOCX allows to set decimal symbol independently from the locale of the document, so if
+     * needed, convert decimal comma to get working formula in a document language (locale),
+     * which doesn't use decimal comma */
+    if ( m_pSettingsTable->GetDecimalSymbol() == "," && !m_bIsDecimalComma )
+    {
+        icu::RegexMatcher rmatch7("\\b([0-9]+),([0-9]+([eE][-]?[0-9]+)?)\\b", usInput, rMatcherFlags, status);
+        usInput = rmatch7.replaceAll(icu::UnicodeString("$1.$2"), status);
+    }
 
     return OUString(usInput.getTerminatedBuffer());
 }

@@ -3130,6 +3130,25 @@ bool GtkSalFrame::DrawingAreaButton(SalEvent nEventType, int nEventX, int nEvent
 }
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
+
+void GtkSalFrame::UpdateGeometryFromEvent(int x_root, int y_root, int nEventX, int nEventY)
+{
+    //tdf#151509 don't overwrite geometry for system children
+    if (m_nStyle & SalFrameStyleFlags::SYSTEMCHILD)
+        return;
+
+    int frame_x = x_root - nEventX;
+    int frame_y = y_root - nEventY;
+    if (m_bGeometryIsProvisional || frame_x != maGeometry.x() || frame_y != maGeometry.y())
+    {
+        m_bGeometryIsProvisional = false;
+        maGeometry.setPos({ frame_x, frame_y });
+        ImplSVData* pSVData = ImplGetSVData();
+        if (pSVData->maNWFData.mbCanDetermineWindowPosition)
+            CallCallbackExc(SalEvent::Move, nullptr);
+    }
+}
+
 gboolean GtkSalFrame::signalButton(GtkWidget*, GdkEventButton* pEvent, gpointer frame)
 {
     GtkSalFrame* pThis = static_cast<GtkSalFrame*>(frame);
@@ -3187,25 +3206,14 @@ gboolean GtkSalFrame::signalButton(GtkWidget*, GdkEventButton* pEvent, gpointer 
         translate_coords(pEvent->window, pEventWidget, nEventX, nEventY);
 
     if (!aDel.isDeleted())
-    {
-        int frame_x = static_cast<int>(pEvent->x_root - nEventX);
-        int frame_y = static_cast<int>(pEvent->y_root - nEventY);
-        if (pThis->m_bGeometryIsProvisional || frame_x != pThis->maGeometry.x() || frame_y != pThis->maGeometry.y())
-        {
-            pThis->m_bGeometryIsProvisional = false;
-            pThis->maGeometry.setPos({ frame_x, frame_y });
-            ImplSVData* pSVData = ImplGetSVData();
-            if (pSVData->maNWFData.mbCanDetermineWindowPosition)
-                pThis->CallCallbackExc(SalEvent::Move, nullptr);
-        }
-    }
+        pThis->UpdateGeometryFromEvent(pEvent->x_root, pEvent->y_root, nEventX, nEventY);
 
     bool bRet = false;
     if (!aDel.isDeleted())
     {
         bRet = pThis->DrawingAreaButton(nEventType,
-                                        pEvent->x_root - pThis->maGeometry.x(),
-                                        pEvent->y_root - pThis->maGeometry.y(),
+                                        nEventX,
+                                        nEventY,
                                         pEvent->button,
                                         pEvent->time,
                                         pEvent->state);
@@ -3264,7 +3272,7 @@ void GtkSalFrame::DrawingAreaScroll(double delta_x, double delta_y, int nEventX,
     aEvent.mnY = nEventY;
     aEvent.mnCode = GetMouseModCode(nState);
 
-    // rhbz#1344042 "Traditionally" in gtk3 we tool a single up/down event as
+    // rhbz#1344042 "Traditionally" in gtk3 we took a single up/down event as
     // equating to 3 scroll lines and a delta of 120. So scale the delta here
     // by 120 where a single mouse wheel click is an incoming delta_x of 1
     // and divide that by 40 to get the number of scroll lines
@@ -3501,24 +3509,10 @@ gboolean GtkSalFrame::signalMotion( GtkWidget*, GdkEventMotion* pEvent, gpointer
     if (bDifferentEventWindow)
         translate_coords(pEvent->window, pEventWidget, nEventX, nEventY);
 
-    int frame_x = static_cast<int>(pEvent->x_root - nEventX);
-    int frame_y = static_cast<int>(pEvent->y_root - nEventY);
-
-    if (pThis->m_bGeometryIsProvisional || frame_x != pThis->maGeometry.x() || frame_y != pThis->maGeometry.y())
-    {
-        pThis->m_bGeometryIsProvisional = false;
-        pThis->maGeometry.setPos({ frame_x, frame_y });
-        ImplSVData* pSVData = ImplGetSVData();
-        if (pSVData->maNWFData.mbCanDetermineWindowPosition)
-            pThis->CallCallbackExc(SalEvent::Move, nullptr);
-    }
+    pThis->UpdateGeometryFromEvent(pEvent->x_root, pEvent->y_root, nEventX, nEventY);
 
     if (!aDel.isDeleted())
-    {
-        pThis->DrawingAreaMotion(pEvent->x_root - pThis->maGeometry.x(),
-                                 pEvent->y_root - pThis->maGeometry.y(),
-                                 pEvent->time, pEvent->state);
-    }
+        pThis->DrawingAreaMotion(nEventX, nEventY, pEvent->time, pEvent->state);
 
     if (!aDel.isDeleted())
     {
@@ -3570,8 +3564,8 @@ gboolean GtkSalFrame::signalCrossing( GtkWidget*, GdkEventCrossing* pEvent, gpoi
 {
     GtkSalFrame* pThis = static_cast<GtkSalFrame*>(frame);
     pThis->DrawingAreaCrossing((pEvent->type == GDK_ENTER_NOTIFY) ? SalEvent::MouseMove : SalEvent::MouseLeave,
-                               pEvent->x_root - pThis->maGeometry.x(),
-                               pEvent->y_root - pThis->maGeometry.y(),
+                               pEvent->x,
+                               pEvent->y,
                                pEvent->time,
                                pEvent->state);
     return true;
@@ -3726,7 +3720,12 @@ void GtkSalFrame::signalRealize(GtkWidget*, gpointer frame)
 
     tools::Rectangle aFloatRect = FloatingWindow::ImplConvertToAbsPos(pVclParent, pThis->m_aFloatRect);
     if (gdk_window_get_window_type(widget_get_surface(pThis->m_pParent->m_pWindow)) != GDK_WINDOW_TOPLEVEL)
-        aFloatRect.Move(-pThis->m_pParent->maGeometry.x(), -pThis->m_pParent->maGeometry.y());
+    {
+        // See tdf#152155 for an example
+        gtk_coord nX(0), nY(0.0);
+        gtk_widget_translate_coordinates(pThis->m_pParent->m_pWindow, widget_get_toplevel(pThis->m_pParent->m_pWindow), 0, 0, &nX, &nY);
+        aFloatRect.Move(nX, nY);
+    }
 
     GdkRectangle rect {static_cast<int>(aFloatRect.Left()), static_cast<int>(aFloatRect.Top()),
                        static_cast<int>(aFloatRect.GetWidth()), static_cast<int>(aFloatRect.GetHeight())};
@@ -5712,8 +5711,21 @@ OUString GtkSalFrame::GetPreeditDetails(GtkIMContext* pIMContext, std::vector<Ex
                     rCursorFlags |= EXTTEXTINPUT_CURSOR_INVISIBLE;
                     break;
                 case PANGO_ATTR_UNDERLINE:
-                    sal_attr |= ExtTextInputAttr::Underline;
+                {
+                    PangoAttrInt* pango_underline = reinterpret_cast<PangoAttrInt*>(pango_attr);
+                    switch (pango_underline->value)
+                    {
+                        case PANGO_UNDERLINE_NONE:
+                            break;
+                        case PANGO_UNDERLINE_DOUBLE:
+                            sal_attr |= ExtTextInputAttr::DoubleUnderline;
+                            break;
+                        default:
+                            sal_attr |= ExtTextInputAttr::Underline;
+                            break;
+                    }
                     break;
+                }
                 case PANGO_ATTR_STRIKETHROUGH:
                     sal_attr |= ExtTextInputAttr::RedText;
                     break;
@@ -5723,7 +5735,7 @@ OUString GtkSalFrame::GetPreeditDetails(GtkIMContext* pIMContext, std::vector<Ex
             pango_attribute_destroy (pango_attr);
             tmp_list = tmp_list->next;
         }
-        if (sal_attr == ExtTextInputAttr::NONE)
+        if (!attr_list)
             sal_attr |= ExtTextInputAttr::Underline;
         g_slist_free (attr_list);
 

@@ -357,6 +357,16 @@ ErrCode ImpEditEngine::WriteRTF( SvStream& rOutput, EditSelection aSel )
         rOutput.WriteUInt32AsString( nVal );
 
         rtl_TextEncoding eChrSet = pFontItem->GetCharSet();
+        // tdf#47679 OpenSymbol is not encoded in Symbol Encoding
+        // and anyway we always attempt to write as eDestEnc
+        // of RTL_TEXTENCODING_MS_1252 and pay no attention
+        // on export what encoding we claim to use for these
+        // fonts.
+        if (IsOpenSymbol(pFontItem->GetFamilyName()))
+        {
+            SAL_WARN_IF(eChrSet == RTL_TEXTENCODING_SYMBOL, "editeng", "OpenSymbol should not have charset of RTL_TEXTENCODING_SYMBOL in new documents");
+            eChrSet = RTL_TEXTENCODING_UTF8;
+        }
         DBG_ASSERT( eChrSet != 9, "SystemCharSet?!" );
         if( RTL_TEXTENCODING_DONTKNOW == eChrSet )
             eChrSet = osl_getThreadTextEncoding();
@@ -1083,7 +1093,7 @@ std::unique_ptr<EditTextObject> ImpEditEngine::CreateTextObject( EditSelection a
     // sleeper set up when Olli paragraphs not hacked!
     if ( bAllowBigObjects && bOnlyFullParagraphs && IsFormatted() && IsUpdateLayout() && ( nTextPortions >= nBigObjectStart ) )
     {
-        XParaPortionList* pXList = new XParaPortionList( GetRefDevice(), GetColumnWidth(aPaperSize), nStretchX, nStretchY );
+        XParaPortionList* pXList = new XParaPortionList( GetRefDevice(), GetColumnWidth(aPaperSize), mnStretchX, mnStretchY );
         pTxtObj->SetPortionInfo(std::unique_ptr<XParaPortionList>(pXList));
         for ( nNode = nStartNode; nNode <= nEndNode; nNode++  )
         {
@@ -1169,8 +1179,8 @@ EditSelection ImpEditEngine::InsertTextObject( const EditTextObject& rTextObject
 
     if ( pPortionInfo && ( static_cast<tools::Long>(pPortionInfo->GetPaperWidth()) == GetColumnWidth(aPaperSize) )
             && ( pPortionInfo->GetRefMapMode() == GetRefDevice()->GetMapMode() )
-            && ( pPortionInfo->GetStretchX() == nStretchX )
-            && ( pPortionInfo->GetStretchY() == nStretchY ) )
+            && ( pPortionInfo->GetStretchX() == mnStretchX)
+            && ( pPortionInfo->GetStretchY() == mnStretchY))
     {
         if ( (pPortionInfo->GetRefDevPtr() == GetRefDevice()) ||
              (pPortionInfo->RefDevIsVirtual() && GetRefDevice()->IsVirtual()) )

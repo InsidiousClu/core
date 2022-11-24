@@ -21,6 +21,7 @@
 #include <com/sun/star/text/TextContentAnchorType.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
+#include <com/sun/star/util/XCloseable.hpp>
 
 #include <vcl/scheduler.hxx>
 #include <vcl/svapp.hxx>
@@ -117,28 +118,27 @@ public:
         comphelper::LibreOfficeKit::setActive(true);
 
         UnoApiTest::setUp();
-        mxDesktop.set(frame::Desktop::create(comphelper::getComponentContext(getMultiServiceFactory())));
-        SfxApplication::GetOrCreate();
     }
 
     virtual void tearDown() override
     {
         closeDoc();
 
-        UnoApiTest::tearDown();
+        // documents are already closed, no need to call UnoApiTest::tearDown
+        test::BootstrapFixture::tearDown();
 
         comphelper::LibreOfficeKit::setActive(false);
     }
 
-    std::pair<std::unique_ptr<LibLODocument_Impl>, uno::Reference<lang::XComponent>>
+    std::unique_ptr<LibLODocument_Impl>
     loadDocImpl(const char* pName, LibreOfficeKitDocumentType eType);
 
 private:
-    std::pair<std::unique_ptr<LibLODocument_Impl>, uno::Reference<lang::XComponent>>
+    std::unique_ptr<LibLODocument_Impl>
     loadDocImpl(const char* pName);
 
 public:
-    std::pair<std::unique_ptr<LibLODocument_Impl>, uno::Reference<lang::XComponent>>
+    std::unique_ptr<LibLODocument_Impl>
     loadDocUrlImpl(const OUString& rFileURL, LibreOfficeKitDocumentType eType);
 
     LibLODocument_Impl* loadDocUrl(const OUString& rFileURL, LibreOfficeKitDocumentType eType);
@@ -148,9 +148,8 @@ public:
         return loadDoc(pName, getDocumentTypeFromName(pName));
     }
 
-    void closeDoc(std::unique_ptr<LibLODocument_Impl>& loDocument,
-                  uno::Reference<lang::XComponent>& xComponent);
-    void closeDoc() { closeDoc(m_pDocument, mxComponent); }
+    void closeDoc(std::unique_ptr<LibLODocument_Impl>& loDocument);
+    void closeDoc() { closeDoc(m_pDocument); }
     static void callback(int nType, const char* pPayload, void* pData);
     void callbackImpl(int nType, const char* pPayload);
 
@@ -292,7 +291,6 @@ public:
     CPPUNIT_TEST(testABI);
     CPPUNIT_TEST_SUITE_END();
 
-    uno::Reference<lang::XComponent> mxComponent;
     OString m_aTextSelection;
     OString m_aTextSelectionStart;
     OString m_aTextSelectionEnd;
@@ -341,7 +339,7 @@ static Control* GetFocusControl(vcl::Window const * pParent)
     return nullptr;
 }
 
-std::pair<std::unique_ptr<LibLODocument_Impl>, uno::Reference<lang::XComponent>>
+std::unique_ptr<LibLODocument_Impl>
 DesktopLOKTest::loadDocUrlImpl(const OUString& rFileURL, LibreOfficeKitDocumentType eType)
 {
     OUString aService;
@@ -363,23 +361,22 @@ DesktopLOKTest::loadDocUrlImpl(const OUString& rFileURL, LibreOfficeKitDocumentT
 
     static int nDocumentIdCounter = 0;
     SfxViewShell::SetCurrentDocId(ViewShellDocId(nDocumentIdCounter));
-    uno::Reference<lang::XComponent> xComponent = loadFromDesktop(rFileURL, aService);
+    mxComponent = loadFromDesktop(rFileURL, aService);
 
-    std::unique_ptr<LibLODocument_Impl> pDocument(new LibLODocument_Impl(xComponent, nDocumentIdCounter));
+    std::unique_ptr<LibLODocument_Impl> pDocument(new LibLODocument_Impl(mxComponent, nDocumentIdCounter));
     ++nDocumentIdCounter;
 
-    return std::make_pair(std::move(pDocument), xComponent);
+    return pDocument;
 }
 
-std::pair<std::unique_ptr<LibLODocument_Impl>, uno::Reference<lang::XComponent>>
+std::unique_ptr<LibLODocument_Impl>
 DesktopLOKTest::loadDocImpl(const char* pName, LibreOfficeKitDocumentType eType)
 {
-    OUString aFileURL;
-    createFileURL(OUString::createFromAscii(pName), aFileURL);
+    OUString aFileURL = createFileURL(OUString::createFromAscii(pName));
     return loadDocUrlImpl(aFileURL, eType);
 }
 
-std::pair<std::unique_ptr<LibLODocument_Impl>, uno::Reference<lang::XComponent>>
+std::unique_ptr<LibLODocument_Impl>
 DesktopLOKTest::loadDocImpl(const char* pName)
 {
     return loadDocImpl(pName, getDocumentTypeFromName(pName));
@@ -387,18 +384,17 @@ DesktopLOKTest::loadDocImpl(const char* pName)
 
 LibLODocument_Impl* DesktopLOKTest::loadDocUrl(const OUString& rFileURL, LibreOfficeKitDocumentType eType)
 {
-    std::tie(m_pDocument, mxComponent) = loadDocUrlImpl(rFileURL, eType);
+    m_pDocument = loadDocUrlImpl(rFileURL, eType);
     return m_pDocument.get();
 }
 
 LibLODocument_Impl* DesktopLOKTest::loadDoc(const char* pName, LibreOfficeKitDocumentType eType)
 {
-    std::tie(m_pDocument, mxComponent) = loadDocImpl(pName, eType);
+    m_pDocument = loadDocImpl(pName, eType);
     return m_pDocument.get();
 }
 
-void DesktopLOKTest::closeDoc(std::unique_ptr<LibLODocument_Impl>& pDocument,
-                              uno::Reference<lang::XComponent>& xComponent)
+void DesktopLOKTest::closeDoc(std::unique_ptr<LibLODocument_Impl>& pDocument)
 {
     if (pDocument)
     {
@@ -406,10 +402,11 @@ void DesktopLOKTest::closeDoc(std::unique_ptr<LibLODocument_Impl>& pDocument,
         pDocument.reset();
     }
 
-    if (xComponent.is())
+    if (mxComponent.is())
     {
-        closeDocument(xComponent);
-        xComponent.clear();
+        css::uno::Reference<util::XCloseable> xCloseable(mxComponent, css::uno::UNO_QUERY_THROW);
+        xCloseable->close(false);
+        mxComponent.clear();
     }
 }
 
@@ -678,9 +675,7 @@ void DesktopLOKTest::testPaintTile()
 void DesktopLOKTest::testSaveAs()
 {
     LibLODocument_Impl* pDocument = loadDoc("blank_text.odt");
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "png", nullptr));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "png", nullptr));
 }
 
 void DesktopLOKTest::testSaveAsJsonOptions()
@@ -689,21 +684,12 @@ void DesktopLOKTest::testSaveAsJsonOptions()
     LibLODocument_Impl* pDocument = loadDoc("3page.odg");
 
     // When exporting that document to PDF, skipping the first page:
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
     OString aOptions("{\"PageRange\":{\"type\":\"string\",\"value\":\"2-\"}}");
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "pdf", aOptions.getStr()));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "pdf", aOptions.getStr()));
 
     // Then make sure the resulting PDF has 2 pages:
-    SvFileStream aFile(aTempFile.GetURL(), StreamMode::READ);
-    SvMemoryStream aMemory;
-    aMemory.WriteStream(aFile);
-    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
-    if (!pPDFium)
-        return;
     std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument
-        = pPDFium->openDocument(aMemory.GetData(), aMemory.GetSize(), OString());
-    CPPUNIT_ASSERT(pPdfDocument);
+        = parsePDFExport();
     // Without the accompanying fix in place, this test would have failed with:
     // - Expected: 2
     // - Actual  : 3
@@ -714,9 +700,7 @@ void DesktopLOKTest::testSaveAsJsonOptions()
 void DesktopLOKTest::testSaveAsCalc()
 {
     LibLODocument_Impl* pDocument = loadDoc("search.ods");
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "png", nullptr));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "png", nullptr));
 }
 
 void DesktopLOKTest::testPasteWriter()
@@ -760,8 +744,7 @@ void DesktopLOKTest::testPasteWriterJPEG()
 {
     LibLODocument_Impl* pDocument = loadDoc("blank_text.odt");
 
-    OUString aFileURL;
-    createFileURL(u"paste.jpg", aFileURL);
+    OUString aFileURL = createFileURL(u"paste.jpg");
     std::ifstream aImageStream(aFileURL.toUtf8().copy(strlen("file://")).getStr());
     std::vector<char> aImageContents((std::istreambuf_iterator<char>(aImageStream)), std::istreambuf_iterator<char>());
 
@@ -1792,11 +1775,11 @@ void DesktopLOKTest::testTileInvalidationCompression()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-100, -50, 500, 650, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "100, 100, 200, 200, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-100, -50, 500, 650, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "100, 100, 200, 200, 0, 0");
 
         Scheduler::ProcessEventsToIdle();
 
@@ -1804,7 +1787,7 @@ void DesktopLOKTest::testTileInvalidationCompression()
 
         size_t i = 0;
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 400, 600, 0"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 400, 600, 0, 0"), std::get<1>(notifs[i++]));
     }
 
     // Part Number
@@ -1813,11 +1796,11 @@ void DesktopLOKTest::testTileInvalidationCompression()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 1"); // Different part
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 0, 0, 2"); // Invalid
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-121, -121, 200, 200, 0"); // Inside first
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, 1"); // Invalid
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 1, 0"); // Different part
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 0, 0, 2, 0"); // Invalid
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-121, -121, 200, 200, 0, 0"); // Inside first
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, 1, 0"); // Invalid
 
         Scheduler::ProcessEventsToIdle();
 
@@ -1825,10 +1808,10 @@ void DesktopLOKTest::testTileInvalidationCompression()
 
         size_t i = 0;
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 200, 200, 1"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 200, 200, 1, 0"), std::get<1>(notifs[i++]));
 
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 239, 239, 0"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 239, 239, 0, 0"), std::get<1>(notifs[i++]));
     }
 
     // All Parts
@@ -1837,14 +1820,14 @@ void DesktopLOKTest::testTileInvalidationCompression()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0"); // 0
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 1"); // 1: Different part
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 0, 0, -1"); // Invalid
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-121, -121, 200, 200, -1"); // 0: All parts
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, -1"); // Invalid
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-100, -100, 1200, 1200, -1"); // 0: All parts
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 3"); // Overlapped
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "1000, 1000, 1239, 1239, 2"); // 1: Unique region
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0, 0"); // 0
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 1, 0"); // 1: Different part
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 0, 0, -1, 0"); // Invalid
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-121, -121, 200, 200, -1, 0"); // 0: All parts
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, -1, 0"); // Invalid
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-100, -100, 1200, 1200, -1, 0"); // 0: All parts
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 3, 0"); // Overlapped
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "1000, 1000, 1239, 1239, 2, 0"); // 1: Unique region
 
         Scheduler::ProcessEventsToIdle();
 
@@ -1852,10 +1835,10 @@ void DesktopLOKTest::testTileInvalidationCompression()
 
         size_t i = 0;
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 1100, 1100, -1"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 1100, 1100, -1, 0"), std::get<1>(notifs[i++]));
 
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("1000, 1000, 1239, 1239, 2"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("1000, 1000, 1239, 1239, 2, 0"), std::get<1>(notifs[i++]));
     }
 
     // All Parts (partial)
@@ -1864,14 +1847,14 @@ void DesktopLOKTest::testTileInvalidationCompression()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 0"); // 0
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 100, 100, 1"); // 1: Different part
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 0, 0, -1"); // Invalid
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "150, 150, 50, 50, -1"); // 2: All-parts
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, -1"); // Invalid
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "150, 150, 40, 40, 3"); // Overlapped w/ 2
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 4"); // 3: Unique
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "1000, 1000, 1239, 1239, 1"); // 4: Unique
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 0, 0"); // 0
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 100, 100, 1, 0"); // 1: Different part
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 0, 0, -1, 0"); // Invalid
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "150, 150, 50, 50, -1, 0"); // 2: All-parts
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, -1, 0"); // Invalid
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "150, 150, 40, 40, 3, 0"); // Overlapped w/ 2
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 200, 200, 4, 0"); // 3: Unique
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "1000, 1000, 1239, 1239, 1, 0"); // 4: Unique
 
         Scheduler::ProcessEventsToIdle();
 
@@ -1879,19 +1862,19 @@ void DesktopLOKTest::testTileInvalidationCompression()
 
         size_t i = 0;
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 200, 200, 0"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 200, 200, 0, 0"), std::get<1>(notifs[i++]));
 
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 100, 100, 1"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 100, 100, 1, 0"), std::get<1>(notifs[i++]));
 
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("150, 150, 50, 50, -1"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("150, 150, 50, 50, -1, 0"), std::get<1>(notifs[i++]));
 
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 200, 200, 4"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("0, 0, 200, 200, 4, 0"), std::get<1>(notifs[i++]));
 
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("1000, 1000, 1239, 1239, 1"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("1000, 1000, 1239, 1239, 1, 0"), std::get<1>(notifs[i++]));
     }
 
     // Merge with "EMPTY"
@@ -1900,11 +1883,11 @@ void DesktopLOKTest::testTileInvalidationCompression()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "EMPTY, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 240, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-121, -121, 300, 300, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 239, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "EMPTY, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, 239, 240, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "-121, -121, 300, 300, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "0, 0, -32767, -32767, 0, 0");
 
         Scheduler::ProcessEventsToIdle();
 
@@ -1912,7 +1895,7 @@ void DesktopLOKTest::testTileInvalidationCompression()
 
         size_t i = 0;
         CPPUNIT_ASSERT_EQUAL(int(LOK_CALLBACK_INVALIDATE_TILES), std::get<0>(notifs[i]));
-        CPPUNIT_ASSERT_EQUAL(std::string("EMPTY, 0"), std::get<1>(notifs[i++]));
+        CPPUNIT_ASSERT_EQUAL(std::string("EMPTY, 0, 0"), std::get<1>(notifs[i++]));
     }
 }
 
@@ -1961,8 +1944,8 @@ void DesktopLOKTest::testPartInInvalidation()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "10, 10, 20, 10, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "20, 10, 20, 10, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "10, 10, 20, 10, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "20, 10, 20, 10, 0, 0");
 
         Scheduler::ProcessEventsToIdle();
 
@@ -1980,8 +1963,8 @@ void DesktopLOKTest::testPartInInvalidation()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackCompressionTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "10, 10, 20, 10, 0");
-        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "20, 10, 20, 10, 1");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "10, 10, 20, 10, 0, 0");
+        handler->queue(LOK_CALLBACK_INVALIDATE_TILES, "20, 10, 20, 10, 1, 0");
 
         Scheduler::ProcessEventsToIdle();
 
@@ -2022,7 +2005,7 @@ void DesktopLOKTest::testBinaryCallback()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackBinaryCallbackTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->libreOfficeKitViewInvalidateTilesCallback(&rect1, INT_MIN);
+        handler->libreOfficeKitViewInvalidateTilesCallback(&rect1, INT_MIN, 0);
 
         Scheduler::ProcessEventsToIdle();
 
@@ -2036,7 +2019,7 @@ void DesktopLOKTest::testBinaryCallback()
         std::unique_ptr<CallbackFlushHandler> handler(new CallbackFlushHandler(pDocument, callbackBinaryCallbackTest, &notifs));
         handler->setViewId(SfxLokHelper::getView());
 
-        handler->libreOfficeKitViewInvalidateTilesCallback(nullptr, INT_MIN);
+        handler->libreOfficeKitViewInvalidateTilesCallback(nullptr, INT_MIN, 0);
 
         Scheduler::ProcessEventsToIdle();
 
@@ -2048,7 +2031,6 @@ void DesktopLOKTest::testBinaryCallback()
 
 void DesktopLOKTest::testDialogInput()
 {
-    comphelper::LibreOfficeKit::setActive();
     LibLODocument_Impl* pDocument = loadDoc("blank_text.odt");
     pDocument->pClass->postUnoCommand(pDocument, ".uno:HyperlinkDialog", nullptr, false);
     Scheduler::ProcessEventsToIdle();
@@ -2293,7 +2275,7 @@ void DesktopLOKTest::testPaintPartTile()
 
     // Call paintPartTile() to paint the second part (in whichever view it finds suitable for this).
     unsigned char pPixels[256 * 256 * 4];
-    pDocument->m_pDocumentClass->paintPartTile(pDocument, pPixels, 1, 256, 256, 0, 0, 256, 256);
+    pDocument->m_pDocumentClass->paintPartTile(pDocument, pPixels, 1, 0, 256, 256, 0, 0, 256, 256);
 
     // Type again.
     Scheduler::ProcessEventsToIdle();
@@ -2678,8 +2660,7 @@ void DesktopLOKTest::testExtractParameter()
 void DesktopLOKTest::readFileIntoByteVector(std::u16string_view sFilename, std::vector<unsigned char> & rByteVector)
 {
     rByteVector.clear();
-    OUString aURL;
-    createFileURL(sFilename, aURL);
+    OUString aURL = createFileURL(sFilename);
     SvFileStream aStream(aURL, StreamMode::READ);
     rByteVector.resize(aStream.remainingSize());
     aStream.ReadBytes(rByteVector.data(), aStream.remainingSize());
@@ -2731,12 +2712,10 @@ void DesktopLOKTest::testInsertCertificate_DER_ODT()
 {
     // Load the document, save it into a temp file and load that file again
     LibLODocument_Impl* pDocument = loadDoc("blank_text.odt");
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "odt", nullptr));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "odt", nullptr));
     closeDoc();
 
-    pDocument = loadDocUrl(aTempFile.GetURL(), LOK_DOCTYPE_TEXT);
+    pDocument = loadDocUrl(maTempFile.GetURL(), LOK_DOCTYPE_TEXT);
 
     Scheduler::ProcessEventsToIdle();
     CPPUNIT_ASSERT(mxComponent.is());
@@ -2781,12 +2760,10 @@ void DesktopLOKTest::testInsertCertificate_PEM_ODT()
 {
     // Load the document, save it into a temp file and load that file again
     LibLODocument_Impl* pDocument = loadDoc("blank_text.odt");
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "odt", nullptr));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "odt", nullptr));
     closeDoc();
 
-    pDocument = loadDocUrl(aTempFile.GetURL(), LOK_DOCTYPE_TEXT);
+    pDocument = loadDocUrl(maTempFile.GetURL(), LOK_DOCTYPE_TEXT);
 
     Scheduler::ProcessEventsToIdle();
     CPPUNIT_ASSERT(mxComponent.is());
@@ -2838,12 +2815,10 @@ void DesktopLOKTest::testInsertCertificate_PEM_DOCX()
 {
     // Load the document, save it into a temp file and load that file again
     LibLODocument_Impl* pDocument = loadDoc("blank_text.docx");
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "docx", nullptr));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "docx", nullptr));
     closeDoc();
 
-    pDocument = loadDocUrl(aTempFile.GetURL(), LOK_DOCTYPE_TEXT);
+    pDocument = loadDocUrl(maTempFile.GetURL(), LOK_DOCTYPE_TEXT);
 
     Scheduler::ProcessEventsToIdle();
     CPPUNIT_ASSERT(mxComponent.is());
@@ -2895,8 +2870,6 @@ void DesktopLOKTest::testSignDocument_PEM_PDF()
 {
     // Load the document, save it into a temp file and load that file again
     LibLODocument_Impl* pDocument = loadDoc("blank_text.odt");
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
 
     Scheduler::ProcessEventsToIdle();
     CPPUNIT_ASSERT(mxComponent.is());
@@ -2930,7 +2903,7 @@ void DesktopLOKTest::testSignDocument_PEM_PDF()
         CPPUNIT_ASSERT(bResult);
     }
 
-    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "pdf", nullptr));
+    CPPUNIT_ASSERT(pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "pdf", nullptr));
 
     closeDoc();
 
@@ -2940,7 +2913,7 @@ void DesktopLOKTest::testSignDocument_PEM_PDF()
     readFileIntoByteVector(u"test-PK-signing.pem", aPrivateKey);
 
     LibLibreOffice_Impl aOffice;
-    bool bResult = aOffice.m_pOfficeClass->signDocument(&aOffice, aTempFile.GetURL().toUtf8().getStr(),
+    bool bResult = aOffice.m_pOfficeClass->signDocument(&aOffice, maTempFile.GetURL().toUtf8().getStr(),
                                          aCertificate.data(), int(aCertificate.size()),
                                          aPrivateKey.data(), int(aPrivateKey.size()));
 
@@ -3056,8 +3029,7 @@ void DesktopLOKTest::testComplexSelection()
                                                                  "", nullptr, nullptr));
 
     // Paste an image.
-    OUString aFileURL;
-    createFileURL(u"paste.jpg", aFileURL);
+    OUString aFileURL = createFileURL(u"paste.jpg");
     std::ifstream aImageStream(aFileURL.toUtf8().copy(strlen("file://")).getStr());
     std::vector<char> aImageContents((std::istreambuf_iterator<char>(aImageStream)), std::istreambuf_iterator<char>());
     CPPUNIT_ASSERT(pDocument->pClass->paste(pDocument, "image/jpeg", aImageContents.data(), aImageContents.size()));
@@ -3094,8 +3066,6 @@ void DesktopLOKTest::testComplexSelection()
 
 void DesktopLOKTest::testCalcSaveAs()
 {
-    comphelper::LibreOfficeKit::setActive();
-
     LibLODocument_Impl* pDocument = loadDoc("sheets.ods");
     CPPUNIT_ASSERT(pDocument);
 
@@ -3105,13 +3075,11 @@ void DesktopLOKTest::testCalcSaveAs()
     Scheduler::ProcessEventsToIdle();
 
     // Save as a new file.
-    utl::TempFileNamed aTempFile;
-    aTempFile.EnableKillingFile();
-    pDocument->pClass->saveAs(pDocument, aTempFile.GetURL().toUtf8().getStr(), "ods", nullptr);
+    pDocument->pClass->saveAs(pDocument, maTempFile.GetURL().toUtf8().getStr(), "ods", nullptr);
     closeDoc();
 
     // Load the new document and verify that the in-flight changes are saved.
-    pDocument = loadDocUrl(aTempFile.GetURL(), LOK_DOCTYPE_SPREADSHEET);
+    pDocument = loadDocUrl(maTempFile.GetURL(), LOK_DOCTYPE_SPREADSHEET);
     CPPUNIT_ASSERT(pDocument);
 
     ViewCallback aView(pDocument);
@@ -3181,9 +3149,7 @@ void DesktopLOKTest::testMultiDocuments()
     for (int i = 0; i < 3; i++)
     {
         // Load a document.
-        uno::Reference<lang::XComponent> xComponent1;
-        std::unique_ptr<LibLODocument_Impl> document1;
-        std::tie(document1, xComponent1) = loadDocImpl("blank_text.odt");
+        std::unique_ptr<LibLODocument_Impl> document1 = loadDocImpl("blank_text.odt");
         LibLODocument_Impl* pDocument1 = document1.get();
         CPPUNIT_ASSERT_EQUAL(1, pDocument1->m_pDocumentClass->getViewsCount(pDocument1));
         const int nDocId1 = pDocument1->mnDocumentId;
@@ -3212,9 +3178,7 @@ void DesktopLOKTest::testMultiDocuments()
         CPPUNIT_ASSERT_EQUAL(2, pDocument1->m_pDocumentClass->getViewsCount(pDocument1));
 
         // Load another document.
-        uno::Reference<lang::XComponent> xComponent2;
-        std::unique_ptr<LibLODocument_Impl> document2;
-        std::tie(document2, xComponent2) = loadDocImpl("blank_presentation.odp");
+        std::unique_ptr<LibLODocument_Impl> document2 = loadDocImpl("blank_presentation.odp");
         LibLODocument_Impl* pDocument2 = document2.get();
         CPPUNIT_ASSERT_EQUAL(1, pDocument2->m_pDocumentClass->getViewsCount(pDocument2));
         const int nDocId2 = pDocument2->mnDocumentId;
@@ -3266,9 +3230,9 @@ void DesktopLOKTest::testMultiDocuments()
         pDocument2->m_pDocumentClass->destroyView(pDocument2, nDoc2View1);
         CPPUNIT_ASSERT_EQUAL(1, pDocument2->m_pDocumentClass->getViewsCount(pDocument2));
 
-        closeDoc(document2, xComponent2);
+        closeDoc(document2);
 
-        closeDoc(document1, xComponent1);
+        closeDoc(document1);
     }
 }
 
@@ -3463,7 +3427,6 @@ static void lcl_repeatKeyStroke(LibLODocument_Impl *pDocument, int nCharCode, in
 
 void DesktopLOKTest::testNoDuplicateTableSelection()
 {
-    comphelper::LibreOfficeKit::setActive();
     LibLODocument_Impl* pDocument = loadDoc("table-selection.odt");
 
     // Create view 1.
@@ -3497,7 +3460,6 @@ void DesktopLOKTest::testNoDuplicateTableSelection()
 
 void DesktopLOKTest::testMultiViewTableSelection()
 {
-    comphelper::LibreOfficeKit::setActive();
     LibLODocument_Impl* pDocument = loadDoc("table-selection.odt");
 
     // Create view 1.
@@ -3661,10 +3623,12 @@ void DesktopLOKTest::testABI()
     CPPUNIT_ASSERT_EQUAL(documentClassOffset(64),
                          offsetof(struct _LibreOfficeKitDocumentClass, sendContentControlEvent));
     CPPUNIT_ASSERT_EQUAL(documentClassOffset(65), offsetof(struct _LibreOfficeKitDocumentClass, getSelectionTypeAndText));
+    CPPUNIT_ASSERT_EQUAL(documentClassOffset(66), offsetof(struct _LibreOfficeKitDocumentClass, getDataArea));
+    CPPUNIT_ASSERT_EQUAL(documentClassOffset(67), offsetof(struct _LibreOfficeKitDocumentClass, getEditMode));
 
     // Extending is fine, update this, and add new assert for the offsetof the
     // new method
-    CPPUNIT_ASSERT_EQUAL(documentClassOffset(66), sizeof(struct _LibreOfficeKitDocumentClass));
+    CPPUNIT_ASSERT_EQUAL(documentClassOffset(68), sizeof(struct _LibreOfficeKitDocumentClass));
 }
 
 CPPUNIT_TEST_SUITE_REGISTRATION(DesktopLOKTest);

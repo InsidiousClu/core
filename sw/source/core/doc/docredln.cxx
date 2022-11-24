@@ -47,6 +47,8 @@
 #include <hints.hxx>
 #include <pamtyp.hxx>
 #include <poolfmt.hxx>
+#include <algorithm>
+#include <limits>
 #include <utility>
 #include <view.hxx>
 #include <viewopt.hxx>
@@ -477,9 +479,9 @@ bool SwRedlineTable::Insert(SwRangeRedline*& p, size_type& rP)
 
 namespace sw {
 
-std::vector<SwRangeRedline*> GetAllValidRanges(std::unique_ptr<SwRangeRedline> p)
+std::vector<std::unique_ptr<SwRangeRedline>> GetAllValidRanges(std::unique_ptr<SwRangeRedline> p)
 {
-    std::vector<SwRangeRedline*> ret;
+    std::vector<std::unique_ptr<SwRangeRedline>> ret;
     // Create valid "sub-ranges" from the Selection
     auto [pStt, pEnd] = p->StartEnd(); // SwPosition*
     SwPosition aNewStt( *pStt );
@@ -493,91 +495,87 @@ std::vector<SwRangeRedline*> GetAllValidRanges(std::unique_ptr<SwRangeRedline> p
             aNewStt.Assign(rNds.GetEndOfContent());
     }
 
-    SwRangeRedline* pNew = nullptr;
 
-    if( aNewStt < *pEnd )
-        do {
-            if( !pNew )
-                pNew = new SwRangeRedline( p->GetRedlineData(), aNewStt );
-            else
+    if( aNewStt >= *pEnd )
+        return ret;
+
+    std::unique_ptr<SwRangeRedline> pNew;
+    do {
+        if( !pNew )
+            pNew.reset(new SwRangeRedline( p->GetRedlineData(), aNewStt ));
+        else
+        {
+            pNew->DeleteMark();
+            *pNew->GetPoint() = aNewStt;
+        }
+
+        pNew->SetMark();
+        GoEndSection( pNew->GetPoint() );
+        // i60396: If the redlines starts before a table but the table is the last member
+        // of the section, the GoEndSection will end inside the table.
+        // This will result in an incorrect redline, so we've to go back
+        SwNode* pTab = pNew->GetPoint()->GetNode().StartOfSectionNode()->FindTableNode();
+        // We end in a table when pTab != 0
+        if( pTab && !pNew->GetMark()->GetNode().StartOfSectionNode()->FindTableNode() )
+        { // but our Mark was outside the table => Correction
+            do
             {
-                pNew->DeleteMark();
+                // We want to be before the table
+                pNew->GetPoint()->Assign(*pTab);
+                pC = GoPreviousPos( pNew->GetPoint(), false ); // here we are.
+                if( pC )
+                    pNew->GetPoint()->SetContent( 0 );
+                pTab = pNew->GetPoint()->GetNode().StartOfSectionNode()->FindTableNode();
+            } while( pTab ); // If there is another table we have to repeat our step backwards
+        }
+
+        if( *pNew->GetPoint() > *pEnd )
+        {
+            pC = nullptr;
+            if( aNewStt.GetNode() != pEnd->GetNode() )
+                do {
+                    SwNode& rCurNd = aNewStt.GetNode();
+                    if( rCurNd.IsStartNode() )
+                    {
+                        if( rCurNd.EndOfSectionIndex() < pEnd->GetNodeIndex() )
+                            aNewStt.Assign( *rCurNd.EndOfSectionNode() );
+                        else
+                            break;
+                    }
+                    else if( rCurNd.IsContentNode() )
+                        pC = rCurNd.GetContentNode();
+                    aNewStt.Adjust(SwNodeOffset(1));
+                } while( aNewStt.GetNodeIndex() < pEnd->GetNodeIndex() );
+
+            if( aNewStt.GetNode() == pEnd->GetNode() )
+                aNewStt.SetContent(pEnd->GetContentIndex());
+            else if( pC )
+            {
+                aNewStt.Assign(*pC, pC->Len() );
+            }
+
+            if( aNewStt <= *pEnd )
                 *pNew->GetPoint() = aNewStt;
-            }
-
-            pNew->SetMark();
-            GoEndSection( pNew->GetPoint() );
-            // i60396: If the redlines starts before a table but the table is the last member
-            // of the section, the GoEndSection will end inside the table.
-            // This will result in an incorrect redline, so we've to go back
-            SwNode* pTab = pNew->GetPoint()->GetNode().StartOfSectionNode()->FindTableNode();
-            // We end in a table when pTab != 0
-            if( pTab && !pNew->GetMark()->GetNode().StartOfSectionNode()->FindTableNode() )
-            { // but our Mark was outside the table => Correction
-                do
-                {
-                    // We want to be before the table
-                    pNew->GetPoint()->Assign(*pTab);
-                    pC = GoPreviousNds( &pNew->GetPoint()->nNode, false ); // here we are.
-                    if( pC )
-                        pNew->GetPoint()->nContent.Assign( pC, 0 );
-                    pTab = pNew->GetPoint()->GetNode().StartOfSectionNode()->FindTableNode();
-                } while( pTab ); // If there is another table we have to repeat our step backwards
-            }
-
-            if( *pNew->GetPoint() > *pEnd )
-            {
-                pC = nullptr;
-                if( aNewStt.GetNode() != pEnd->GetNode() )
-                    do {
-                        SwNode& rCurNd = aNewStt.GetNode();
-                        if( rCurNd.IsStartNode() )
-                        {
-                            if( rCurNd.EndOfSectionIndex() < pEnd->GetNodeIndex() )
-                                aNewStt.nNode = *rCurNd.EndOfSectionNode();
-                            else
-                                break;
-                        }
-                        else if( rCurNd.IsContentNode() )
-                            pC = rCurNd.GetContentNode();
-                        ++aNewStt.nNode;
-                    } while( aNewStt.GetNodeIndex() < pEnd->GetNodeIndex() );
-
-                if( aNewStt.GetNode() == pEnd->GetNode() )
-                    aNewStt.nContent = pEnd->nContent;
-                else if( pC )
-                {
-                    aNewStt.Assign(*pC, pC->Len() );
-                }
-
-                if( aNewStt <= *pEnd )
-                    *pNew->GetPoint() = aNewStt;
-            }
-            else
-                aNewStt = *pNew->GetPoint();
+        }
+        else
+            aNewStt = *pNew->GetPoint();
 #if OSL_DEBUG_LEVEL > 0
-            CheckPosition( pNew->GetPoint(), pNew->GetMark() );
+        CheckPosition( pNew->GetPoint(), pNew->GetMark() );
 #endif
 
-            if( *pNew->GetPoint() != *pNew->GetMark() &&
-                pNew->HasValidRange())
-            {
-                ret.push_back(pNew);
-                pNew = nullptr;
-            }
+        if( *pNew->GetPoint() != *pNew->GetMark() &&
+            pNew->HasValidRange())
+        {
+            ret.push_back(std::move(pNew));
+        }
 
-            if( aNewStt >= *pEnd )
-                break;
-            pC = rNds.GoNext( &aNewStt.nNode );
-            if( !pC )
-                break;
+        if( aNewStt >= *pEnd )
+            break;
+        pC = rNds.GoNext( &aNewStt );
+        if( !pC )
+            break;
+    } while( aNewStt < *pEnd );
 
-            aNewStt.nContent.Assign( pC, 0 );
-
-        } while( aNewStt < *pEnd );
-
-    delete pNew;
-    p.reset();
     return ret;
 }
 
@@ -586,15 +584,16 @@ std::vector<SwRangeRedline*> GetAllValidRanges(std::unique_ptr<SwRangeRedline> p
 bool SwRedlineTable::InsertWithValidRanges(SwRangeRedline*& p, size_type* pInsPos)
 {
     bool bAnyIns = false;
-    std::vector<SwRangeRedline*> const redlines(
+    std::vector<std::unique_ptr<SwRangeRedline>> redlines(
             GetAllValidRanges(std::unique_ptr<SwRangeRedline>(p)));
-    for (SwRangeRedline * pRedline : redlines)
+    for (std::unique_ptr<SwRangeRedline> & pRedline : redlines)
     {
         assert(pRedline->HasValidRange());
         size_type nInsPos;
-        if (Insert(pRedline, nInsPos))
+        auto pTmpRedline = pRedline.release();
+        if (Insert(pTmpRedline, nInsPos))
         {
-            pRedline->CallDisplayFunc(nInsPos);
+            pTmpRedline->CallDisplayFunc(nInsPos);
             bAnyIns = true;
             if (pInsPos && *pInsPos < nInsPos)
             {
@@ -911,19 +910,19 @@ void SwRedlineExtraData_FormatColl::Reject( SwPaM& rPam ) const
         // don't reject the format of the next paragraph (that is handled by the next redline)
         if (aPam.GetPoint()->GetNode() > aPam.GetMark()->GetNode())
         {
-            aPam.GetPoint()->nNode--;
+            aPam.GetPoint()->Adjust(SwNodeOffset(-1));
             SwContentNode* pNode = aPam.GetPoint()->GetNode().GetContentNode();
             if ( pNode )
-                aPam.GetPoint()->nContent.Assign( pNode, pNode->Len() );
+                aPam.GetPoint()->SetContent( pNode->Len() );
             else
                 // tdf#147507 set it back to a content node to avoid of crashing
-                aPam.GetPoint()->nNode++;
+                aPam.GetPoint()->Adjust(SwNodeOffset(+1));
         }
         else if (aPam.GetPoint()->GetNode() < aPam.GetMark()->GetNode())
         {
-            aPam.GetMark()->nNode--;
+            aPam.GetMark()->Adjust(SwNodeOffset(-1));
             SwContentNode* pNode = aPam.GetMark()->GetNode().GetContentNode();
-            aPam.GetMark()->nContent.Assign( pNode, pNode->Len() );
+            aPam.GetMark()->SetContent( pNode->Len() );
         }
     }
 
@@ -1048,16 +1047,24 @@ SwRedlineData::~SwRedlineData()
     delete m_pNext;
 }
 
+// Check whether the absolute difference between the two dates is no larger than one minute (can
+// give inaccurate results if at least one of the dates is not valid/normalized):
+static bool deltaOneMinute(DateTime const & t1, DateTime const & t2) {
+    auto const & [min, max] = std::minmax(t1, t2);
+    // Avoid overflow of `min + tools::Time(0, 1)` below when min is close to the maximum valid
+    // DateTime:
+    if (min >= DateTime({31, 12, std::numeric_limits<sal_Int16>::max()}, {23, 59})) {
+        return true;
+    }
+    return max <= min + tools::Time(0, 1);
+}
+
 bool SwRedlineData::CanCombine(const SwRedlineData& rCmp) const
 {
-    DateTime aTime = GetTimeStamp();
-    aTime.SetSec(0);
-    DateTime aCompareTime = rCmp.GetTimeStamp();
-    aCompareTime.SetSec(0);
     return m_nAuthor == rCmp.m_nAuthor &&
             m_eType == rCmp.m_eType &&
             m_sComment == rCmp.m_sComment &&
-            aTime == aCompareTime &&
+            deltaOneMinute(GetTimeStamp(), rCmp.GetTimeStamp()) &&
             m_bMoved == rCmp.m_bMoved &&
             (( !m_pNext && !rCmp.m_pNext ) ||
                 ( m_pNext && rCmp.m_pNext &&
@@ -1479,8 +1486,8 @@ static void lcl_storeAnnotationMarks(SwDoc& rDoc, const SwPosition* pStt, const 
                 // at start of redlines use a 1-character length bookmark range
                 // instead of a 0-character length bookmark position to avoid its losing
                 sal_Int32 nLen = (*pStt == rStartPos) ? 1 : 0;
-                SwPaM aPam( rStartPos.nNode, rStartPos.GetContentIndex(),
-                                rStartPos.nNode, rStartPos.GetContentIndex() + nLen);
+                SwPaM aPam( rStartPos.GetNode(), rStartPos.GetContentIndex(),
+                                rStartPos.GetNode(), rStartPos.GetContentIndex() + nLen);
                 ::sw::mark::IMark* pMark = rDMA.makeAnnotationBookmark(
                     aPam,
                     (**iter).GetName(),
@@ -1712,9 +1719,8 @@ void SwRangeRedline::DelCopyOfSection(size_t nMyPos)
             *GetMark() = *pEnd;
             DeleteMark();
 
-            aPam.GetBound().nContent.Assign( nullptr, 0 );
-            aPam.GetBound( false ).nContent.Assign( nullptr, 0 );
             aPam.DeleteMark();
+            aPam.GetPoint()->SetContent(0);;
             rDoc.getIDocumentContentOperations().DelFullPara( aPam );
         }
     }
@@ -1780,9 +1786,9 @@ void SwRangeRedline::MoveFromSection(size_t nMyPos)
                         SwNodeOffset( m_bDelLastPara ? -2 : -1 ) );
             SwContentNode* pCNd = aPam.GetPointContentNode();
             if( pCNd )
-                aPam.GetPoint()->nContent.Assign( pCNd, pCNd->Len() );
+                aPam.GetPoint()->SetContent( pCNd->Len() );
             else
-                ++aPam.GetPoint()->nNode;
+                aPam.GetPoint()->Adjust(SwNodeOffset(+1));
 
             SwFormatColl* pColl = pCNd && pCNd->Len() && aPam.GetPoint()->GetNode() !=
                                         aPam.GetMark()->GetNode()
@@ -1794,7 +1800,7 @@ void SwRangeRedline::MoveFromSection(size_t nMyPos)
             SwPosition aPos( *GetPoint() );
             if( m_bDelLastPara && *aPam.GetPoint() == *aPam.GetMark() )
             {
-                --aPos.nNode;
+                aPos.Adjust(SwNodeOffset(-1));
 
                 rDoc.getIDocumentContentOperations().AppendTextNode( aPos );
             }
@@ -1806,15 +1812,15 @@ void SwRangeRedline::MoveFromSection(size_t nMyPos)
 
             SetMark();
             *GetPoint() = aPos;
-            GetMark()->nNode = aNdIdx.GetIndex() + 1;
+            GetMark()->Assign(aNdIdx.GetIndex() + 1);
             pCNd = GetMark()->GetNode().GetContentNode();
-            GetMark()->nContent.Assign( pCNd, nPos );
+            if( pCNd )
+                GetMark()->SetContent( nPos );
 
             if( m_bDelLastPara )
             {
-                ++GetPoint()->nNode;
+                GetPoint()->Adjust(SwNodeOffset(+1));
                 pCNd = GetPointContentNode();
-                GetPoint()->nContent.Assign( pCNd, 0 );
                 m_bDelLastPara = false;
             }
             else if( pColl )

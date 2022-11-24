@@ -52,6 +52,7 @@
 #include <cppuhelper/implbase.hxx>
 #include <cppuhelper/supportsservice.hxx>
 #include <sfx2/docfile.hxx>
+#include <unotools/fcm.hxx>
 #include <unotools/moduleoptions.hxx>
 #include <comphelper/diagnose_ex.hxx>
 #include <vcl/svapp.hxx>
@@ -447,11 +448,8 @@ void SAL_CALL DBContentLoader::load(const Reference< XFrame > & rFrame, const OU
             Reference< XModel2 > xModel2( xModel, UNO_QUERY_THROW );
             Reference< XController2 > xController( xModel2->createViewController( sViewName, Sequence< PropertyValue >(), rFrame ), UNO_SET_THROW );
 
-            xController->attachModel( xModel );
-            xModel->connectController( xController );
-            rFrame->setComponent( xController->getComponentWindow(), xController );
-            xController->attachFrame( rFrame );
-            xModel->setCurrentController( xController );
+            // introduce model/view/controller to each other
+            utl::ConnectFrameControllerModel(rFrame, xController, xModel);
 
             bSuccess = true;
         }

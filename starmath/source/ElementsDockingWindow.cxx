@@ -452,11 +452,21 @@ const std::vector<TranslateId>& SmElementsControl::categories()
     return s_a5Categories;
 }
 
+struct ElementData
+{
+    OUString maElementSource;
+    OUString maHelpText;
+    ElementData(const OUString& aElementSource, const OUString& aHelpText)
+        : maElementSource(aElementSource)
+        , maHelpText(aHelpText)
+    {
+    }
+};
+
 SmElementsControl::SmElementsControl(std::unique_ptr<weld::IconView> pIconView)
     : mpDocShell(new SmDocShell(SfxModelFlags::EMBEDDED_OBJECT))
     , mnCurrentSetIndex(-1)
     , m_nSmSyntaxVersion(SM_MOD()->GetConfig()->GetDefaultSmSyntaxVersion())
-    , mbVerticalMode(true)
     , mpIconView(std::move(pIconView))
 {
     maParser.reset(starmathdatabase::GetVersionSmParser(m_nSmSyntaxVersion));
@@ -471,14 +481,6 @@ SmElementsControl::~SmElementsControl()
     mpDocShell->DoClose();
 }
 
-void SmElementsControl::setVerticalMode(bool bVerticalMode)
-{
-    if (mbVerticalMode == bVerticalMode)
-        return;
-    mbVerticalMode = bVerticalMode;
-    build();
-}
-
 Color SmElementsControl::GetTextColor()
 {
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
@@ -491,22 +493,11 @@ Color SmElementsControl::GetControlBackground()
     return rStyleSettings.GetFieldColor();
 }
 
-struct ElementData
-{
-    OUString maElementSource;
-    OUString maHelpText;
-    ElementData(const OUString& aElementSource, const OUString& aHelpText)
-        : maElementSource(aElementSource)
-        , maHelpText(aHelpText)
-    {
-    }
-};
-
 void SmElementsControl::addElement(const OUString& aElementVisual, const OUString& aElementSource, const OUString& aHelpText)
 {
     std::unique_ptr<SmNode> pNode = maParser->ParseExpression(aElementVisual);
     VclPtr<VirtualDevice> pDevice(mpIconView->create_virtual_device());
-    pDevice->SetMapMode(MapMode(MapUnit::Map100thMM));
+    pDevice->SetMapMode(MapMode(SmMapUnit()));
     pDevice->SetDrawMode(DrawModeFlags::Default);
     pDevice->SetLayoutMode(vcl::text::ComplexTextLayoutFlags::Default);
     pDevice->SetDigitLanguage(LANGUAGE_ENGLISH);

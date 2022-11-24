@@ -25,6 +25,7 @@
 #include <vcl/BitmapTools.hxx>
 #include <vcl/animate/Animation.hxx>
 #include <bitmap/BitmapWriteAccess.hxx>
+#include <tools/fract.hxx>
 #include <tools/stream.hxx>
 #include <unotools/configmgr.hxx>
 
@@ -38,11 +39,11 @@ namespace
     {
         SvStream& rStream;
         tsize_t nSize;
-        int nShortReads;
+        bool bAllowOneShortRead;
         Context(SvStream& rInStream, tsize_t nInSize)
             : rStream(rInStream)
             , nSize(nInSize)
-            , nShortReads(0)
+            , bAllowOneShortRead(false)
         {
         }
     };
@@ -54,10 +55,10 @@ static tsize_t tiff_read(thandle_t handle, tdata_t buf, tsize_t size)
     tsize_t nRead = pContext->rStream.ReadBytes(buf, size);
     // tdf#149417 allow one short read, which is similar to what
     // we do for jpeg since tdf#138950
-    if (nRead < size && !pContext->nShortReads)
+    if (nRead < size && pContext->bAllowOneShortRead)
     {
         memset(static_cast<char*>(buf) + nRead, 0, size - nRead);
-        ++pContext->nShortReads;
+        pContext->bAllowOneShortRead = false;
         return size;
     }
     return nRead;
@@ -157,28 +158,45 @@ bool ImportTiffGraphicImport(SvStream& rTIFF, Graphic& rGraphic)
 
         if (bOk && bFuzzing)
         {
-            const uint64_t MAX_SIZE = 150000000;
-            if (TIFFTileSize64(tif) > MAX_SIZE || nPixelsRequired > MAX_SIZE)
+            const uint64_t MAX_PIXEL_SIZE = 150000000;
+            const uint64_t MAX_TILE_SIZE = 100000000;
+            if (TIFFTileSize64(tif) > MAX_TILE_SIZE || nPixelsRequired > MAX_PIXEL_SIZE)
             {
                 SAL_WARN("filter.tiff", "skipping large tiffs");
                 break;
             }
 
-            uint16_t PhotometricInterpretation;
-            if (TIFFGetField(tif, TIFFTAG_PHOTOMETRIC, &PhotometricInterpretation) == 1)
+            if (TIFFIsTiled(tif))
             {
-                if (PhotometricInterpretation == PHOTOMETRIC_LOGL)
+                uint32_t tw, th;
+                TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tw);
+                TIFFGetField(tif, TIFFTAG_TILELENGTH, &th);
+
+                if (tw > w || th > h)
                 {
-                    if (TIFFIsTiled(tif))
+                    bOk = th < 1000 * tw && tw < 1000 * th;
+                    SAL_WARN_IF(!bOk, "filter.tiff", "skipping slow bizarre ratio tile of " << tw << " x " << th << " for image of " << w << " x " << h);
+                }
+
+                uint16_t PhotometricInterpretation;
+                if (TIFFGetField(tif, TIFFTAG_PHOTOMETRIC, &PhotometricInterpretation) == 1)
+                {
+                    if (PhotometricInterpretation == PHOTOMETRIC_LOGL)
                     {
-                        uint32_t tw, th;
-                        if (TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tw) == 1 &&
-                            TIFFGetField(tif, TIFFTAG_TILELENGTH, &th) == 1)
-                        {
-                            uint32_t nLogLBufferRequired;
-                            bOk = !o3tl::checked_multiply(tw, th, nLogLBufferRequired) && nLogLBufferRequired < MAX_SIZE;
-                            SAL_WARN_IF(!bOk, "filter.tiff", "skipping oversized tiff tile " << tw << " x " << th);
-                        }
+                        uint32_t nLogLBufferRequired;
+                        bOk &= !o3tl::checked_multiply(tw, th, nLogLBufferRequired) && nLogLBufferRequired < MAX_PIXEL_SIZE;
+                        SAL_WARN_IF(!bOk, "filter.tiff", "skipping oversized tiff tile " << tw << " x " << th);
+                    }
+                }
+
+                uint16_t Compression;
+                if (TIFFGetField(tif, TIFFTAG_COMPRESSION, &Compression) == 1)
+                {
+                    if (Compression == COMPRESSION_CCITTFAX4)
+                    {
+                        uint32_t DspRuns;
+                        bOk &= !o3tl::checked_multiply(tw, static_cast<uint32_t>(4), DspRuns) && DspRuns < MAX_PIXEL_SIZE;
+                        SAL_WARN_IF(!bOk, "filter.tiff", "skipping oversized tiff tile width: " << tw);
                     }
                 }
             }
@@ -188,6 +206,7 @@ bool ImportTiffGraphicImport(SvStream& rTIFF, Graphic& rGraphic)
             break;
 
         std::vector<uint32_t> raster(nPixelsRequired);
+        aContext.bAllowOneShortRead = true;
         if (TIFFReadRGBAImageOriented(tif, w, h, raster.data(), ORIENTATION_TOPLEFT, 1))
         {
             Bitmap bitmap(Size(w, h), vcl::PixelFormat::N24_BPP);
@@ -266,10 +285,31 @@ bool ImportTiffGraphicImport(SvStream& rTIFF, Graphic& rGraphic)
                 }
             }
 
+            MapMode aMapMode;
+            uint16_t ResolutionUnit = RESUNIT_NONE;
+            if (TIFFGetField(tif, TIFFTAG_RESOLUTIONUNIT, &ResolutionUnit) == 1 && ResolutionUnit != RESUNIT_NONE)
+            {
+                float xres = 0, yres = 0;
+
+                if (TIFFGetField(tif, TIFFTAG_XRESOLUTION, &xres) == 1 &&
+                    TIFFGetField(tif, TIFFTAG_YRESOLUTION, &yres) == 1 &&
+                    xres != 0 && yres != 0)
+                {
+                    if (ResolutionUnit == RESUNIT_INCH)
+                        aMapMode =  MapMode(MapUnit::MapInch, Point(0,0), Fraction(1/xres), Fraction(1/yres));
+                    else if (ResolutionUnit == RESUNIT_CENTIMETER)
+                        aMapMode =  MapMode(MapUnit::MapCM, Point(0,0), Fraction(1/xres), Fraction(1/yres));
+                }
+            }
+            aBitmapEx.SetPrefMapMode(aMapMode);
+            aBitmapEx.SetPrefSize(Size(w, h));
+
             AnimationFrame aAnimationFrame(aBitmapEx, Point(0, 0), aBitmapEx.GetSizePixel(),
                                              ANIMATION_TIMEOUT_ON_CLICK, Disposal::Back);
             aAnimation.Insert(aAnimationFrame);
         }
+        else
+            break;
     } while (TIFFReadDirectory(tif));
 
     TIFFClose(tif);

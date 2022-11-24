@@ -41,6 +41,7 @@
 #include <paratr.hxx>
 #include <pam.hxx>
 #include <shellio.hxx>
+#include <unotbl.hxx>
 #include <fmtruby.hxx>
 #include <docsh.hxx>
 #include <docstyle.hxx>
@@ -706,7 +707,7 @@ SwXTextCursor::~SwXTextCursor()
     m_pUnoCursor.reset(nullptr); // need to delete this with SolarMutex held
 }
 
-void SwXTextCursor::DeleteAndInsert(const OUString& rText,
+void SwXTextCursor::DeleteAndInsert(std::u16string_view aText,
         ::sw::DeleteAndInsertMode const eMode)
 {
     auto pUnoCursor = static_cast<SwCursor*>(m_pUnoCursor.get());
@@ -716,7 +717,7 @@ void SwXTextCursor::DeleteAndInsert(const OUString& rText,
     // Start/EndAction
     SwDoc& rDoc = pUnoCursor->GetDoc();
     UnoActionContext aAction(&rDoc);
-    const sal_Int32 nTextLen = rText.getLength();
+    const sal_Int32 nTextLen = aText.size();
     rDoc.GetIDocumentUndoRedo().StartUndo(SwUndoId::INSERT, nullptr);
     auto pCurrent = pUnoCursor;
     do
@@ -731,11 +732,11 @@ void SwXTextCursor::DeleteAndInsert(const OUString& rText,
         {
             const bool bSuccess(
                 SwUnoCursorHelper::DocInsertStringSplitCR(
-                    rDoc, *pCurrent, rText, bool(eMode & ::sw::DeleteAndInsertMode::ForceExpandHints)));
+                    rDoc, *pCurrent, aText, bool(eMode & ::sw::DeleteAndInsertMode::ForceExpandHints)));
             OSL_ENSURE( bSuccess, "Doc->Insert(Str) failed." );
 
             SwUnoCursorHelper::SelectPam(*pUnoCursor, true);
-            pCurrent->Left(rText.getLength());
+            pCurrent->Left(aText.size());
         }
         pCurrent = pCurrent->GetNext();
     } while (pCurrent != pUnoCursor);
@@ -1884,9 +1885,8 @@ void SwUnoCursorHelper::SetPropertyValue(
     const uno::Any& rValue,
     const SetAttrMode nAttrMode)
 {
-    uno::Sequence< beans::PropertyValue > aValues{ comphelper::makePropertyValue(rPropertyName,
-                                                                                 rValue)};
-    SetPropertyValues(rPaM, rPropSet, aValues, nAttrMode);
+    beans::PropertyValue aVal { comphelper::makePropertyValue(rPropertyName, rValue) };
+    SetPropertyValues(rPaM, rPropSet, o3tl::span<beans::PropertyValue>(&aVal, 1), nAttrMode);
 }
 
 // FN_UNO_PARA_STYLE is known to set attributes for nodes, inside
@@ -1906,7 +1906,17 @@ void SwUnoCursorHelper::SetPropertyValues(
     const uno::Sequence< beans::PropertyValue > &rPropertyValues,
     const SetAttrMode nAttrMode)
 {
-    if (!rPropertyValues.hasElements())
+    SetPropertyValues(rPaM, rPropSet,
+        o3tl::span<const beans::PropertyValue>(rPropertyValues.getConstArray(), rPropertyValues.getLength()),
+        nAttrMode);
+}
+
+void SwUnoCursorHelper::SetPropertyValues(
+    SwPaM& rPaM, const SfxItemPropertySet& rPropSet,
+    o3tl::span< const beans::PropertyValue > aPropertyValues,
+    const SetAttrMode nAttrMode)
+{
+    if (aPropertyValues.empty())
         return;
 
     SwDoc& rDoc = rPaM.GetDoc();
@@ -1915,8 +1925,8 @@ void SwUnoCursorHelper::SetPropertyValues(
     // Build set of attributes we want to fetch
     WhichRangesContainer aRanges;
     std::vector<std::pair<const SfxItemPropertyMapEntry*, const uno::Any&>> aEntries;
-    aEntries.reserve(rPropertyValues.getLength());
-    for (const auto& rPropVal : rPropertyValues)
+    aEntries.reserve(aPropertyValues.size());
+    for (const auto& rPropVal : aPropertyValues)
     {
         const OUString &rPropertyName = rPropVal.Name;
 
@@ -2592,7 +2602,7 @@ void SAL_CALL SwXTextCursor::invalidateMarkings(::sal_Int32 nType)
 
     if ( text::TextMarkupType::SPELLCHECK == nType )
     {
-        txtNode->SetWrongDirty(SwTextNode::WrongState::TODO);
+        txtNode->SetWrongDirty(sw::WrongState::TODO);
         txtNode->ClearWrong();
     }
     else if( text::TextMarkupType::PROOFREADING == nType )

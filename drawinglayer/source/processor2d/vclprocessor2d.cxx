@@ -27,6 +27,7 @@
 #include <tools/debug.hxx>
 #include <tools/fract.hxx>
 #include <utility>
+#include <vcl/glyphitemcache.hxx>
 #include <vcl/graph.hxx>
 #include <vcl/outdev.hxx>
 #include <rtl/ustrbuf.hxx>
@@ -293,7 +294,6 @@ void VclProcessor2D::RenderTextSimpleOrDecoratedPortionPrimitive2D(
             // set parameters and paint text snippet
             const basegfx::BColor aRGBFontColor(
                 maBColorModifierStack.getModifiedColor(rTextCandidate.getFontColor()));
-            const Point aStartPoint(aTextTranslate.getX(), aTextTranslate.getY());
             const vcl::text::ComplexTextLayoutFlags nOldLayoutMode(mpOutputDevice->GetLayoutMode());
 
             if (rTextCandidate.getFontAttribute().getRTL())
@@ -343,13 +343,18 @@ void VclProcessor2D::RenderTextSimpleOrDecoratedPortionPrimitive2D(
                 getTransformFromMapMode(mpOutputDevice->GetMapMode()) * maCurrentTransformation);
 
             basegfx::B2DVector aCurrentScaling, aCurrentTranslate;
-            aCombinedTransform.decompose(aCurrentScaling, aCurrentTranslate, fIgnoreRotate,
+            double fCurrentRotate;
+            aCombinedTransform.decompose(aCurrentScaling, aCurrentTranslate, fCurrentRotate,
                                          fIgnoreShearX);
 
             const Point aOrigin(basegfx::fround(aCurrentTranslate.getX() / aCurrentScaling.getX()),
                                 basegfx::fround(aCurrentTranslate.getY() / aCurrentScaling.getY()));
             MapMode aMapMode(mpOutputDevice->GetMapMode().GetMapUnit(), aOrigin,
                              Fraction(aCurrentScaling.getX()), Fraction(aCurrentScaling.getY()));
+
+            if (fCurrentRotate)
+                aTextTranslate *= basegfx::utils::createRotateB2DHomMatrix(fCurrentRotate);
+            const Point aStartPoint(aTextTranslate.getX(), aTextTranslate.getY());
 
             const bool bChangeMapMode(aMapMode != mpOutputDevice->GetMapMode());
             if (bChangeMapMode)
@@ -360,8 +365,11 @@ void VclProcessor2D::RenderTextSimpleOrDecoratedPortionPrimitive2D(
 
             if (!aDXArray.empty())
             {
+                const SalLayoutGlyphs* pGlyphs = SalLayoutGlyphsCache::self()->GetLayoutGlyphs(
+                    mpOutputDevice, aText, nPos, nLen);
                 mpOutputDevice->DrawTextArray(aStartPoint, aText, aDXArray,
-                                              rTextCandidate.getKashidaArray(), nPos, nLen);
+                                              rTextCandidate.getKashidaArray(), nPos, nLen,
+                                              SalLayoutFlags::NONE, pGlyphs);
             }
             else
             {
@@ -399,8 +407,7 @@ void VclProcessor2D::RenderPolygonHairlinePrimitive2D(
     basegfx::B2DPolygon aLocalPolygon(rPolygonCandidate.getB2DPolygon());
     aLocalPolygon.transform(maCurrentTransformation);
 
-    if (bPixelBased && SvtOptionsDrawinglayer::IsAntiAliasing()
-        && SvtOptionsDrawinglayer::IsSnapHorVerLinesToDiscrete())
+    if (bPixelBased && getViewInformation2D().getPixelSnapHairline())
     {
         // #i98289#
         // when a Hairline is painted and AntiAliasing is on the option SnapHorVerLinesToDiscrete
@@ -416,7 +423,7 @@ void VclProcessor2D::RenderPolygonHairlinePrimitive2D(
 // direct draw of transformed BitmapEx primitive
 void VclProcessor2D::RenderBitmapPrimitive2D(const primitive2d::BitmapPrimitive2D& rBitmapCandidate)
 {
-    BitmapEx aBitmapEx(VCLUnoHelper::GetBitmap(rBitmapCandidate.getXBitmap()));
+    BitmapEx aBitmapEx(rBitmapCandidate.getBitmap());
     const basegfx::B2DHomMatrix aLocalTransform(maCurrentTransformation
                                                 * rBitmapCandidate.getTransform());
 
@@ -785,6 +792,17 @@ void VclProcessor2D::RenderPolyPolygonGraphicPrimitive2D(
     }
 }
 
+namespace
+{
+bool isRectangles(const basegfx::B2DPolyPolygon& rPolyPoly)
+{
+    for (sal_uInt32 i = 0, nCount = rPolyPoly.count(); i < nCount; ++i)
+        if (!basegfx::utils::isRectangle(rPolyPoly.getB2DPolygon(i)))
+            return false;
+    return true;
+}
+}
+
 // mask group
 void VclProcessor2D::RenderMaskPrimitive2DPixel(const primitive2d::MaskPrimitive2D& rMaskCandidate)
 {
@@ -799,7 +817,7 @@ void VclProcessor2D::RenderMaskPrimitive2DPixel(const primitive2d::MaskPrimitive
     aMask.transform(maCurrentTransformation);
 
     // Unless smooth edges are needed, simply use clipping.
-    if (basegfx::utils::isRectangle(aMask) || !SvtOptionsDrawinglayer::IsAntiAliasing())
+    if (isRectangles(aMask) || !getViewInformation2D().getUseAntiAliasing())
     {
         mpOutputDevice->Push(vcl::PushFlags::CLIPREGION);
         mpOutputDevice->IntersectClipRegion(vcl::Region(aMask));
@@ -935,10 +953,9 @@ void VclProcessor2D::RenderTransformPrimitive2D(
     // create new transformations for CurrentTransformation
     // and for local ViewInformation2D
     maCurrentTransformation = maCurrentTransformation * rTransformCandidate.getTransformation();
-    const geometry::ViewInformation2D aViewInformation2D(
-        getViewInformation2D().getObjectTransformation() * rTransformCandidate.getTransformation(),
-        getViewInformation2D().getViewTransformation(), getViewInformation2D().getViewport(),
-        getViewInformation2D().getVisualizedPage(), getViewInformation2D().getViewTime());
+    geometry::ViewInformation2D aViewInformation2D(getViewInformation2D());
+    aViewInformation2D.setObjectTransformation(getViewInformation2D().getObjectTransformation()
+                                               * rTransformCandidate.getTransformation());
     updateViewInformation(aViewInformation2D);
 
     // process content
@@ -957,10 +974,8 @@ void VclProcessor2D::RenderPagePreviewPrimitive2D(
     const geometry::ViewInformation2D aLastViewInformation2D(getViewInformation2D());
 
     // create new local ViewInformation2D
-    const geometry::ViewInformation2D aViewInformation2D(
-        getViewInformation2D().getObjectTransformation(),
-        getViewInformation2D().getViewTransformation(), getViewInformation2D().getViewport(),
-        rPagePreviewCandidate.getXDrawPage(), getViewInformation2D().getViewTime());
+    geometry::ViewInformation2D aViewInformation2D(getViewInformation2D());
+    aViewInformation2D.setVisualizedPage(rPagePreviewCandidate.getXDrawPage());
     updateViewInformation(aViewInformation2D);
 
     // process decomposed content
@@ -1074,7 +1089,7 @@ void VclProcessor2D::RenderPolygonStrokePrimitive2D(
 
         if (nCount)
         {
-            const bool bAntiAliased(SvtOptionsDrawinglayer::IsAntiAliasing());
+            const bool bAntiAliased(getViewInformation2D().getUseAntiAliasing());
             aHairlinePolyPolygon.transform(maCurrentTransformation);
 
             if (bAntiAliased)

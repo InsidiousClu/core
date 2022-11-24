@@ -44,12 +44,7 @@ PhysicalFontFace::PhysicalFontFace(const FontAttributes& rDFA)
     : FontAttributes(rDFA)
     , mpHbFace(nullptr)
     , mpHbUnscaledFont(nullptr)
-    , mbFontCapabilitiesRead(false)
 {
-    // StarSymbol is a unicode font, but it still deserves the symbol flag
-    if (!IsSymbolFont())
-        if (IsStarSymbol(GetFamilyName()))
-            SetSymbolFlag(true);
 }
 
 PhysicalFontFace::~PhysicalFontFace()
@@ -257,7 +252,7 @@ FontCharMapRef PhysicalFontFace::GetFontCharMap() const
     // Check if this font is using symbol cmap subtable, most likely redundant
     // since HarfBuzz handles mapping symbol fonts for us.
     RawFontData aData(GetRawFontData(HB_TAG('c', 'm', 'a', 'p')));
-    bool bSymbol = HasSymbolCmap(aData.data(), aData.size());
+    bool bSymbol = HasMicrosoftSymbolCmap(aData.data(), aData.size());
 
     hb_face_t* pHbFace = GetHbFace();
     hb_set_t* pUnicodes = hb_set_create();
@@ -280,23 +275,22 @@ FontCharMapRef PhysicalFontFace::GetFontCharMap() const
     hb_set_destroy(pUnicodes);
 
     if (!mxCharMap.is())
-        mxCharMap = FontCharMap::GetDefaultMap(IsSymbolFont());
+        mxCharMap = FontCharMap::GetDefaultMap(IsMicrosoftSymbolEncoded());
 
     return mxCharMap;
 }
 
 bool PhysicalFontFace::GetFontCapabilities(vcl::FontCapabilities& rFontCapabilities) const
 {
-    if (!mbFontCapabilitiesRead)
+    if (!mxFontCapabilities)
     {
-        mbFontCapabilitiesRead = true;
-
+        mxFontCapabilities.emplace();
         RawFontData aData(GetRawFontData(HB_TAG('O', 'S', '/', '2')));
-        getTTCoverage(maFontCapabilities.oUnicodeRange, maFontCapabilities.oCodePageRange,
+        getTTCoverage(mxFontCapabilities->oUnicodeRange, mxFontCapabilities->oCodePageRange,
                       aData.data(), aData.size());
     }
 
-    rFontCapabilities = maFontCapabilities;
+    rFontCapabilities = *mxFontCapabilities;
     return rFontCapabilities.oUnicodeRange || rFontCapabilities.oCodePageRange;
 }
 
@@ -344,7 +338,7 @@ class TrueTypeFace final : public AbstractTrueTypeFont
     }
 
 public:
-    TrueTypeFace(const RawFace aFace, const FontCharMapRef rCharMap)
+    TrueTypeFace(RawFace aFace, const FontCharMapRef rCharMap)
         : AbstractTrueTypeFont(nullptr, rCharMap)
         , m_aFace(std::move(aFace))
     {
@@ -389,14 +383,14 @@ bool PhysicalFontFace::HasColorLayers() const
     return hb_ot_color_has_layers(pHbFace) && hb_ot_color_has_palettes(pHbFace);
 }
 
-const ColorPalette& PhysicalFontFace::GetColorPalette(size_t nIndex) const
+const std::vector<ColorPalette>& PhysicalFontFace::GetColorPalettes() const
 {
-    if (maColorPalettes.empty())
+    if (!mxColorPalettes)
     {
+        mxColorPalettes.emplace();
         const auto pHbFace = GetHbFace();
-
         auto nPalettes = hb_ot_color_palette_get_count(pHbFace);
-        maColorPalettes.reserve(nPalettes);
+        mxColorPalettes->reserve(nPalettes);
         for (auto nPalette = 0u; nPalette < nPalettes; nPalette++)
         {
             auto nColors = hb_ot_color_palette_get_colors(pHbFace, nPalette, 0, nullptr, nullptr);
@@ -412,11 +406,11 @@ const ColorPalette& PhysicalFontFace::GetColorPalette(size_t nIndex) const
                 auto b = hb_color_get_blue(aColor);
                 aPalette[nColor] = Color(ColorAlphaTag::ColorAlpha, a, r, g, b);
             }
-            maColorPalettes.push_back(aPalette);
+            mxColorPalettes->push_back(aPalette);
         }
     }
 
-    return maColorPalettes[nIndex];
+    return *mxColorPalettes;
 }
 
 std::vector<ColorLayer> PhysicalFontFace::GetGlyphColorLayers(sal_GlyphId nGlyphIndex) const
@@ -510,6 +504,16 @@ OUString PhysicalFontFace::GetName(NameID aNameID, const LanguageTag& rLanguageT
     }
 
     return sName;
+}
+
+const std::vector<hb_variation_t>& PhysicalFontFace::GetVariations(const LogicalFontInstance&) const
+{
+    if (!mxVariations)
+    {
+        SAL_WARN("vcl.fonts", "Getting font variations is not supported.");
+        mxVariations.emplace();
+    }
+    return *mxVariations;
 }
 }
 

@@ -1045,8 +1045,10 @@ void WinSalFrame::ReleaseGraphics( SalGraphics* pGraphics )
 
 bool WinSalFrame::PostEvent(std::unique_ptr<ImplSVEvent> pData)
 {
-    bool const ret = PostMessageW(mhWnd, SAL_MSG_USEREVENT, 0, reinterpret_cast<LPARAM>(pData.release()));
+    bool const ret = PostMessageW(mhWnd, SAL_MSG_USEREVENT, 0, reinterpret_cast<LPARAM>(pData.get()));
     SAL_WARN_IF(!ret, "vcl", "ERROR: PostMessage() failed!");
+    if (ret)
+        pData.release();
     return ret;
 }
 
@@ -1887,20 +1889,15 @@ void WinSalFrame::StartPresentation( bool bStart )
 
     mbPresentation = bStart;
 
-    SalData* pSalData = GetSalData();
     if ( bStart )
     {
-        // turn off screen-saver when in Presentation mode
-        SystemParametersInfoW( SPI_GETSCREENSAVEACTIVE, 0,
-                              &(pSalData->mbScrSvrEnabled), 0 );
-        if ( pSalData->mbScrSvrEnabled )
-            SystemParametersInfoW( SPI_SETSCREENSAVEACTIVE, FALSE, nullptr, 0 );
+        // turn off screen-saver / power saving when in Presentation mode
+        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
     }
     else
     {
-        // turn on screen-saver
-        if ( pSalData->mbScrSvrEnabled )
-            SystemParametersInfoW( SPI_SETSCREENSAVEACTIVE, pSalData->mbScrSvrEnabled, nullptr, 0 );
+        // turn on screen-saver / power saving back
+        SetThreadExecutionState(ES_CONTINUOUS);
     }
 }
 
@@ -2615,6 +2612,15 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
 
     StyleSettings aStyleSettings = rSettings.GetStyleSettings();
 
+    // High contrast
+    HIGHCONTRAST hc;
+    hc.cbSize = sizeof( HIGHCONTRAST );
+    if( SystemParametersInfoW( SPI_GETHIGHCONTRAST, hc.cbSize, &hc, 0 )
+            && (hc.dwFlags & HCF_HIGHCONTRASTON) )
+        aStyleSettings.SetHighContrastMode( true );
+    else
+        aStyleSettings.SetHighContrastMode( false );
+
     aStyleSettings.SetScrollBarSize( GetSystemMetrics( SM_CXVSCROLL ) );
     aStyleSettings.SetSpinSize( GetSystemMetrics( SM_CXVSCROLL ) );
     UINT blinkTime = GetCaretBlinkTime();
@@ -2630,6 +2636,7 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
     Color aControlTextColor;
     Color aMenuBarTextColor;
     Color aMenuBarRolloverTextColor;
+    Color aHighlightTextColor = ImplWinColorToSal(GetSysColor(COLOR_HIGHLIGHTTEXT));
 
     const bool bUseDarkMode(UseDarkMode());
 
@@ -2680,7 +2687,7 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
         aStyleSettings.SetRadioCheckTextColor( ImplWinColorToSal( GetSysColor( COLOR_WINDOWTEXT ) ) );
         aStyleSettings.SetMenuTextColor( ImplWinColorToSal( GetSysColor( COLOR_MENUTEXT ) ) );
         aMenuBarTextColor = ImplWinColorToSal( GetSysColor( COLOR_MENUTEXT ) );
-        aMenuBarRolloverTextColor = ImplWinColorToSal( GetSysColor( COLOR_HIGHLIGHTTEXT ) );
+        aMenuBarRolloverTextColor = aHighlightTextColor;
     }
 
     if ( std::optional<Color> aColor = aStyleSettings.GetPersonaMenuBarTextColor() )
@@ -2700,19 +2707,30 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
     aStyleSettings.SetHelpColor( ImplWinColorToSal( GetSysColor( COLOR_INFOBK ) ) );
     aStyleSettings.SetHelpTextColor( ImplWinColorToSal( GetSysColor( COLOR_INFOTEXT ) ) );
 
+    aStyleSettings.SetWorkspaceColor(aStyleSettings.GetFaceColor());
     aStyleSettings.SetDialogColor(aStyleSettings.GetFaceColor());
     aStyleSettings.SetDialogTextColor(aControlTextColor);
 
-    aStyleSettings.SetDefaultButtonTextColor(aControlTextColor);
+    Color aHighlightButtonTextColor = aStyleSettings.GetHighContrastMode() ?
+        aHighlightTextColor : aControlTextColor;
+
+    if (aStyleSettings.GetHighContrastMode())
+    {
+        Color aLinkColor(ImplWinColorToSal(GetSysColor(COLOR_HOTLIGHT)));
+        aStyleSettings.SetLinkColor(aLinkColor);
+        aStyleSettings.SetVisitedLinkColor(aLinkColor);
+    }
+
+    aStyleSettings.SetDefaultButtonTextColor(aHighlightButtonTextColor);
     aStyleSettings.SetButtonTextColor(aControlTextColor);
-    aStyleSettings.SetDefaultActionButtonTextColor(aControlTextColor);
+    aStyleSettings.SetDefaultActionButtonTextColor(aHighlightButtonTextColor);
     aStyleSettings.SetActionButtonTextColor(aControlTextColor);
     aStyleSettings.SetFlatButtonTextColor(aControlTextColor);
-    aStyleSettings.SetDefaultButtonRolloverTextColor(aControlTextColor);
-    aStyleSettings.SetButtonRolloverTextColor(aControlTextColor);
-    aStyleSettings.SetDefaultActionButtonRolloverTextColor(aControlTextColor);
-    aStyleSettings.SetActionButtonRolloverTextColor(aControlTextColor);
-    aStyleSettings.SetFlatButtonRolloverTextColor(aControlTextColor);
+    aStyleSettings.SetDefaultButtonRolloverTextColor(aHighlightButtonTextColor);
+    aStyleSettings.SetButtonRolloverTextColor(aHighlightButtonTextColor);
+    aStyleSettings.SetDefaultActionButtonRolloverTextColor(aHighlightButtonTextColor);
+    aStyleSettings.SetActionButtonRolloverTextColor(aHighlightButtonTextColor);
+    aStyleSettings.SetFlatButtonRolloverTextColor(aHighlightButtonTextColor);
     aStyleSettings.SetDefaultButtonPressedRolloverTextColor(aControlTextColor);
     aStyleSettings.SetButtonPressedRolloverTextColor(aControlTextColor);
     aStyleSettings.SetDefaultActionButtonPressedRolloverTextColor(aControlTextColor);
@@ -2732,7 +2750,7 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
     aStyleSettings.SetFieldRolloverTextColor( aStyleSettings.GetFieldTextColor() );
     aStyleSettings.SetListBoxWindowTextColor( aStyleSettings.GetFieldTextColor() );
     aStyleSettings.SetHighlightColor( ImplWinColorToSal( GetSysColor( COLOR_HIGHLIGHT ) ) );
-    aStyleSettings.SetHighlightTextColor( ImplWinColorToSal( GetSysColor( COLOR_HIGHLIGHTTEXT ) ) );
+    aStyleSettings.SetHighlightTextColor(aHighlightTextColor);
     aStyleSettings.SetListBoxWindowHighlightColor( aStyleSettings.GetHighlightColor() );
     aStyleSettings.SetListBoxWindowHighlightTextColor( aStyleSettings.GetHighlightTextColor() );
     aStyleSettings.SetMenuHighlightColor( aStyleSettings.GetHighlightColor() );
@@ -2743,11 +2761,6 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
     pSVData->maNWFData.mnMenuFormatBorderY = 0;
     pSVData->maNWFData.maMenuBarHighlightTextColor = COL_TRANSPARENT;
     GetSalData()->mbThemeMenuSupport = false;
-    if (officecfg::Office::Common::Accessibility::AutoDetectSystemHC::get())
-    {
-        aStyleSettings.SetShadowColor( ImplWinColorToSal( GetSysColor( COLOR_ACTIVEBORDER ) ) );
-        aStyleSettings.SetWorkspaceColor( ImplWinColorToSal( GetSysColor( COLOR_MENU ) ) );
-    }
     aStyleSettings.SetMenuColor( ImplWinColorToSal( GetSysColor( COLOR_MENU ) ) );
     aStyleSettings.SetMenuBarColor( aStyleSettings.GetMenuColor() );
     aStyleSettings.SetMenuBarRolloverColor( aStyleSettings.GetHighlightColor() );
@@ -2779,15 +2792,6 @@ void WinSalFrame::UpdateSettings( AllSettings& rSettings )
     DWORD nCaretWidth = 2;
     if( SystemParametersInfoW( SPI_GETCARETWIDTH, 0, &nCaretWidth, 0 ) )
         aStyleSettings.SetCursorSize( nCaretWidth );
-
-    // High contrast
-    HIGHCONTRAST hc;
-    hc.cbSize = sizeof( HIGHCONTRAST );
-    if( SystemParametersInfoW( SPI_GETHIGHCONTRAST, hc.cbSize, &hc, 0 )
-            && (hc.dwFlags & HCF_HIGHCONTRASTON) )
-        aStyleSettings.SetHighContrastMode( true );
-    else
-        aStyleSettings.SetHighContrastMode( false );
 
     // Query Fonts
     vcl::Font    aMenuFont = aStyleSettings.GetMenuFont();

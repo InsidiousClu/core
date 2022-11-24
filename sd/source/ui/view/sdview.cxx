@@ -161,7 +161,7 @@ View::~View()
     while(PaintWindowCount())
     {
         // remove all registered OutDevs
-        suppress_fun_call_w_exception(DeleteWindowFromPaintView(GetFirstOutputDevice()));
+        suppress_fun_call_w_exception(DeleteDeviceFromPaintView(*GetFirstOutputDevice()));
     }
 }
 
@@ -221,7 +221,7 @@ void ViewRedirector::createRedirectedPrimitive2DSequence(
     {
         bool bCreateOutline(false);
 
-        if( pObject->IsEmptyPresObj() && dynamic_cast< SdrTextObj *>( pObject ) !=  nullptr )
+        if( pObject->IsEmptyPresObj() && DynCastSdrTextObj( pObject ) !=  nullptr )
         {
             if( !bSubContentProcessing || !pObject->IsNotVisibleAsMaster() )
             {
@@ -367,7 +367,7 @@ void ViewRedirector::createRedirectedPrimitive2DSequence(
                         aObjectMatrix.decompose(aScale, aTranslate, fRotate, fShearX);
 
                         // create font
-                        SdrTextObj* pTextObj = dynamic_cast< SdrTextObj* >( pObject );
+                        SdrTextObj* pTextObj = DynCastSdrTextObj( pObject );
                         const SdrTextVertAdjust eTVA(pTextObj ? pTextObj->GetTextVerticalAdjust() : SDRTEXTVERTADJUST_CENTER);
                         vcl::Font aScaledVclFont;
 
@@ -449,6 +449,20 @@ void ViewRedirector::createRedirectedPrimitive2DSequence(
     }
 }
 
+namespace
+{
+    void setOutlinerBgFromPage(::Outliner& rOutl, SdrPageView& rPgView, bool bScreenDisplay)
+    {
+        SdPage* pPage = static_cast<SdPage*>(rPgView.GetPage());
+        if (pPage)
+        {
+            // #i75566# Name change GetBackgroundColor -> GetPageBackgroundColor and
+            // hint value if screen display. Only then the AutoColor mechanisms shall be applied
+            rOutl.SetBackgroundColor(pPage->GetPageBackgroundColor(&rPgView, bScreenDisplay));
+        }
+    }
+}
+
 /**
  * The event will be forwarded to the View
  */
@@ -476,9 +490,7 @@ void View::CompleteRedraw(OutputDevice* pOutDev, const vcl::Region& rReg, sdr::c
                     || (OUTDEV_PDF == pOutDev->GetOutDevType())))
                 bScreenDisplay = false;
 
-            // #i75566# Name change GetBackgroundColor -> GetPageBackgroundColor and
-            // hint value if screen display. Only then the AutoColor mechanisms shall be applied
-            rOutl.SetBackgroundColor( pPage->GetPageBackgroundColor(pPgView, bScreenDisplay) );
+            setOutlinerBgFromPage(rOutl, *pPgView, bScreenDisplay);
         }
     }
 
@@ -724,7 +736,11 @@ bool View::SdrBeginTextEdit(
             }
             else
             {
-                pObj->setSuitableOutlinerBg(*pOL);
+                // tdf#148140 Set the background to determine autocolor.
+                // Use any explicit bg with fallback to underlying page if
+                // none found
+                if (!pObj->setSuitableOutlinerBg(*pOL) && pPV)
+                    setOutlinerBgFromPage(*pOL, *pPV, true);
             }
         }
 
@@ -976,7 +992,7 @@ bool View::IsMorphingAllowed() const
              ( nKind1 != SdrObjKind::Graphic && nKind2 != SdrObjKind::Graphic ) &&
              ( nKind1 != SdrObjKind::OLE2 && nKind2 != SdrObjKind::OLE2 ) &&
              ( nKind1 != SdrObjKind::Caption && nKind2 !=  SdrObjKind::Caption ) &&
-             dynamic_cast< const E3dObject *>( pObj1 ) == nullptr && dynamic_cast< const E3dObject *>( pObj2 ) ==  nullptr )
+             DynCastE3dObject( pObj1 ) == nullptr && DynCastE3dObject( pObj2 ) ==  nullptr )
         {
             SfxItemSetFixed<XATTR_FILLSTYLE, XATTR_FILLSTYLE> aSet1( mrDoc.GetPool() );
             SfxItemSetFixed<XATTR_FILLSTYLE, XATTR_FILLSTYLE> aSet2( mrDoc.GetPool() );
@@ -1220,7 +1236,7 @@ bool View::ShouldToggleOn(
     const size_t nMarkCount = GetMarkedObjectCount();
     for (size_t nIndex = 0; nIndex < nMarkCount && !bToggleOn; ++nIndex)
     {
-        SdrTextObj* pTextObj = dynamic_cast< SdrTextObj* >(GetMarkedObjectByIndex(nIndex));
+        SdrTextObj* pTextObj = DynCastSdrTextObj(GetMarkedObjectByIndex(nIndex));
         if (!pTextObj || pTextObj->IsTextEditActive())
             continue;
         if( dynamic_cast< const SdrTableObj *>( pTextObj ) !=  nullptr)
@@ -1291,7 +1307,7 @@ void View::ChangeMarkedObjectsBulletsNumbering(
     const size_t nMarkCount = GetMarkedObjectCount();
     for (size_t nIndex = 0; nIndex < nMarkCount; ++nIndex)
     {
-        SdrTextObj* pTextObj = dynamic_cast< SdrTextObj* >(GetMarkedObjectByIndex(nIndex));
+        SdrTextObj* pTextObj = DynCastSdrTextObj(GetMarkedObjectByIndex(nIndex));
         if (!pTextObj || pTextObj->IsTextEditActive())
             continue;
         if( dynamic_cast< SdrTableObj *>( pTextObj ) !=  nullptr)

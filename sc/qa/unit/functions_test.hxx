@@ -21,8 +21,6 @@ public:
 
     FunctionsTest(const OUString& rPath);
 
-    virtual void setUp() override;
-
     virtual bool load(
         const OUString &rFilter,
         const OUString &rURL,
@@ -30,9 +28,6 @@ public:
         SfxFilterFlags nFilterFlags,
         SotClipboardFormatId nClipboardID,
         unsigned int nFilterVersion) override;
-
-private:
-    css::uno::Reference<css::uno::XInterface> m_xCalcComponent;
 };
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

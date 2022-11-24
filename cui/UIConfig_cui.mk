@@ -144,6 +144,7 @@ $(eval $(call gb_UIConfig_add_uifiles,cui,\
 	cui/uiconfig/ui/optgeneralpage \
 	cui/uiconfig/ui/opthtmlpage \
 	cui/uiconfig/ui/langtoolconfigpage \
+	cui/uiconfig/ui/deepltabpage \
 	cui/uiconfig/ui/optionsdialog \
 	cui/uiconfig/ui/optjsearchpage \
 	cui/uiconfig/ui/optlanguagespage \
@@ -227,6 +228,7 @@ $(eval $(call gb_UIConfig_add_uifiles,cui,\
 	cui/uiconfig/ui/wordcompletionpage \
 	cui/uiconfig/ui/spinbox \
 	cui/uiconfig/ui/zoomdialog \
+	cui/uiconfig/ui/widgettestdialog \
 ))
 
 # vim: set noet sw=4 ts=4:

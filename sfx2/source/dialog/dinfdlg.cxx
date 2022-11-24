@@ -38,6 +38,7 @@
 #include <sal/log.hxx>
 #include <osl/diagnose.h>
 #include <osl/file.hxx>
+#include <comphelper/lok.hxx>
 
 #include <memory>
 
@@ -69,6 +70,7 @@
 #include <helper.hxx>
 #include <sfx2/objsh.hxx>
 #include <sfx2/docfile.hxx>
+#include <vcl/abstdlg.hxx>
 
 #include <documentfontsdialog.hxx>
 #include <dinfdlg.hrc>
@@ -708,6 +710,8 @@ SfxDocumentPage::SfxDocumentPage(weld::Container* pPage, weld::DialogController*
     ImplCheckPasswordState();
     m_xChangePassBtn->connect_clicked( LINK( this, SfxDocumentPage, ChangePassHdl ) );
     m_xSignatureBtn->connect_clicked( LINK( this, SfxDocumentPage, SignatureHdl ) );
+    if (comphelper::LibreOfficeKit::isActive())
+        m_xSignatureBtn->hide();
     m_xDeleteBtn->connect_clicked( LINK( this, SfxDocumentPage, DeleteHdl ) );
     m_xImagePreferredDpiCheckButton->connect_toggled(LINK(this, SfxDocumentPage, ImagePreferredDPICheckBoxClicked));
 
@@ -720,6 +724,11 @@ SfxDocumentPage::SfxDocumentPage(weld::Container* pPage, weld::DialogController*
 
 SfxDocumentPage::~SfxDocumentPage()
 {
+    if (m_xPasswordDialog)
+    {
+        m_xPasswordDialog->Response(RET_CANCEL);
+        m_xPasswordDialog.clear();
+    }
 }
 
 IMPL_LINK_NOARG(SfxDocumentPage, DeleteHdl, weld::Button&, void)
@@ -769,9 +778,28 @@ IMPL_LINK_NOARG(SfxDocumentPage, ChangePassHdl, weld::Button&, void)
         std::shared_ptr<const SfxFilter> pFilter = pShell->GetMedium()->GetFilter();
         if (!pFilter)
             break;
-
-        sfx2::RequestPassword(pFilter, OUString(), pMedSet, GetFrameWeld()->GetXWindow());
-        pShell->SetModified();
+        if (comphelper::LibreOfficeKit::isActive())
+        {
+            // MS Types support max len of 15 characters while OOXML is "unlimited"
+            const sal_uInt16 maxPwdLen = sfx2::IsMSType(pFilter) && !sfx2::IsOOXML(pFilter) ? 15 : 0;
+            // handle the pwd dialog asynchronously
+            VclAbstractDialogFactory * pFact = VclAbstractDialogFactory::Create();
+            m_xPasswordDialog = pFact->CreatePasswordToOpenModifyDialog(GetFrameWeld(), maxPwdLen, false);
+            m_xPasswordDialog->AllowEmpty(); // needed to remove password
+            m_xPasswordDialog->StartExecuteAsync([this, pFilter, pMedSet, pShell](sal_Int32 nResult)
+            {
+                if (nResult == RET_OK)
+                {
+                    sfx2::SetPassword(pFilter, pMedSet, m_xPasswordDialog->GetPasswordToOpen(),
+                                      m_xPasswordDialog->GetPasswordToOpen(), true);
+                    pShell->SetModified();
+                }
+                m_xPasswordDialog->disposeOnce();
+            });
+        } else {
+            sfx2::RequestPassword(pFilter, OUString(), pMedSet, GetFrameWeld()->GetXWindow());
+            pShell->SetModified();
+        }
     }
     while (false);
 }
@@ -835,7 +863,7 @@ void SfxDocumentPage::ImplCheckPasswordState()
         return;
     }
     while (false);
-    m_xChangePassBtn->set_sensitive(false);
+    m_xChangePassBtn->set_sensitive(comphelper::LibreOfficeKit::isActive());
 }
 
 std::unique_ptr<SfxTabPage> SfxDocumentPage::Create(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet* rItemSet)
@@ -983,25 +1011,35 @@ void SfxDocumentPage::Reset( const SfxItemSet* rSet )
     m_xShowTypeFT->set_label( aDescription );
 
     // determine location
-    aURL.SetSmartURL( aFile);
-    if ( aURL.GetProtocol() == INetProtocol::File )
+    // online we don't know file location so we just set it as the name
+    if (comphelper::LibreOfficeKit::isActive())
     {
-        INetURLObject aPath( aURL );
-        aPath.setFinalSlash();
-        aPath.removeSegment();
-        // we know it's a folder -> don't need the final slash, but it's better for WB_PATHELLIPSIS
-        aPath.removeFinalSlash();
-        OUString aText( aPath.PathToFileName() ); //! (pb) MaxLen?
-        m_xFileValEd->set_label(aText);
-        OUString aURLStr;
-        osl::FileBase::getFileURLFromSystemPath(aText, aURLStr);
-        m_xFileValEd->set_uri(aURLStr);
+        m_xFileValEd->set_label(aName);
+        m_xFileValEd->set_uri(aName);
     }
-    else if (aURL.GetProtocol() != INetProtocol::PrivSoffice)
+    else
     {
-        m_xFileValEd->set_label(aURL.GetPartBeforeLastName());
-        m_xFileValEd->set_uri(m_xFileValEd->get_label());
+        aURL.SetSmartURL( aFile);
+        if ( aURL.GetProtocol() == INetProtocol::File )
+        {
+            INetURLObject aPath( aURL );
+            aPath.setFinalSlash();
+            aPath.removeSegment();
+            // we know it's a folder -> don't need the final slash, but it's better for WB_PATHELLIPSIS
+            aPath.removeFinalSlash();
+            OUString aText( aPath.PathToFileName() ); //! (pb) MaxLen?
+            m_xFileValEd->set_label(aText);
+            OUString aURLStr;
+            osl::FileBase::getFileURLFromSystemPath(aText, aURLStr);
+            m_xFileValEd->set_uri(aURLStr);
+        }
+        else if (aURL.GetProtocol() != INetProtocol::PrivSoffice)
+        {
+            m_xFileValEd->set_label(aURL.GetPartBeforeLastName());
+            m_xFileValEd->set_uri(m_xFileValEd->get_label());
+        }
     }
+
 
     // handle access data
     bool bUseUserData = rInfoItem.IsUseUserData();
@@ -1156,12 +1194,21 @@ SfxDocumentInfoDialog::SfxDocumentInfoDialog(weld::Window* pParent, const SfxIte
     // Property Pages
     AddTabPage("general", SfxDocumentPage::Create, nullptr);
     AddTabPage("description", SfxDocumentDescPage::Create, nullptr);
-    AddTabPage("customprops", SfxCustomPropertiesPage::Create, nullptr);
+
+    if (!comphelper::LibreOfficeKit::isActive())
+        AddTabPage("customprops", SfxCustomPropertiesPage::Create, nullptr);
+    else
+        RemoveTabPage("customprops");
+
     if (rInfoItem.isCmisDocument())
         AddTabPage("cmisprops", SfxCmisPropertiesPage::Create, nullptr);
     else
         RemoveTabPage("cmisprops");
-    AddTabPage("security", SfxSecurityPage::Create, nullptr);
+    // Disable security page for online as not fully asynced yet
+    if (!comphelper::LibreOfficeKit::isActive())
+        AddTabPage("security", SfxSecurityPage::Create, nullptr);
+    else
+        RemoveTabPage("security");
 }
 
 void SfxDocumentInfoDialog::PageCreated(const OString& rId, SfxTabPage &rPage)
@@ -1191,25 +1238,6 @@ CustomPropertiesYesNoButton::~CustomPropertiesYesNoButton()
 {
 }
 
-namespace {
-
-class DurationDialog_Impl : public weld::GenericDialogController
-{
-    std::unique_ptr<weld::CheckButton> m_xNegativeCB;
-    std::unique_ptr<weld::SpinButton> m_xYearNF;
-    std::unique_ptr<weld::SpinButton> m_xMonthNF;
-    std::unique_ptr<weld::SpinButton> m_xDayNF;
-    std::unique_ptr<weld::SpinButton> m_xHourNF;
-    std::unique_ptr<weld::SpinButton> m_xMinuteNF;
-    std::unique_ptr<weld::SpinButton> m_xSecondNF;
-    std::unique_ptr<weld::SpinButton> m_xMSecondNF;
-
-public:
-    DurationDialog_Impl(weld::Widget* pParent, const util::Duration& rDuration);
-    util::Duration  GetDuration() const;
-};
-
-}
 
 DurationDialog_Impl::DurationDialog_Impl(weld::Widget* pParent, const util::Duration& rDuration)
     : GenericDialogController(pParent, "sfx/ui/editdurationdialog.ui", "EditDurationDialog")
@@ -1277,9 +1305,20 @@ void CustomPropertiesDurationField::SetDuration( const util::Duration& rDuration
 
 IMPL_LINK(CustomPropertiesDurationField, ClickHdl, weld::Button&, rButton, void)
 {
-    DurationDialog_Impl aDurationDlg(&rButton, GetDuration());
-    if (aDurationDlg.run() == RET_OK)
-        SetDuration(aDurationDlg.GetDuration());
+    m_xDurationDialog = std::make_shared<DurationDialog_Impl>(&rButton, GetDuration());
+    weld::DialogController::runAsync(m_xDurationDialog, [&](sal_Int32 response)
+    {
+        if (response == RET_OK)
+        {
+            SetDuration(m_xDurationDialog->GetDuration());
+        }
+    });
+}
+
+CustomPropertiesDurationField::~CustomPropertiesDurationField()
+{
+    if (m_xDurationDialog)
+        m_xDurationDialog->response(RET_CANCEL);
 }
 
 namespace
@@ -1524,16 +1563,19 @@ void CustomPropertiesWindow::CreateNewLine()
 
     m_aCustomPropertiesLines.emplace_back( pNewLine );
 
-    // for ui-testing. Distinguish the elements in the lines
-    sal_uInt16 nSize = m_aCustomPropertiesLines.size();
-    pNewLine->m_xNameBox->set_buildable_name(
-        pNewLine->m_xNameBox->get_buildable_name() + OString::number(nSize));
-    pNewLine->m_xTypeBox->set_buildable_name(
-        pNewLine->m_xTypeBox->get_buildable_name() + OString::number(nSize));
-    pNewLine->m_xValueEdit->set_buildable_name(
-        pNewLine->m_xValueEdit->get_buildable_name() + OString::number(nSize));
-    pNewLine->m_xRemoveButton->set_buildable_name(
-        pNewLine->m_xRemoveButton->get_buildable_name() + OString::number(nSize));
+    // this breaks online's jsdialogbuilder
+    if (!comphelper::LibreOfficeKit::isActive()){
+        // for ui-testing. Distinguish the elements in the lines
+        sal_uInt16 nSize = m_aCustomPropertiesLines.size();
+        pNewLine->m_xNameBox->set_buildable_name(
+            pNewLine->m_xNameBox->get_buildable_name() + OString::number(nSize));
+        pNewLine->m_xTypeBox->set_buildable_name(
+            pNewLine->m_xTypeBox->get_buildable_name() + OString::number(nSize));
+        pNewLine->m_xValueEdit->set_buildable_name(
+            pNewLine->m_xValueEdit->get_buildable_name() + OString::number(nSize));
+        pNewLine->m_xRemoveButton->set_buildable_name(
+            pNewLine->m_xRemoveButton->get_buildable_name() + OString::number(nSize));
+    }
 
     pNewLine->DoTypeHdl(*pNewLine->m_xTypeBox);
 }
@@ -1796,17 +1838,14 @@ void CustomPropertiesWindow::ReloadLinesContent()
             pLine->m_xDurationField->SetDuration(aTmpDuration);
         }
 
-        if (nType != Custom_Type_Duration)
+        if (Custom_Type_Boolean == nType)
         {
-            if (Custom_Type_Boolean == nType)
-            {
-                if (bTmpValue)
-                    pLine->m_xYesNoButton->CheckYes();
-                else
-                    pLine->m_xYesNoButton->CheckNo();
-            }
-            pLine->m_xTypeBox->set_active_id(OUString::number(nType));
+            if (bTmpValue)
+                pLine->m_xYesNoButton->CheckYes();
+            else
+                pLine->m_xYesNoButton->CheckNo();
         }
+        pLine->m_xTypeBox->set_active_id(OUString::number(nType));
 
         pLine->DoTypeHdl(*pLine->m_xTypeBox);
     }

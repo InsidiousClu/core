@@ -1376,12 +1376,12 @@ void ScGridWindow::DoScenarioMenu( const ScRange& rScenRange )
     mpFilterBox->EndInit();
 }
 
-void ScGridWindow::LaunchDataSelectMenu( SCCOL nCol, SCROW nRow )
+void ScGridWindow::LaunchDataSelectMenu(const SCCOL nCol, const SCROW nRow)
 {
     mpFilterBox.reset();
 
     ScDocument& rDoc = mrViewData.GetDocument();
-    SCTAB nTab = mrViewData.GetTabNo();
+    const SCTAB nTab = mrViewData.GetTabNo();
     bool bLayoutRTL = rDoc.IsLayoutRTL( nTab );
 
     tools::Long nSizeX  = 0;
@@ -1417,6 +1417,9 @@ void ScGridWindow::LaunchDataSelectMenu( SCCOL nCol, SCROW nRow )
 
     // SetSize later
 
+    const sal_uInt32 nIndex = rDoc.GetAttr(nCol, nRow, nTab, ATTR_VALIDDATA)->GetValue();
+    const ScValidationData* pData = nIndex ? rDoc.GetValidationEntry(nIndex) : nullptr;
+
     bool bEmpty = false;
     std::vector<ScTypedStrData> aStrings; // case sensitive
     // Fill List
@@ -1435,7 +1438,12 @@ void ScGridWindow::LaunchDataSelectMenu( SCCOL nCol, SCROW nRow )
             EnterWait();
 
         for (const auto& rString : aStrings)
-            rFilterBox.append_text(rString.GetString());
+        {
+            // IsIgnoreBlank allows blank values. Don't add empty string unless "Allow Empty Cells"
+            const OUString& rFilterString = rString.GetString();
+            if (!rFilterString.isEmpty() || !pData || pData->IsIgnoreBlank())
+                rFilterBox.append_text(rFilterString);
+        }
 
         if (bWait)
             LeaveWait();
@@ -1447,10 +1455,8 @@ void ScGridWindow::LaunchDataSelectMenu( SCCOL nCol, SCROW nRow )
 
     sal_Int32 nSelPos = -1;
 
-    sal_uInt32 nIndex = rDoc.GetAttr( nCol, nRow, nTab, ATTR_VALIDDATA )->GetValue();
     if ( nIndex )
     {
-        const ScValidationData* pData = rDoc.GetValidationEntry( nIndex );
         if (pData)
         {
             std::unique_ptr<ScTypedStrData> pNew;
@@ -1672,21 +1678,6 @@ bool ScGridWindow::TestMouse( const MouseEvent& rMEvt, bool bAction )
     return bNewPointer;
 }
 
-void ScGridWindow::LogicMouseButtonDown(const MouseEvent& rMouseEvent)
-{
-    MouseButtonDown(rMouseEvent);
-}
-
-void ScGridWindow::LogicMouseButtonUp(const MouseEvent& rMouseEvent)
-{
-    MouseButtonUp(rMouseEvent);
-}
-
-void ScGridWindow::LogicMouseMove(const MouseEvent& rMouseEvent)
-{
-    MouseMove(rMouseEvent);
-}
-
 void ScGridWindow::MouseButtonDown( const MouseEvent& rMEvt )
 {
     if (SfxLokHelper::getDeviceFormFactor() == LOKDeviceFormFactor::MOBILE)
@@ -1724,71 +1715,6 @@ void ScGridWindow::MouseButtonDown( const MouseEvent& rMEvt )
             EndTracking();      // normally done in VCL as part of MouseButtonUp handling
     }
     nNestedButtonState = ScNestedButtonState::NONE;
-}
-
-bool ScGridWindow::IsCellCoveredByText(SCCOL nPosX, SCROW nPosY, SCTAB nTab, SCCOL &rTextStartPosX)
-{
-    ScDocument& rDoc = mrViewData.GetDocument();
-
-    // find the first non-empty cell (this, or to the left)
-    SCCOL nNonEmptyX = nPosX;
-    for (; nNonEmptyX >= 0; --nNonEmptyX)
-    {
-        ScRefCellValue aCell(rDoc, ScAddress(nNonEmptyX, nPosY, nTab));
-        if (!aCell.isEmpty())
-            break;
-    }
-
-    // the initial cell already contains text
-    if (nNonEmptyX == nPosX)
-    {
-        rTextStartPosX = nNonEmptyX;
-        return true;
-    }
-
-    // to the left, there is no cell that would contain (potentially
-    // overrunning) text
-    if (nNonEmptyX < 0 || rDoc.HasAttrib(nNonEmptyX, nPosY, nTab, nPosX, nPosY, nTab, HasAttrFlags::Merged | HasAttrFlags::Overlapped))
-        return false;
-
-    double nPPTX = mrViewData.GetPPTX();
-    double nPPTY = mrViewData.GetPPTY();
-
-    ScTableInfo aTabInfo;
-    rDoc.FillInfo(aTabInfo, 0, nPosY, nPosX, nPosY, nTab, nPPTX, nPPTY, false, false);
-
-    Fraction aZoomX = mrViewData.GetZoomX();
-    Fraction aZoomY = mrViewData.GetZoomY();
-    ScOutputData aOutputData(GetOutDev(), OUTTYPE_WINDOW, aTabInfo, &rDoc, nTab,
-            0, 0, 0, nPosY, nPosX, nPosY, nPPTX, nPPTY,
-            &aZoomX, &aZoomY);
-
-    MapMode aCurrentMapMode(GetMapMode());
-    SetMapMode(MapMode(MapUnit::MapPixel));
-
-    // obtain the bounding box of the text in first non-empty cell
-    // to the left
-    tools::Rectangle aRect(aOutputData.LayoutStrings(false, false, ScAddress(nNonEmptyX, nPosY, nTab)));
-
-    SetMapMode(aCurrentMapMode);
-
-    // the text does not overrun from the cell
-    if (aRect.IsEmpty())
-        return false;
-
-    SCCOL nTextEndX;
-    SCROW nTextEndY;
-
-    // test the rightmost position of the text bounding box
-    tools::Long nMiddle = (aRect.Top() + aRect.Bottom()) / 2;
-    mrViewData.GetPosFromPixel(aRect.Right(), nMiddle, eWhich, nTextEndX, nTextEndY);
-    if (nTextEndX >= nPosX)
-    {
-        rTextStartPosX = nNonEmptyX;
-        return true;
-    }
-
-    return false;
 }
 
 void ScGridWindow::HandleMouseButtonDown( const MouseEvent& rMEvt, MouseEventState& rState )
@@ -1841,49 +1767,6 @@ void ScGridWindow::HandleMouseButtonDown( const MouseEvent& rMEvt, MouseEventSta
 
     if ( !nButtonDown || !bDouble )             // single (first) click is always valid
         nButtonDown = rMEvt.GetButtons();       // set nButtonDown first, so StopMarking works
-
-    // special handling of empty cells with tiled rendering
-    if (bIsTiledRendering)
-    {
-        Point aPos(rMEvt.GetPosPixel());
-        SCCOL nPosX, nNonEmptyX(0);
-        SCROW nPosY;
-        SCTAB nTab = mrViewData.GetTabNo();
-        mrViewData.GetPosFromPixel(aPos.X(), aPos.Y(), eWhich, nPosX, nPosY);
-
-        ScRefCellValue aCell(rDoc, ScAddress(nPosX, nPosY, nTab));
-        bool bIsEmpty = aCell.isEmpty();
-        bool bIsCoveredByText = bIsEmpty && IsCellCoveredByText(nPosX, nPosY, nTab, nNonEmptyX);
-
-        if (bIsCoveredByText)
-        {
-            // if there's any text flowing to this cell, activate the
-            // editengine, so that the text actually gets the events
-            if (bDouble)
-            {
-                ScViewFunc* pView = mrViewData.GetView();
-
-                pView->SetCursor(nNonEmptyX, nPosY);
-                SC_MOD()->SetInputMode(SC_INPUT_TABLE);
-
-                bEditMode = mrViewData.HasEditView(eWhich);
-                assert(bEditMode);
-
-                // synthesize the 1st click
-                EditView* pEditView = mrViewData.GetEditView(eWhich);
-                MouseEvent aEditEvt(rMEvt.GetPosPixel(), 1, MouseEventModifiers::SYNTHETIC, MOUSE_LEFT, 0);
-                pEditView->MouseButtonDown(aEditEvt);
-                pEditView->MouseButtonUp(aEditEvt);
-            }
-        }
-        else if (bIsEmpty && bEditMode && bDouble)
-        {
-            // double-click in an empty cell: the entire cell is selected
-            SetCellSelectionPixel(LOK_SETTEXTSELECTION_START, aPos.X(), aPos.Y());
-            SetCellSelectionPixel(LOK_SETTEXTSELECTION_END, aPos.X(), aPos.Y());
-            return;
-        }
-    }
 
     if ( ( bEditMode && mrViewData.GetActivePart() == eWhich ) || !bFormulaMode )
         GrabFocus();
@@ -2415,14 +2298,11 @@ void ScGridWindow::MouseButtonUp( const MouseEvent& rMEvt )
     mrViewData.GetPosFromPixel( aPos.X(), aPos.Y(), eWhich, nPosX, nPosY );
     ScDPObject* pDPObj  = rDoc.GetDPAtCursor( nPosX, nPosY, nTab );
 
-    bool bInDataPilotTable = (pDPObj != nullptr);
-
     // double click (only left button)
-    // in the tiled rendering case, single click works this way too
 
     bool bIsTiledRendering = comphelper::LibreOfficeKit::isActive();
     bool bDouble = ( rMEvt.GetClicks() == 2 && rMEvt.IsLeft() );
-    if ((bDouble || (bIsTiledRendering && !bInDataPilotTable))
+    if ( bDouble
             && !bRefMode
             && (nMouseStatus == SC_GM_DBLDOWN || (bIsTiledRendering && nMouseStatus != SC_GM_URLDOWN))
             && !pScMod->IsRefDialogOpen())
@@ -2482,19 +2362,8 @@ void ScGridWindow::MouseButtonUp( const MouseEvent& rMEvt )
                 bEditAllowed = false;
         }
 
-        // We don't want to activate the edit view for a single click in tiled rendering
-        // (but we should probably keep the same behaviour for double clicks).
-        if ( bEditAllowed && (!bIsTiledRendering || bDouble) )
+        if ( bEditAllowed )
         {
-            // don't forward the event to an empty cell, causes deselection in
-            // case we used the double-click to select the empty cell
-            if (bIsTiledRendering && bDouble)
-            {
-                ScRefCellValue aCell(mrViewData.GetDocument(), ScAddress(nPosX, nPosY, nTab));
-                if (aCell.isEmpty())
-                    return;
-            }
-
             //  edit cell contents
             mrViewData.GetViewShell()->UpdateInputHandler();
             pScMod->SetInputMode( SC_INPUT_TABLE );

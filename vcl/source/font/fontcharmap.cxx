@@ -31,10 +31,10 @@ ImplFontCharMap::~ImplFontCharMap()
 {
 }
 
-ImplFontCharMap::ImplFontCharMap(bool bSymbolic, std::vector<sal_uInt32> aRangeCodes)
+ImplFontCharMap::ImplFontCharMap(bool bMicrosoftSymbolMap, std::vector<sal_uInt32> aRangeCodes)
 :   maRangeCodes(std::move(aRangeCodes))
 ,   mnCharCount( 0 )
-,   m_bSymbolic(bSymbolic)
+,   m_bMicrosoftSymbolMap(bMicrosoftSymbolMap)
 {
     for (size_t i = 0; i < maRangeCodes.size(); i += 2)
     {
@@ -44,10 +44,10 @@ ImplFontCharMap::ImplFontCharMap(bool bSymbolic, std::vector<sal_uInt32> aRangeC
     }
 }
 
-ImplFontCharMapRef const & ImplFontCharMap::getDefaultMap( bool bSymbols )
+ImplFontCharMapRef const & ImplFontCharMap::getDefaultMap(bool bMicrosoftSymbolMap)
 {
-    const auto& rRanges = bSymbols ? aDefaultSymbolRanges : aDefaultUnicodeRanges;
-    g_pDefaultImplFontCharMap = ImplFontCharMapRef(new ImplFontCharMap(bSymbols, rRanges));
+    const auto& rRanges = bMicrosoftSymbolMap ? aDefaultSymbolRanges : aDefaultUnicodeRanges;
+    g_pDefaultImplFontCharMap = ImplFontCharMapRef(new ImplFontCharMap(bMicrosoftSymbolMap, rRanges));
     return g_pDefaultImplFontCharMap;
 }
 
@@ -59,7 +59,7 @@ bool ImplFontCharMap::isDefaultMap() const
 
 static unsigned GetUShort(const unsigned char* p) { return((p[0]<<8) | p[1]);}
 
-bool HasSymbolCmap(const unsigned char* pCmap, int nLength)
+bool HasMicrosoftSymbolCmap(const unsigned char* pCmap, int nLength)
 {
     // parse the table header and check for validity
     if( !pCmap || (nLength < 24) )
@@ -76,6 +76,8 @@ bool HasSymbolCmap(const unsigned char* pCmap, int nLength)
     {
         int nPlatform = GetUShort(p);
         int nEncoding = GetUShort(p + 2);
+        // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6cmap.html
+        // When the platformID is 3 (Windows), an encoding of 0 is Symbol
         if (nPlatform == 3 && nEncoding == 0)
             return true;
     }
@@ -93,8 +95,8 @@ FontCharMap::FontCharMap( ImplFontCharMapRef pIFCMap )
 {
 }
 
-FontCharMap::FontCharMap(bool bSymbolic, std::vector<sal_uInt32> aRangeCodes)
-    : mpImplFontCharMap(new ImplFontCharMap(bSymbolic, std::move(aRangeCodes)))
+FontCharMap::FontCharMap(bool bMicrosoftSymbolMap, std::vector<sal_uInt32> aRangeCodes)
+    : mpImplFontCharMap(new ImplFontCharMap(bMicrosoftSymbolMap, std::move(aRangeCodes)))
 {
 }
 
@@ -103,9 +105,9 @@ FontCharMap::~FontCharMap()
     mpImplFontCharMap = nullptr;
 }
 
-FontCharMapRef FontCharMap::GetDefaultMap( bool bSymbol )
+FontCharMapRef FontCharMap::GetDefaultMap(bool bMicrosoftSymbolMap)
 {
-    FontCharMapRef xFontCharMap( new FontCharMap( ImplFontCharMap::getDefaultMap( bSymbol ) ) );
+    FontCharMapRef xFontCharMap( new FontCharMap( ImplFontCharMap::getDefaultMap(bMicrosoftSymbolMap) ) );
     return xFontCharMap;
 }
 
@@ -114,7 +116,7 @@ bool FontCharMap::IsDefaultMap() const
     return mpImplFontCharMap->isDefaultMap();
 }
 
-bool FontCharMap::isSymbolic() const { return mpImplFontCharMap->m_bSymbolic; }
+bool FontCharMap::isMicrosoftSymbolMap() const { return mpImplFontCharMap->m_bMicrosoftSymbolMap; }
 
 int FontCharMap::GetCharCount() const
 {

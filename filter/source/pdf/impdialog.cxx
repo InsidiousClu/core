@@ -24,7 +24,6 @@
 #include <vcl/svapp.hxx>
 #include <vcl/weld.hxx>
 #include <sfx2/passwd.hxx>
-#include <unotools/resmgr.hxx>
 #include <comphelper/diagnose_ex.hxx>
 #include <sfx2/objsh.hxx>
 #include <svx/AccessibilityCheckDialog.hxx>
@@ -42,11 +41,6 @@
 #include <com/sun/star/beans/XMaterialHolder.hpp>
 #include <com/sun/star/lang/XServiceInfo.hpp>
 
-static OUString PDFFilterResId(TranslateId aId)
-{
-    return Translate::get(aId, Translate::Create("flt"));
-}
-
 using namespace ::com::sun::star;
 using namespace ::com::sun::star::uno;
 
@@ -58,7 +52,6 @@ ImpPDFTabDialog::ImpPDFTabDialog(weld::Window* pParent, const Sequence< Property
     const Reference< XComponent >& rxDoc)
     : SfxTabDialogController(pParent, "filter/ui/pdfoptionsdialog.ui", "PdfOptionsDialog"),
     mrDoc(rxDoc),
-    mpParent(pParent),
     maConfigItem( u"Office.Common/Filter/PDF/Export/", &rFilterData ),
     maConfigI18N( u"Office.Common/I18N/CTL/" ),
     mbIsPresentation( false ),
@@ -324,7 +317,11 @@ IMPL_LINK_NOARG(ImpPDFTabDialog, OkHdl, weld::Button&, void)
             sfx::AccessibilityIssueCollection aCollection = pShell->runAccessibilityCheck();
             if (!aCollection.getIssues().empty())
             {
-                mpAccessibilityCheckDialog = std::make_shared<svx::AccessibilityCheckDialog>(mpParent, aCollection);
+                mpAccessibilityCheckDialog = std::make_shared<svx::AccessibilityCheckDialog>(
+                    m_xDialog.get(), aCollection, [pShell]() -> sfx::AccessibilityIssueCollection {
+                        return pShell->runAccessibilityCheck();
+                    });
+                mpAccessibilityCheckDialog->getDialog()->set_modal(true);
                 weld::DialogController::runAsync(mpAccessibilityCheckDialog, [this](sal_Int32 retValue){
                     m_xDialog->response(retValue);
                 });
@@ -351,6 +348,8 @@ ImpPDFTabDialog::~ImpPDFTabDialog()
     maConfigI18N.WriteModifiedConfig();
     if (mpAccessibilityCheckDialog)
     {
+        // restore set_modal to its original state
+        mpAccessibilityCheckDialog->getDialog()->set_modal(false);
         mpAccessibilityCheckDialog->response(RET_CANCEL);
     }
 }
@@ -501,7 +500,6 @@ ImpPDFTabGeneralPage::ImpPDFTabGeneralPage(weld::Container* pPage, weld::DialogC
     , mxRbRange(m_xBuilder->weld_radio_button("range"))
     , mxRbSelection(m_xBuilder->weld_radio_button("selection"))
     , mxEdPages(m_xBuilder->weld_entry("pages"))
-    , mxSelectedSheets(m_xBuilder->weld_label("selectedsheets"))
     , mxRbLosslessCompression(m_xBuilder->weld_radio_button("losslesscompress"))
     , mxRbJPEGCompression(m_xBuilder->weld_radio_button("jpegcompress"))
     , mxQualityFrame(m_xBuilder->weld_widget("qualityframe"))
@@ -863,7 +861,7 @@ IMPL_LINK_NOARG(ImpPDFTabGeneralPage, TogglePDFVersionOrUniversalAccessibilityHa
         {
             std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(m_xContainer.get(),
                                                       VclMessageType::Warning, VclButtonsType::Ok,
-                                                      PDFFilterResId(STR_WARN_PASSWORD_PDFA)));
+                                                      FilterResId(STR_WARN_PASSWORD_PDFA)));
             xBox->run();
         }
     }
@@ -1114,10 +1112,10 @@ void ImpPDFTabViewerPage::SetFilterConfigItem( const  ImpPDFTabDialog* pParent )
 /// The Security preferences tab page
 ImpPDFTabSecurityPage::ImpPDFTabSecurityPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet& i_rCoreSet)
     : SfxTabPage(pPage, pController, "filter/ui/pdfsecuritypage.ui", "PdfSecurityPage", &i_rCoreSet)
-    , msUserPwdTitle( PDFFilterResId( STR_PDF_EXPORT_UDPWD ) )
+    , msUserPwdTitle( FilterResId( STR_PDF_EXPORT_UDPWD ) )
     , mbHaveOwnerPassword( false )
     , mbHaveUserPassword( false )
-    , msOwnerPwdTitle( PDFFilterResId( STR_PDF_EXPORT_ODPWD ) )
+    , msOwnerPwdTitle( FilterResId( STR_PDF_EXPORT_ODPWD ) )
     , mxPbSetPwd(m_xBuilder->weld_button("setpassword"))
     , mxUserPwdSet(m_xBuilder->weld_widget("userpwdset"))
     , mxUserPwdUnset(m_xBuilder->weld_widget("userpwdunset"))
@@ -1485,19 +1483,19 @@ ImplErrorDialog::ImplErrorDialog(weld::Window* pParent, const std::set<vcl::PDFW
         switch(error)
         {
         case vcl::PDFWriter::Warning_Transparency_Omitted_PDFA:
-            m_xErrors->append(PDFFilterResId(STR_WARN_TRANSP_PDFA), PDFFilterResId(STR_WARN_TRANSP_PDFA_SHORT), "dialog-warning");
+            m_xErrors->append(FilterResId(STR_WARN_TRANSP_PDFA), FilterResId(STR_WARN_TRANSP_PDFA_SHORT), "dialog-warning");
             break;
         case vcl::PDFWriter::Warning_Transparency_Omitted_PDF13:
-            m_xErrors->append(PDFFilterResId(STR_WARN_TRANSP_VERSION), PDFFilterResId(STR_WARN_TRANSP_VERSION_SHORT), "dialog-warning");
+            m_xErrors->append(FilterResId(STR_WARN_TRANSP_VERSION), FilterResId(STR_WARN_TRANSP_VERSION_SHORT), "dialog-warning");
             break;
         case vcl::PDFWriter::Warning_FormAction_Omitted_PDFA:
-            m_xErrors->append(PDFFilterResId(STR_WARN_FORMACTION_PDFA), PDFFilterResId(STR_WARN_FORMACTION_PDFA_SHORT), "dialog-warning");
+            m_xErrors->append(FilterResId(STR_WARN_FORMACTION_PDFA), FilterResId(STR_WARN_FORMACTION_PDFA_SHORT), "dialog-warning");
             break;
         case vcl::PDFWriter::Warning_Transparency_Converted:
-            m_xErrors->append(PDFFilterResId(STR_WARN_TRANSP_CONVERTED), PDFFilterResId(STR_WARN_TRANSP_CONVERTED_SHORT), "dialog-warning");
+            m_xErrors->append(FilterResId(STR_WARN_TRANSP_CONVERTED), FilterResId(STR_WARN_TRANSP_CONVERTED_SHORT), "dialog-warning");
             break;
         case vcl::PDFWriter::Error_Signature_Failed:
-            m_xErrors->append(PDFFilterResId(STR_ERR_PDF_EXPORT_ABORTED), PDFFilterResId(STR_ERR_SIGNATURE_FAILED), "dialog-error");
+            m_xErrors->append(FilterResId(STR_ERR_PDF_EXPORT_ABORTED), FilterResId(STR_ERR_SIGNATURE_FAILED), "dialog-error");
             break;
         default:
             break;

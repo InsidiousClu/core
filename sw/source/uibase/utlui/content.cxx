@@ -1060,7 +1060,6 @@ const TranslateId STR_CONTEXT_ARY[] =
 
 SwContentTree::SwContentTree(std::unique_ptr<weld::TreeView> xTreeView, SwNavigationPI* pDialog)
     : m_xTreeView(std::move(xTreeView))
-    , m_xScratchIter(m_xTreeView->make_iterator())
     , m_aDropTargetHelper(*this)
     , m_pDialog(pDialog)
     , m_sSpace(OUString("                    "))
@@ -3997,7 +3996,13 @@ void SwContentTree::UpdateTracking()
                             while (!weld::IsEntryVisible(*m_xTreeView, *xIter))
                                 m_xTreeView->iter_parent(*xIter);
                         }
+                        // Assure the scroll to row is collapsed after scrolling if it was collapsed
+                        // before. This is required here to make gtkinst scroll_to_row behave like
+                        // salinst.
+                        const bool bRowExpanded = m_xTreeView->get_row_expanded(*xIter);
                         m_xTreeView->scroll_to_row(*xIter);
+                        if (!bRowExpanded)
+                            m_xTreeView->collapse_row(*xIter);
                     }
                     bRet = true;
                 }
@@ -4572,6 +4577,7 @@ void SwContentTree::ExecuteContextMenuAction(const OString& rSelectedPopupEntry)
                 m_pActiveShell->GotoOutline(pCntFirst->GetOutlinePos());
             grab_focus();
             m_bIgnoreDocChange = false;
+            m_pActiveShell->SetModified();
             m_pActiveShell->GetDoc()->GetDocShell()->Broadcast(SfxHint(SfxHintId::DocChanged));
         }
         break;

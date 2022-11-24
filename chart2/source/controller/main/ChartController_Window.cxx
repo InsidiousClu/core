@@ -844,7 +844,7 @@ void ChartController::execute_MouseButtonUp( const MouseEvent& rMEvt )
                         awt::Size aPageSize( ChartModelHelper::getPageSize( getChartModel() ) );
                         tools::Rectangle aPageRect( 0,0,aPageSize.Width,aPageSize.Height );
 
-                        const E3dObject* pE3dObject(dynamic_cast< const E3dObject*>(pObj));
+                        const E3dObject* pE3dObject(DynCastE3dObject(pObj));
                         if(nullptr != pE3dObject)
                         {
                             E3dScene* pScene(pE3dObject->getRootE3dSceneFromE3dObject());
@@ -957,7 +957,7 @@ void ChartController::execute_DoubleClick( const Point* pMousePixel )
         {
             // #i12587# support for shapes in chart
             SdrObject* pObj = DrawViewWrapper::getSdrObject( m_aSelection.getSelectedAdditionalShape() );
-            if ( dynamic_cast< const SdrTextObj* >(pObj) !=  nullptr )
+            if ( DynCastSdrTextObj(pObj) !=  nullptr )
             {
                 bEditText = true;
             }

@@ -82,6 +82,7 @@ $(eval $(call gb_Helper_register_executables,NONE, \
 	visualbackendtest \
 	listfonts \
 	$(if $(and $(ENABLE_GTK3), $(filter LINUX %BSD SOLARIS,$(OS))), gtktiledviewer) \
+	$(if $(and $(ENABLE_GTKTILEDVIEWER), $(filter WNT,$(OS))), gtktiledviewer) \
     $(if $(filter EMSCRIPTEN,$(OS)),wasm-qt5-mandelbrot) \
 ))
 
@@ -655,6 +656,7 @@ $(eval $(call gb_Helper_register_libraries_for_install,PLAINLIBS_OOO,ooo, \
 	$(if $(ENABLE_JAVA),hsqldb) \
 	i18nutil \
 	$(if $(and $(ENABLE_GTK3), $(filter LINUX %BSD SOLARIS,$(OS))), libreofficekitgtk) \
+	$(if $(and $(ENABLE_GTKTILEDVIEWER), $(filter WNT,$(OS))), libreofficekitgtk) \
 	$(if $(ENABLE_JAVA), \
 		$(if $(filter $(OS),MACOSX),,officebean) \
 	) \
@@ -872,6 +874,7 @@ $(eval $(call gb_Helper_register_packages_for_install,calc,\
 
 $(eval $(call gb_Helper_register_packages_for_install,libreofficekit,\
 	$(if $(filter LINUX %BSD SOLARIS, $(OS)),libreofficekit_selectionhandles) \
+	$(if $(and $(ENABLE_GTKTILEDVIEWER), $(filter WNT,$(OS))), libreofficekit_selectionhandles) \
 ))
 
 $(eval $(call gb_Helper_register_packages_for_install,ure,\
@@ -951,19 +954,11 @@ $(eval $(call gb_Helper_register_packages_for_install,ooo,\
 	extras_persona_pink \
 	extras_persona_sand \
 	extras_persona_white \
-	extras_tplofficorr \
-	extras_tploffimisc \
+	extras_templates \
 	extras_tplpresnt \
-	extras_tpl_styles \
-	extras_tpldraw \
-	extras_tplpersonal \
 	extras_tplwizbitmap \
 	extras_tplwizdesktop \
-	extras_tplwizletter \
-	extras_tplwizfax \
-	extras_tplwizagenda \
-	extras_tplwizreport \
-	extras_tplwizstyles \
+	extras_tplwizard \
 	framework_dtd \
 	$(if $(filter $(OS),MACOSX),infoplist) \
 	oox_customshapes \

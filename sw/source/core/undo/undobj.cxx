@@ -749,9 +749,9 @@ void SwUndoSaveContent::MoveToUndoNds( SwPaM& rPaM, SwNodeIndex* pNodeIdx,
         *pEndNdIdx = aPos.GetNodeIndex();
 
     // old position
-    aPos.nNode = nTmpMvNode;
+    aPos.Assign(nTmpMvNode);
     if( pNodeIdx )
-        *pNodeIdx = aPos.nNode;
+        *pNodeIdx = aPos.GetNode();
 }
 
 void SwUndoSaveContent::MoveFromUndoNds( SwDoc& rDoc, SwNodeOffset nNodeIdx,
@@ -767,10 +767,10 @@ void SwUndoSaveContent::MoveFromUndoNds( SwDoc& rDoc, SwNodeOffset nNodeIdx,
 
     SwPaM aPaM( rInsPos );
     if( pEndNdIdx )         // than get the section from it
-        aPaM.GetPoint()->nNode.Assign( rNds, *pEndNdIdx );
+        aPaM.GetPoint()->Assign( *rNds[SwNodeOffset(0)], *pEndNdIdx );
     else
     {
-        aPaM.GetPoint()->nNode = rNds.GetEndOfExtras();
+        aPaM.GetPoint()->Assign( rNds.GetEndOfExtras() );
         GoInContent( aPaM, fnMoveBackward );
     }
 
@@ -1011,7 +1011,7 @@ void SwUndoSaveContent::DelContentIndex( const SwPosition& rMark,
                             {
                                 m_pHistory->AddChangeFlyAnchor(*pFormat);
                                 SwFormatAnchor aAnch( *pAnchor );
-                                SwPosition aPos( rMark.nNode );
+                                SwPosition aPos( rMark.GetNode() );
                                 aAnch.SetAnchor( &aPos );
                                 pFormat->SetFormatAttr( aAnch );
                             }
@@ -1149,7 +1149,7 @@ void SwUndoSaveContent::DelContentIndex( const SwPosition& rMark,
             {
                 // certain special handling for cross-reference bookmarks
                 const bool bDifferentTextNodesAtMarkAndPoint =
-                    rMark.nNode != rPoint.nNode
+                    rMark.GetNode() != rPoint.GetNode()
                     && rMark.GetNode().GetTextNode()
                     && rPoint.GetNode().GetTextNode();
                 if ( bDifferentTextNodesAtMarkAndPoint )
@@ -1534,22 +1534,22 @@ bool SwUndo::CanRedlineGroup( SwRedlineSaveDatas& rCurr,
     return true;
 }
 
-OUString ShortenString(const OUString & rStr, sal_Int32 nLength, const OUString & rFillStr)
+OUString ShortenString(const OUString & rStr, sal_Int32 nLength, std::u16string_view aFillStr)
 {
-    assert(nLength - rFillStr.getLength() >= 2);
+    assert(nLength - aFillStr.size() >= 2);
 
     if (rStr.getLength() <= nLength)
         return rStr;
 
-    nLength -= rFillStr.getLength();
+    nLength -= aFillStr.size();
     if ( nLength < 2 )
         nLength = 2;
 
     const sal_Int32 nFrontLen = nLength - nLength / 2;
     const sal_Int32 nBackLen = nLength - nFrontLen;
 
-    return rStr.subView(0, nFrontLen)
-           + rFillStr
+    return OUString::Concat(rStr.subView(0, nFrontLen))
+           + aFillStr
            + rStr.subView(rStr.getLength() - nBackLen);
 }
 
@@ -1559,7 +1559,7 @@ static bool IsAtEndOfSection(SwPosition const& rAnchorPos)
     SwContentNode *const pNode(SwNodes::GoPrevious(&node));
     assert(pNode);
     assert(rAnchorPos.GetNode() <= node.GetNode()); // last valid anchor pos is last content
-    return node == rAnchorPos.nNode
+    return node == rAnchorPos.GetNode()
         // at-para fly has no SwContentIndex!
         && (rAnchorPos.GetContentIndex() == pNode->Len() || rAnchorPos.GetContentNode() == nullptr);
 }
@@ -1572,7 +1572,7 @@ static bool IsAtStartOfSection(SwPosition const& rAnchorPos)
     assert(pNode);
     (void) pNode;
     assert(node <= rAnchorPos.GetNode());
-    return node == rAnchorPos.nNode && rAnchorPos.GetContentIndex() == 0;
+    return node == rAnchorPos.GetNode() && rAnchorPos.GetContentIndex() == 0;
 }
 
 /// passed start / end position could be on section start / end node
@@ -1631,14 +1631,14 @@ bool IsDestroyFrameAnchoredAtChar(SwPosition const & rAnchorPos,
     return ((rStart < rAnchorPos)
             || (rStart == rAnchorPos
                 // special case: fully deleted node
-                && ((rStart.nNode != rEnd.nNode && rStart.GetContentIndex() == 0
+                && ((rStart.GetNode() != rEnd.GetNode() && rStart.GetContentIndex() == 0
                         // but not if the selection is backspace/delete!
                         && IsNotBackspaceHeuristic(rStart, rEnd))
                     || (IsAtStartOfSection(rAnchorPos) && IsAtEndOfSection2(rEnd)))))
         && ((rAnchorPos < rEnd)
             || (rAnchorPos == rEnd
                 // special case: fully deleted node
-                && ((rEnd.nNode != rStart.nNode && rEnd.GetContentIndex() == rEnd.GetNode().GetTextNode()->Len()
+                && ((rEnd.GetNode() != rStart.GetNode() && rEnd.GetContentIndex() == rEnd.GetNode().GetTextNode()->Len()
                         && IsNotBackspaceHeuristic(rStart, rEnd))
                     || (IsAtEndOfSection(rAnchorPos) && IsAtStartOfSection2(rStart)))));
 }

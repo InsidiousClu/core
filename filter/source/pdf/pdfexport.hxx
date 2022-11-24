@@ -73,6 +73,9 @@ private:
     bool                mbIsRedactMode;
 
     OUString            msWatermark;
+    Color               maWatermarkColor;
+    std::optional<sal_Int32> moWatermarkFontHeight;
+    OUString            maWatermarkFontName;
     OUString            msTiledWatermark;
 
     // these variable are here only to have a location in filter/pdf to set the default

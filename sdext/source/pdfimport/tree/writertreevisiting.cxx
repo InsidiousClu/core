@@ -31,11 +31,27 @@
 
 #include <basegfx/polygon/b2dpolypolygontools.hxx>
 #include <osl/diagnose.h>
+#include <com/sun/star/i18n/CharacterClassification.hpp>
+#include <com/sun/star/i18n/DirectionProperty.hpp>
+#include <comphelper/string.hxx>
 
 using namespace ::com::sun::star;
+using namespace ::com::sun::star::lang;
+using namespace ::com::sun::star::i18n;
+using namespace ::com::sun::star::uno;
 
 namespace pdfi
 {
+
+const Reference< XCharacterClassification >& WriterXmlEmitter::GetCharacterClassification()
+{
+    if ( !mxCharClass.is() )
+    {
+        Reference< XComponentContext > xContext( m_rEmitContext.m_xContext, uno::UNO_SET_THROW );
+        mxCharClass = CharacterClassification::create(xContext);
+    }
+    return mxCharClass;
+}
 
 void WriterXmlEmitter::visit( HyperlinkElement& elem, const std::list< std::unique_ptr<Element> >::const_iterator&   )
 {
@@ -65,15 +81,60 @@ void WriterXmlEmitter::visit( TextElement& elem, const std::list< std::unique_pt
     if( elem.Text.isEmpty() )
         return;
 
-    PropertyMap aProps;
+    PropertyMap aProps = {};
+    const sal_Unicode strSpace = 0x0020;
+    const sal_Unicode strNbSpace = 0x00A0;
+    const sal_Unicode tabSpace = 0x0009;
+
     if( elem.StyleId != -1 )
     {
         aProps[ OUString( "text:style-name" ) ] =
             m_rEmitContext.rStyles.getStyleName( elem.StyleId );
     }
 
+    OUString str(elem.Text.toString());
+
+    // Check for RTL
+    bool isRTL = false;
+    Reference< i18n::XCharacterClassification > xCC( GetCharacterClassification() );
+    if( xCC.is() )
+    {
+        for(int i=1; i< elem.Text.getLength(); i++)
+        {
+            i18n::DirectionProperty nType = static_cast<i18n::DirectionProperty>(xCC->getCharacterDirection( str, i ));
+            if ( nType == i18n::DirectionProperty_RIGHT_TO_LEFT           ||
+                 nType == i18n::DirectionProperty_RIGHT_TO_LEFT_ARABIC    ||
+                 nType == i18n::DirectionProperty_RIGHT_TO_LEFT_EMBEDDING ||
+                 nType == i18n::DirectionProperty_RIGHT_TO_LEFT_OVERRIDE
+                )
+                isRTL = true;
+        }
+    }
+
+    if (isRTL)  // If so, reverse string
+        str = ::comphelper::string::reverseCodePoints(str);
+
     m_rEmitContext.rEmitter.beginTag( "text:span", aProps );
-    m_rEmitContext.rEmitter.write( elem.Text.makeStringAndClear() );
+
+    sal_Unicode strToken;
+    for (int i = 0; i < elem.Text.getLength(); i++)
+    {
+        strToken = str[i];
+        if (strToken == strSpace || strToken == strNbSpace)
+        {
+            aProps["text:c"] = "1";
+            m_rEmitContext.rEmitter.beginTag("text:s", aProps);
+            m_rEmitContext.rEmitter.endTag("text:s");
+        }
+        else if (strToken == tabSpace)
+        {
+            m_rEmitContext.rEmitter.beginTag("text:tab", aProps);
+            m_rEmitContext.rEmitter.endTag("text:tab");
+        }
+        else
+            m_rEmitContext.rEmitter.write(OUString(strToken));
+    }
+
     auto this_it = elem.Children.begin();
     while( this_it != elem.Children.end() && this_it->get() != &elem )
     {
@@ -343,7 +404,7 @@ void WriterXmlEmitter::visit( DocumentElement& elem, const std::list< std::uniqu
     // only DrawElement types
     for( auto it = elem.Children.begin(); it != elem.Children.end(); ++it )
     {
-        if( dynamic_cast<DrawElement*>(it->get()) == nullptr )
+        if( dynamic_cast<DrawElement*>(it->get()) != nullptr )
             (*it)->visitedBy( *this, it );
     }
 
@@ -797,13 +858,12 @@ void WriterXmlOptimizer::optimizeTextElements(Element& rParent)
                     }
                 }
                 // concatenate consecutive text elements unless there is a
-                // font or text color or matrix change, leave a new span in that case
+                // font or text color change, leave a new span in that case
                 if( pCur->FontId == pNext->FontId &&
                     rCurGC.FillColor.Red == rNextGC.FillColor.Red &&
                     rCurGC.FillColor.Green == rNextGC.FillColor.Green &&
                     rCurGC.FillColor.Blue == rNextGC.FillColor.Blue &&
-                    rCurGC.FillColor.Alpha == rNextGC.FillColor.Alpha &&
-                    rCurGC.Transformation == rNextGC.Transformation
+                    rCurGC.FillColor.Alpha == rNextGC.FillColor.Alpha
                     )
                 {
                     pCur->updateGeometryWith( pNext );

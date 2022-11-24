@@ -862,10 +862,10 @@ static void lcl_DoHyperlinkResult( const OutputDevice* pDev, const tools::Rectan
     vcl::PDFExtOutDevData* pPDFData = dynamic_cast< vcl::PDFExtOutDevData* >( pDev->GetExtOutDevData() );
 
     OUString aURL;
+    OUString aCellText;
     if (rCell.getType() == CELLTYPE_FORMULA)
     {
         ScFormulaCell* pFCell = rCell.getFormula();
-        OUString aCellText;
         if ( pFCell->IsHyperLinkCell() )
             pFCell->GetURLResult( aURL, aCellText );
     }
@@ -873,7 +873,7 @@ static void lcl_DoHyperlinkResult( const OutputDevice* pDev, const tools::Rectan
     if ( !aURL.isEmpty() && pPDFData )
     {
         vcl::PDFExtOutDevBookmarkEntry aBookmark;
-        aBookmark.nLinkId = pPDFData->CreateLink( rRect );
+        aBookmark.nLinkId = pPDFData->CreateLink(rRect, aCellText);
         aBookmark.aBookmark = aURL;
         std::vector< vcl::PDFExtOutDevBookmarkEntry >& rBookmarks = pPDFData->GetBookmarks();
         rBookmarks.push_back( aBookmark );
@@ -2111,7 +2111,7 @@ tools::Rectangle ScOutputData::LayoutStrings(bool bPixelToLogic, bool bPaint, co
                                 }
 
                                 if (bPaint)
-                                    mpDev->DrawTextArray(aDrawTextPos, aShort, aDX);
+                                    mpDev->DrawTextArray(aDrawTextPos, aShort, aDX, {}, 0, nLen);
                             }
                             else
                             {
@@ -4689,14 +4689,54 @@ void ScOutputData::DrawRotated(bool bPixelToLogic)
                                 {
                                     eRotMode = pPattern->GetItem(ATTR_ROTATE_MODE, pCondSet).GetValue();
 
-                                    if ( nAttrRotate == 18000_deg100 )
+                                    // tdf#143377 To use the same limits to avoid too big Skew
+                                    // with TextOrientation in Calc, use 1/2 degree here, too.
+                                    // This equals '50' in the notation here (100th degree)
+                                    static const sal_Int32 nMinRad(50);
+
+                                    // bring nAttrRotate to the range [0..36000[
+                                    nAttrRotate = Degree100(((nAttrRotate.get() % 36000) + 36000) % 36000);
+
+                                    // check for to be avoided extreme values and correct
+                                    if (nAttrRotate < Degree100(nMinRad))
+                                    {
+                                        // range [0..50]
+                                        nAttrRotate = Degree100(nMinRad);
                                         eRotMode = SVX_ROTATE_MODE_STANDARD;    // no overflow
+                                    }
+                                    else if (nAttrRotate > Degree100(36000 - nMinRad))
+                                    {
+                                        // range [35950..36000[
+                                        nAttrRotate = Degree100(36000 - nMinRad);
+                                        eRotMode = SVX_ROTATE_MODE_STANDARD;    // no overflow
+                                    }
+                                    else if (nAttrRotate > Degree100(18000 - nMinRad) && (nAttrRotate < Degree100(18000 + nMinRad)))
+                                    {
+                                        // range 50 around 18000, [17950..18050]
+                                        nAttrRotate = (nAttrRotate > Degree100(18000))
+                                            ? Degree100(18000 + nMinRad)
+                                            : Degree100(18000 - nMinRad);
+                                        eRotMode = SVX_ROTATE_MODE_STANDARD;    // no overflow
+                                    }
 
                                     if ( bLayoutRTL )
-                                        nAttrRotate = -nAttrRotate;
+                                    {
+                                        // keep in range [0..36000[
+                                        nAttrRotate = Degree100(36000 - nAttrRotate.get());
+                                    }
 
                                     double nRealOrient = toRadians(nAttrRotate);   // 1/100 degree
                                     nCos = cos( nRealOrient );
+
+                                    // tdf#143377 new strategy: instead of using zero for nSin, which
+                                    // would be the *correct* value, continue with the corrected maximum
+                                    // allowed value which is then *not* zero. This is similar to
+                                    // the behaviour before where (just due to numerical unprecisions)
+                                    // nSin was also not zero (pure coincidence), but very close to it.
+                                    // I checked and tried to make safe all places below that use
+                                    // nSin and divide by it, but there is too much going on and that
+                                    // would not be safe, so rely on the same values as before, but
+                                    // now numerically limited to not get the Skew go havoc
                                     nSin = sin( nRealOrient );
                                 }
                             }

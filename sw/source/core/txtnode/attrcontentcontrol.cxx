@@ -137,6 +137,16 @@ void SwFormatContentControl::NotifyChangeTextNode(SwTextNode* pTextNode)
     }
 }
 
+SwTextNode* SwFormatContentControl::GetTextNode() const
+{
+    if (!m_pContentControl)
+    {
+        return nullptr;
+    }
+
+    return m_pContentControl->GetTextNode();
+}
+
 // This SwFormatContentControl has been cloned and points at the same SwContentControl as the
 // source: this function copies the SwContentControl.
 void SwFormatContentControl::DoCopy(SwTextNode& rTargetTextNode)
@@ -240,9 +250,14 @@ OUString SwContentControl::GetDateString() const
 
     const Color* pColor = nullptr;
     OUString aFormatted;
-    if (!m_oSelectedDate)
+    double fSelectedDate = 0;
+    if (m_oSelectedDate)
     {
-        return OUString();
+        fSelectedDate = *m_oSelectedDate;
+    }
+    else
+    {
+        fSelectedDate = GetCurrentDateValue();
     }
 
     if (nFormat == NUMBERFORMAT_ENTRY_NOT_FOUND)
@@ -250,7 +265,7 @@ OUString SwContentControl::GetDateString() const
         return OUString();
     }
 
-    pNumberFormatter->GetOutputString(*m_oSelectedDate, nFormat, aFormatted, &pColor, false);
+    pNumberFormatter->GetOutputString(fSelectedDate, nFormat, aFormatted, &pColor, false);
     return aFormatted;
 }
 
@@ -325,10 +340,17 @@ bool SwContentControl::IsInteractingCharacter(sal_Unicode cCh)
 
 bool SwContentControl::ShouldOpenPopup(const vcl::KeyCode& rKeyCode)
 {
-    if (HasListItems() || GetDate())
+    switch (GetType())
     {
-        // Alt-down opens the popup.
-        return rKeyCode.IsMod2() && rKeyCode.GetCode() == KEY_DOWN;
+        case SwContentControlType::DROP_DOWN_LIST:
+        case SwContentControlType::COMBO_BOX:
+        case SwContentControlType::DATE:
+        {
+            // Alt-down opens the popup.
+            return rKeyCode.IsMod2() && rKeyCode.GetCode() == KEY_DOWN;
+        }
+        default:
+            break;
     }
 
     return false;
@@ -346,7 +368,7 @@ SwContentControlType SwContentControl::GetType() const
         return SwContentControlType::COMBO_BOX;
     }
 
-    if (!m_aListItems.empty())
+    if (m_bDropDown)
     {
         return SwContentControlType::DROP_DOWN_LIST;
     }
@@ -398,6 +420,8 @@ void SwContentControl::dumpAsXml(xmlTextWriterPtr pWriter) const
                                       BAD_CAST(OString::boolean(m_bPlainText).getStr()));
     (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("combo-box"),
                                       BAD_CAST(OString::boolean(m_bComboBox).getStr()));
+    (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("drop-down"),
+                                      BAD_CAST(OString::boolean(m_bDropDown).getStr()));
     (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("placeholder-doc-part"),
                                       BAD_CAST(m_aPlaceholderDocPart.toUtf8().getStr()));
     (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("data-binding-prefix-mappings"),
@@ -408,6 +432,11 @@ void SwContentControl::dumpAsXml(xmlTextWriterPtr pWriter) const
                                       BAD_CAST(m_aDataBindingStoreItemID.toUtf8().getStr()));
     (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("color"),
                                       BAD_CAST(m_aColor.toUtf8().getStr()));
+    (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("alias"),
+                                      BAD_CAST(m_aAlias.toUtf8().getStr()));
+    (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("tag"), BAD_CAST(m_aTag.toUtf8().getStr()));
+    (void)xmlTextWriterWriteAttribute(pWriter, BAD_CAST("id"),
+                                      BAD_CAST(OString::number(m_nId).getStr()));
 
     if (!m_aListItems.empty())
     {
@@ -493,7 +522,8 @@ SwContentControlListItem::ItemsFromAny(const css::uno::Any& rVal)
     return aRet;
 }
 
-SwTextContentControl* SwTextContentControl::CreateTextContentControl(SwTextNode* pTargetTextNode,
+SwTextContentControl* SwTextContentControl::CreateTextContentControl(SwDoc& rDoc,
+                                                                     SwTextNode* pTargetTextNode,
                                                                      SwFormatContentControl& rAttr,
                                                                      sal_Int32 nStart,
                                                                      sal_Int32 nEnd, bool bIsCopy)
@@ -508,17 +538,21 @@ SwTextContentControl* SwTextContentControl::CreateTextContentControl(SwTextNode*
         }
         rAttr.DoCopy(*pTargetTextNode);
     }
-    auto pTextContentControl(new SwTextContentControl(rAttr, nStart, nEnd));
+    SwContentControlManager* pManager = &rDoc.GetContentControlManager();
+    auto pTextContentControl(new SwTextContentControl(pManager, rAttr, nStart, nEnd));
     return pTextContentControl;
 }
 
-SwTextContentControl::SwTextContentControl(SwFormatContentControl& rAttr, sal_Int32 nStart,
+SwTextContentControl::SwTextContentControl(SwContentControlManager* pManager,
+                                           SwFormatContentControl& rAttr, sal_Int32 nStart,
                                            sal_Int32 nEnd)
     : SwTextAttr(rAttr, nStart)
     , SwTextAttrNesting(rAttr, nStart, nEnd)
+    , m_pManager(pManager)
 {
     rAttr.SetTextAttr(this);
     SetHasDummyChar(true);
+    m_pManager->Insert(this);
 }
 
 SwTextContentControl::~SwTextContentControl()
@@ -536,7 +570,26 @@ void SwTextContentControl::ChgTextNode(SwTextNode* pNode)
     if (rFormatContentControl.GetTextAttr() == this)
     {
         rFormatContentControl.NotifyChangeTextNode(pNode);
+
+        if (pNode)
+        {
+            m_pManager = &pNode->GetDoc().GetContentControlManager();
+        }
+        else
+        {
+            if (m_pManager)
+            {
+                m_pManager->Erase(this);
+            }
+            m_pManager = nullptr;
+        }
     }
+}
+
+SwTextNode* SwTextContentControl::GetTextNode() const
+{
+    auto& rFormatContentControl = static_cast<const SwFormatContentControl&>(GetAttr());
+    return rFormatContentControl.GetTextNode();
 }
 
 void SwTextContentControl::dumpAsXml(xmlTextWriterPtr pWriter) const
@@ -544,6 +597,53 @@ void SwTextContentControl::dumpAsXml(xmlTextWriterPtr pWriter) const
     (void)xmlTextWriterStartElement(pWriter, BAD_CAST("SwTextContentControl"));
     (void)xmlTextWriterWriteFormatAttribute(pWriter, BAD_CAST("ptr"), "%p", this);
     SwTextAttr::dumpAsXml(pWriter);
+
+    (void)xmlTextWriterEndElement(pWriter);
+}
+
+SwContentControlManager::SwContentControlManager() {}
+
+void SwContentControlManager::Insert(SwTextContentControl* pTextContentControl)
+{
+    m_aContentControls.push_back(pTextContentControl);
+}
+
+void SwContentControlManager::Erase(SwTextContentControl* pTextContentControl)
+{
+    m_aContentControls.erase(
+        std::remove(m_aContentControls.begin(), m_aContentControls.end(), pTextContentControl),
+        m_aContentControls.end());
+}
+
+SwTextContentControl* SwContentControlManager::Get(size_t nIndex)
+{
+    // Only sort now: the items may not have an associated text node by the time they are inserted
+    // into the container.
+    std::sort(m_aContentControls.begin(), m_aContentControls.end(),
+              [](SwTextContentControl*& pLhs, SwTextContentControl*& pRhs) -> bool {
+                  SwNodeOffset nIdxLHS = pLhs->GetTextNode()->GetIndex();
+                  SwNodeOffset nIdxRHS = pRhs->GetTextNode()->GetIndex();
+                  if (nIdxLHS == nIdxRHS)
+                  {
+                      return pLhs->GetStart() < pRhs->GetStart();
+                  }
+
+                  return nIdxLHS < nIdxRHS;
+              });
+
+    return m_aContentControls[nIndex];
+}
+
+void SwContentControlManager::dumpAsXml(xmlTextWriterPtr pWriter) const
+{
+    (void)xmlTextWriterStartElement(pWriter, BAD_CAST("SwContentControlManager"));
+    (void)xmlTextWriterWriteFormatAttribute(pWriter, BAD_CAST("ptr"), "%p", this);
+    for (const auto& pContentControl : m_aContentControls)
+    {
+        (void)xmlTextWriterStartElement(pWriter, BAD_CAST("SwTextContentControl"));
+        (void)xmlTextWriterWriteFormatAttribute(pWriter, BAD_CAST("ptr"), "%p", pContentControl);
+        (void)xmlTextWriterEndElement(pWriter);
+    }
 
     (void)xmlTextWriterEndElement(pWriter);
 }

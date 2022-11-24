@@ -215,6 +215,12 @@ void CairoTextRender::DrawTextLayout(const GenericSalLayout& rLayout, const SalG
     }
 
     int nRatio = nWidth * 10 / nHeight;
+    if (nRatio >= 5120)
+    {
+        // as seen with freetype 2.12.1, so cairo surface status is "fail"
+        SAL_WARN("vcl", "rendering text would fail with stretch of: " << nRatio / 10.0);
+        return;
+    }
 
     /*
      * It might be ideal to cache surface and cairo context between calls and
@@ -279,7 +285,7 @@ void CairoTextRender::DrawTextLayout(const GenericSalLayout& rLayout, const SalG
     CairoFontsCache::CacheId aId;
     aId.maFace = aFace;
     aId.mpOptions = rFont.GetFontOptions();
-    aId.mbEmbolden = rFont.NeedsArtificialBold();
+    aId.mbEmbolden = rInstance.NeedsArtificialBold();
 
     cairo_matrix_t m;
 
@@ -334,11 +340,11 @@ void CairoTextRender::DrawTextLayout(const GenericSalLayout& rLayout, const SalG
             cairo_set_matrix(cr, &em_square);
         }
 
-        if (rFont.NeedsArtificialItalic())
+        if (rInstance.NeedsArtificialItalic())
         {
             cairo_matrix_t shear;
             cairo_matrix_init_identity(&shear);
-            shear.xy = -shear.xx * 0x6000L / 0x10000L;
+            shear.xy = -shear.xx * ARTIFICIAL_ITALIC_SKEW;
             cairo_matrix_multiply(&m, &shear, &m);
         }
 

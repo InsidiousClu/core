@@ -7,10 +7,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include <test/bootstrapfixture.hxx>
+#include <test/unoapixml_test.hxx>
 #include <test/helper/transferable.hxx>
-#include <unotest/macros_test.hxx>
-#include <test/xmltesttools.hxx>
 #include <boost/property_tree/json_parser.hpp>
 
 #include <LibreOfficeKit/LibreOfficeKitEnums.h>
@@ -64,9 +62,7 @@ static std::ostream& operator<<(std::ostream& os, ViewShellId const & id)
 namespace
 {
 
-constexpr OUStringLiteral DATA_DIRECTORY = u"/sc/qa/unit/tiledrendering/data/";
-
-class ScTiledRenderingTest : public test::BootstrapFixture, public unotest::MacrosTest, public XmlTestTools
+class ScTiledRenderingTest : public UnoApiXmlTest
 {
 public:
     ScTiledRenderingTest();
@@ -194,81 +190,48 @@ public:
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    ScModelObj* createDoc(const char* pName, bool bMakeTempCopy = false);
+    ScModelObj* createDoc(const char* pName);
     void setupLibreOfficeKitViewCallback(SfxViewShell* pViewShell);
     static void callback(int nType, const char* pPayload, void* pData);
     void callbackImpl(int nType, const char* pPayload);
-    void makeTempCopy(const OUString& rOrigURL);
 
     /// document size changed callback.
     osl::Condition m_aDocSizeCondition;
     Size m_aDocumentSize;
 
-    uno::Reference<lang::XComponent> mxComponent;
     TestLokCallbackWrapper m_callbackWrapper;
-    std::unique_ptr<utl::TempFileNamed> mpTempFile;
 };
 
 ScTiledRenderingTest::ScTiledRenderingTest()
-    : m_callbackWrapper(&callback, this)
+    : UnoApiXmlTest("/sc/qa/unit/tiledrendering/data/"),
+    m_callbackWrapper(&callback, this)
 {
 }
 
 void ScTiledRenderingTest::setUp()
 {
-    test::BootstrapFixture::setUp();
+    UnoApiXmlTest::setUp();
 
     comphelper::LibreOfficeKit::setActive(true);
-
-    mxDesktop.set(css::frame::Desktop::create(comphelper::getComponentContext(getMultiServiceFactory())));
 }
 
 void ScTiledRenderingTest::tearDown()
 {
     if (mxComponent.is())
     {
-        ScModelObj* pModelObj = static_cast<ScModelObj*>(mxComponent.get());
-        ScDocShell* pDocSh = dynamic_cast< ScDocShell* >( pModelObj->GetEmbeddedObject() );
-        if (pDocSh)
-        {
-            ScTabViewShell* pViewShell = pDocSh->GetBestViewShell(false);
-            if (pViewShell)
-            {
-                // The current view is unregistered here, multiple views have to be unregistered
-                // in the test function itself.
-                pViewShell->setLibreOfficeKitViewCallback(nullptr);
-            }
-        }
         mxComponent->dispose();
+        mxComponent.clear();
     }
+
     m_callbackWrapper.clear();
     comphelper::LibreOfficeKit::setActive(false);
 
-    test::BootstrapFixture::tearDown();
+    UnoApiXmlTest::tearDown();
 }
 
-void ScTiledRenderingTest::makeTempCopy(const OUString& rOrigURL)
+ScModelObj* ScTiledRenderingTest::createDoc(const char* pName)
 {
-    mpTempFile.reset(new utl::TempFileNamed());
-    mpTempFile->EnableKillingFile();
-    auto const aError = osl::File::copy(rOrigURL, mpTempFile->GetURL());
-    CPPUNIT_ASSERT_EQUAL_MESSAGE(
-        OUString("<" + rOrigURL + "> -> <" + mpTempFile->GetURL() + ">").toUtf8().getStr(),
-        osl::FileBase::E_None, aError);
-}
-
-ScModelObj* ScTiledRenderingTest::createDoc(const char* pName, bool bMakeTempCopy)
-{
-    if (mxComponent.is())
-        mxComponent->dispose();
-
-    OUString aOriginalSrc = m_directories.getURLFromSrc(DATA_DIRECTORY) + OUString::createFromAscii(pName);
-    if (bMakeTempCopy)
-        makeTempCopy(aOriginalSrc);
-
-    mxComponent = loadFromDesktop(
-        bMakeTempCopy ? mpTempFile->GetURL() : aOriginalSrc,
-        "com.sun.star.sheet.SpreadsheetDocument");
+    loadFromURL(OUString::createFromAscii(pName));
 
     ScModelObj* pModelObj = dynamic_cast<ScModelObj*>(mxComponent.get());
     CPPUNIT_ASSERT(pModelObj);
@@ -609,6 +572,7 @@ public:
     std::vector<tools::Rectangle> m_aInvalidations;
     tools::Rectangle m_aCellCursorBounds;
     std::vector<int> m_aInvalidationsParts;
+    std::vector<int> m_aInvalidationsMode;
     bool m_bViewLock;
     OString m_sCellFormula;
     boost::property_tree::ptree m_aCommentCallbackResult;
@@ -708,15 +672,18 @@ public:
             else
             {
                 uno::Sequence<OUString> aSeq = comphelper::string::convertCommaSeparated(OUString::createFromAscii(pPayload));
-                CPPUNIT_ASSERT(aSeq.getLength() == 4 || aSeq.getLength() == 5);
+                CPPUNIT_ASSERT(aSeq.getLength() == 4 || aSeq.getLength() == 6);
                 tools::Rectangle aInvalidationRect;
                 aInvalidationRect.SetLeft(aSeq[0].toInt32());
                 aInvalidationRect.SetTop(aSeq[1].toInt32());
                 aInvalidationRect.setWidth(aSeq[2].toInt32());
                 aInvalidationRect.setHeight(aSeq[3].toInt32());
                 m_aInvalidations.push_back(aInvalidationRect);
-                if (aSeq.getLength() == 5)
+                if (aSeq.getLength() == 6)
+                {
                     m_aInvalidationsParts.push_back(aSeq[4].toInt32());
+                    m_aInvalidationsMode.push_back(aSeq[5].toInt32());
+                }
                 m_bInvalidateTiles = true;
             }
         }
@@ -1478,7 +1445,7 @@ void ScTiledRenderingTest::testInsertGraphicInvalidations()
     // insert an image in view and see if both views are invalidated
     aView.m_bInvalidateTiles = false;
     uno::Sequence<beans::PropertyValue> aArgs( comphelper::InitPropertySequence({
-            { "FileName", uno::Any(m_directories.getURLFromSrc(DATA_DIRECTORY) + "smile.png") }
+            { "FileName", uno::Any(createFileURL(u"smile.png")) }
         }));
     comphelper::dispatchCommand(".uno:InsertGraphic", aArgs);
     Scheduler::ProcessEventsToIdle();
@@ -1945,6 +1912,7 @@ void ScTiledRenderingTest::testSheetChangeInvalidation()
     aView1.m_bInvalidateTiles = false;
     aView1.m_aInvalidations.clear();
     aView1.m_aInvalidationsParts.clear();
+    aView1.m_aInvalidationsMode.clear();
     pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, awt::Key::PAGEDOWN | KEY_MOD1);
     pModelObj->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, awt::Key::PAGEDOWN | KEY_MOD1);
     Scheduler::ProcessEventsToIdle();
@@ -1958,6 +1926,9 @@ void ScTiledRenderingTest::testSheetChangeInvalidation()
     CPPUNIT_ASSERT_EQUAL(size_t(2), aView1.m_aInvalidationsParts.size());
     CPPUNIT_ASSERT_EQUAL(pModelObj->getPart(), aView1.m_aInvalidationsParts[0]);
     CPPUNIT_ASSERT_EQUAL(pModelObj->getPart(), aView1.m_aInvalidationsParts[1]);
+    CPPUNIT_ASSERT_EQUAL(size_t(2), aView1.m_aInvalidationsMode.size());
+    CPPUNIT_ASSERT_EQUAL(pModelObj->getEditMode(), aView1.m_aInvalidationsMode[0]);
+    CPPUNIT_ASSERT_EQUAL(pModelObj->getEditMode(), aView1.m_aInvalidationsMode[1]);
     comphelper::LibreOfficeKit::setPartInInvalidation(oldPartInInvalidation);
 }
 
@@ -2835,8 +2806,6 @@ void ScTiledRenderingTest::testSheetViewDataCrash()
 
 void ScTiledRenderingTest::testTextBoxInsert()
 {
-    comphelper::LibreOfficeKit::setActive();
-
     createDoc("empty.ods");
     ViewCallback aView1;
 
@@ -2857,8 +2826,6 @@ void ScTiledRenderingTest::testTextBoxInsert()
 
 void ScTiledRenderingTest::testCommentCellCopyPaste()
 {
-    // Load a document
-    comphelper::LibreOfficeKit::setActive();
     // Comments callback are emitted only if tiled annotations are off
     comphelper::LibreOfficeKit::setTiledAnnotations(false);
 
@@ -2956,10 +2923,13 @@ void ScTiledRenderingTest::testCommentCellCopyPaste()
 
 void ScTiledRenderingTest::testInvalidEntrySave()
 {
-    // Load a document
-    comphelper::LibreOfficeKit::setActive();
+    loadFromURL(u"validity.xlsx");
 
-    ScModelObj* pModelObj = createDoc("validity.xlsx", true /* bMakeTempCopy */);
+    // .uno:Save modifies the original file, make a copy first
+    saveAndReload("Calc Office Open XML");
+    ScModelObj* pModelObj = dynamic_cast<ScModelObj*>(mxComponent.get());
+    CPPUNIT_ASSERT(pModelObj);
+    pModelObj->initializeForTiledRendering(uno::Sequence<beans::PropertyValue>());
     const ScDocument* pDoc = pModelObj->GetDocument();
     ViewCallback aView;
     int nView = SfxLokHelper::getView();

@@ -763,17 +763,15 @@ void SwUndoTextToTable::UndoImpl(::sw::UndoRedoContext & rContext)
     rDoc.TableToText( pTNd, 0x0b == m_cSeparator ? 0x09 : m_cSeparator );
 
     // join again at start?
-    SwPaM aPam(rDoc.GetNodes().GetEndOfContent());
-    SwPosition *const pPos = aPam.GetPoint();
     if( m_nSttContent )
     {
-        pPos->Assign(nTableNd);
+        SwPaM aPam(rDoc.GetNodes(), nTableNd);
         if (aPam.Move(fnMoveBackward, GoInContent))
         {
             SwNode & rIdx = aPam.GetPoint()->GetNode();
 
             // than move, relatively, the Cursor/etc. again
-            RemoveIdxRel( rIdx.GetIndex()+1, *pPos );
+            RemoveIdxRel( rIdx.GetIndex()+1, *aPam.GetPoint() );
 
             rIdx.GetContentNode()->JoinNext();
         }
@@ -782,16 +780,15 @@ void SwUndoTextToTable::UndoImpl(::sw::UndoRedoContext & rContext)
     // join again at end?
     if( m_bSplitEnd )
     {
-        pPos->Assign( m_nEndNode );
-        SwTextNode* pTextNd = pPos->GetNode().GetTextNode();
+        SwPosition aEndPos( rDoc.GetNodes(), m_nEndNode );
+        SwTextNode* pTextNd = aEndPos.GetNode().GetTextNode();
         if( pTextNd && pTextNd->CanJoinNext() )
         {
-            aPam.GetMark()->nContent.Assign( nullptr, 0 );
-            aPam.GetPoint()->nContent.Assign( nullptr, 0 );
+            aEndPos.nContent.Assign( nullptr, 0 );
 
             // than move, relatively, the Cursor/etc. again
-            pPos->SetContent(pTextNd->GetText().getLength());
-            RemoveIdxRel( m_nEndNode + 1, *pPos );
+            aEndPos.SetContent(pTextNd->GetText().getLength());
+            RemoveIdxRel( m_nEndNode + 1, aEndPos );
 
             pTextNd->JoinNext();
         }
@@ -1940,7 +1937,7 @@ void SwUndoTableMerge::UndoImpl(::sw::UndoRedoContext & rContext)
                     // also delete not needed attributes
                     SwContentIndex aTmpIdx( pTextNd, nDelPos );
                     if( pTextNd->GetpSwpHints() && pTextNd->GetpSwpHints()->Count() )
-                        pTextNd->RstTextAttr( aTmpIdx, pTextNd->GetText().getLength() - nDelPos + 1 );
+                        pTextNd->RstTextAttr( nDelPos, pTextNd->GetText().getLength() - nDelPos + 1 );
                     // delete separator
                     pTextNd->EraseText( aTmpIdx, 1 );
                 }
@@ -2688,12 +2685,12 @@ std::unique_ptr<SwUndo> SwUndoTableCpyTable::PrepareRedline( SwDoc* pDoc, const 
     {
         pText = aDeleteStart.GetNode().GetTextNode();
         if( pText )
-            aDeleteStart.nContent.Assign( pText, 0 );
+            aDeleteStart.SetContent( 0 );
     }
     SwPosition aCellEnd( *rBox.GetSttNd()->EndOfSectionNode(), SwNodeOffset(-1) );
     pText = aCellEnd.GetNode().GetTextNode();
     if( pText )
-        aCellEnd.nContent.Assign(pText, pText->GetText().getLength());
+        aCellEnd.SetContent(pText->GetText().getLength());
     if( aDeleteStart != aCellEnd )
     {   // If the old (deleted) part is not empty, here we are...
         SwPaM aDeletePam( aDeleteStart, aCellEnd );
@@ -2709,7 +2706,7 @@ std::unique_ptr<SwUndo> SwUndoTableCpyTable::PrepareRedline( SwDoc* pDoc, const 
     SwPosition aCellStart( *rBox.GetSttNd(), SwNodeOffset(2) );
     pText = aCellStart.GetNode().GetTextNode();
     if( pText )
-        aCellStart.nContent.Assign( pText, 0 );
+        aCellStart.SetContent( 0 );
     if( aCellStart != aInsertEnd ) // An empty insertion will not been marked
     {
         SwPaM aTmpPam( aCellStart, aInsertEnd );

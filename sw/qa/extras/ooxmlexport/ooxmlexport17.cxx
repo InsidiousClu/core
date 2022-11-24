@@ -38,12 +38,10 @@
 #include <IDocumentLayoutAccess.hxx>
 #include <rootfrm.hxx>
 
-constexpr OUStringLiteral DATA_DIRECTORY = u"/sw/qa/extras/ooxmlexport/data/";
-
 class Test : public SwModelTestBase
 {
 public:
-    Test() : SwModelTestBase(DATA_DIRECTORY, "Office Open XML Text") {}
+    Test() : SwModelTestBase("/sw/qa/extras/ooxmlexport/data/", "Office Open XML Text") {}
 };
 
 DECLARE_OOXMLEXPORT_TEST(testTdf135164_cancelledNumbering, "tdf135164_cancelledNumbering.docx")
@@ -96,7 +94,7 @@ DECLARE_OOXMLEXPORT_TEST(testTdf148380_fldLocked, "tdf148380_fldLocked.docx")
 
     // Verify that these are fields, and not just plain text
     // (import only, since export thankfully just dumps these fixed fields as plain text
-    if (mbExported)
+    if (isExported())
         return;
     uno::Reference<text::XTextFieldsSupplier> xTextFieldsSupplier(mxComponent, uno::UNO_QUERY);
     auto xFieldsAccess(xTextFieldsSupplier->getTextFields());
@@ -213,7 +211,7 @@ CPPUNIT_TEST_FIXTURE(Test, testTdf135906)
 
 CPPUNIT_TEST_FIXTURE(Test, TestTdf146802)
 {
-    load(DATA_DIRECTORY, "tdf146802.docx");
+    createSwDoc("tdf146802.docx");
 
     // First check if the load failed, as before the fix.
     CPPUNIT_ASSERT(mxComponent);
@@ -251,7 +249,7 @@ CPPUNIT_TEST_FIXTURE(Test, testClearingBreak)
 CPPUNIT_TEST_FIXTURE(Test, testContentControlExport)
 {
     // Given a document with a content control around one or more text portions:
-    mxComponent = loadFromDesktop("private:factory/swriter");
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xMSF(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xTextDocument->getText();
@@ -266,8 +264,7 @@ CPPUNIT_TEST_FIXTURE(Test, testContentControlExport)
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -283,7 +280,7 @@ CPPUNIT_TEST_FIXTURE(Test, testContentControlExport)
 CPPUNIT_TEST_FIXTURE(Test, testCheckboxContentControlExport)
 {
     // Given a document with a checkbox content control around a text portion:
-    mxComponent = loadFromDesktop("private:factory/swriter");
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xMSF(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xTextDocument->getText();
@@ -301,8 +298,7 @@ CPPUNIT_TEST_FIXTURE(Test, testCheckboxContentControlExport)
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -319,7 +315,7 @@ CPPUNIT_TEST_FIXTURE(Test, testCheckboxContentControlExport)
 CPPUNIT_TEST_FIXTURE(Test, testDropdownContentControlExport)
 {
     // Given a document with a dropdown content control around a text portion:
-    mxComponent = loadFromDesktop("private:factory/swriter");
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xMSF(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xTextDocument->getText();
@@ -331,6 +327,7 @@ CPPUNIT_TEST_FIXTURE(Test, testDropdownContentControlExport)
         xMSF->createInstance("com.sun.star.text.ContentControl"), uno::UNO_QUERY);
     uno::Reference<beans::XPropertySet> xContentControlProps(xContentControl, uno::UNO_QUERY);
     {
+        xContentControlProps->setPropertyValue("DropDown", uno::Any(true));
         uno::Sequence<beans::PropertyValues> aListItems = {
             {
                 comphelper::makePropertyValue("DisplayText", uno::Any(OUString("red"))),
@@ -350,8 +347,7 @@ CPPUNIT_TEST_FIXTURE(Test, testDropdownContentControlExport)
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -371,7 +367,7 @@ CPPUNIT_TEST_FIXTURE(Test, testDropdownContentControlExport)
 CPPUNIT_TEST_FIXTURE(Test, testPictureContentControlExport)
 {
     // Given a document with a picture content control around a text portion:
-    mxComponent = loadFromDesktop("private:factory/swriter");
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xMSF(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xTextDocument->getText();
@@ -391,8 +387,7 @@ CPPUNIT_TEST_FIXTURE(Test, testPictureContentControlExport)
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -406,7 +401,7 @@ CPPUNIT_TEST_FIXTURE(Test, testPictureContentControlExport)
 CPPUNIT_TEST_FIXTURE(Test, testDateContentControlExport)
 {
     // Given a document with a date content control around a text portion:
-    mxComponent = loadFromDesktop("private:factory/swriter");
+    createSwDoc();
     uno::Reference<lang::XMultiServiceFactory> xMSF(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY);
     uno::Reference<text::XText> xText = xTextDocument->getText();
@@ -426,11 +421,12 @@ CPPUNIT_TEST_FIXTURE(Test, testDateContentControlExport)
     xContentControlProps->setPropertyValue("DataBindingXpath", uno::Any(OUString("/ns0:employees[1]/ns0:employee[1]/ns0:hireDate[1]")));
     xContentControlProps->setPropertyValue("DataBindingStoreItemID", uno::Any(OUString("{241A8A02-7FFD-488D-8827-63FBE74E8BC9}")));
     xContentControlProps->setPropertyValue("Color", uno::Any(OUString("008000")));
+    xContentControlProps->setPropertyValue("Alias", uno::Any(OUString("myalias")));
+    xContentControlProps->setPropertyValue("Tag", uno::Any(OUString("mytag")));
     xText->insertTextContent(xCursor, xContentControl, /*bAbsorb=*/true);
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure the expected markup is used:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -447,6 +443,8 @@ CPPUNIT_TEST_FIXTURE(Test, testDateContentControlExport)
     assertXPath(pXmlDoc, "//w:sdt/w:sdtPr/w:dataBinding", "xpath", "/ns0:employees[1]/ns0:employee[1]/ns0:hireDate[1]");
     assertXPath(pXmlDoc, "//w:sdt/w:sdtPr/w:dataBinding", "storeItemID", "{241A8A02-7FFD-488D-8827-63FBE74E8BC9}");
     assertXPath(pXmlDoc, "//w:sdt/w:sdtPr/w15:color", "val", "008000");
+    assertXPath(pXmlDoc, "//w:sdt/w:sdtPr/w:alias", "val", "myalias");
+    assertXPath(pXmlDoc, "//w:sdt/w:sdtPr/w:tag", "val", "mytag");
 }
 
 CPPUNIT_TEST_FIXTURE(Test, testNegativePageBorder)
@@ -468,8 +466,7 @@ CPPUNIT_TEST_FIXTURE(Test, testNegativePageBorder)
     xPageStyle->setPropertyValue("TopBorderDistance", uno::Any(nTopBorderDistance));
 
     // When exporting to DOCX:
-    save("Office Open XML Text", maTempFile);
-    mbExported = true;
+    save("Office Open XML Text");
 
     // Then make sure that the page edge -> border space is correct:
     xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
@@ -496,9 +493,9 @@ CPPUNIT_TEST_FIXTURE(Test, testTdf148494)
 
 DECLARE_OOXMLEXPORT_TEST(testTdf137466, "tdf137466.docx")
 {
-    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
-    if (!pXmlDoc)
+    if (!isExported())
        return; // initial import, no further checks
+    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
 
     // Ensure that we have <w:placeholder><w:docPart v:val="xxxx"/></w:placeholder>
     OUString sDocPart = getXPath(pXmlDoc, "/w:document/w:body/w:p/w:sdt/w:sdtPr/w:placeholder/w:docPart", "val");
@@ -669,16 +666,16 @@ DECLARE_OOXMLEXPORT_TEST(testTdf123642_BookmarkAtDocEnd, "tdf123642.docx")
     CPPUNIT_ASSERT(xBookmarksByName->hasByName("Bookmark1"));
 
     // and it is really in exported DOCX (let's ensure)
-    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
-    if (!pXmlDoc)
+    if (!isExported())
        return; // initial import, no further checks
+    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
 
     CPPUNIT_ASSERT_EQUAL(OUString("Bookmark1"), getXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:bookmarkStart[1]", "name"));
 }
 
 DECLARE_OOXMLEXPORT_TEST(testTdf148361, "tdf148361.docx")
 {
-    if (mbExported)
+    if (isExported())
     {
         // Block SDT is turned into run SDT on export, so the next import will have this as content
         // control, not as a field.
@@ -865,9 +862,9 @@ DECLARE_OOXMLEXPORT_TEST(TestTdf73499, "tdf73499.docx")
 
 DECLARE_OOXMLEXPORT_TEST(testTdf81507, "tdf81507.docx")
 {
-    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
-    if (!pXmlDoc)
+    if (!isExported())
        return; // initial import, no further checks
+    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
 
     // Ensure that we have <w:text w:multiLine="1"/>
     CPPUNIT_ASSERT_EQUAL(OUString("1"), getXPath(pXmlDoc, "/w:document/w:body/w:p[1]/w:sdt/w:sdtPr/w:text", "multiLine"));
@@ -967,9 +964,9 @@ DECLARE_OOXMLEXPORT_TEST(testTdf148455_1, "tdf148455_1.docx")
 
 DECLARE_OOXMLEXPORT_TEST(testTdf148455_2, "tdf148455_2.docx")
 {
-    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
-    if (!pXmlDoc)
+    if (!isExported())
        return; // initial import, no further checks
+    xmlDocUniquePtr pXmlDoc = parseExport("word/document.xml");
 
     // Find list id for restarted list
     sal_Int32 nListId = getXPath(pXmlDoc, "/w:document/w:body/w:p[3]/w:pPr/w:numPr/w:numId", "val").toInt32();
@@ -985,11 +982,8 @@ DECLARE_OOXMLEXPORT_TEST(testTdf148455_2, "tdf148455_2.docx")
 
 CPPUNIT_TEST_FIXTURE(Test, testTdf147978enhancedPathABVW)
 {
-    load(DATA_DIRECTORY, "tdf147978_enhancedPath_commandABVW.odt");
-    CPPUNIT_ASSERT(mxComponent);
-    save("Office Open XML Text", maTempFile);
-    mxComponent->dispose();
-    mxComponent = loadFromDesktop(maTempFile.GetURL(), "com.sun.star.text.TextDocument");
+    createSwDoc("tdf147978_enhancedPath_commandABVW.odt");
+    reload("Office Open XML Text", nullptr);
     // Make sure the new implemented export for commands A,B,V and W use the correct arc between
     // the given two points, here the short one.
     for (sal_Int16 i = 1 ; i <= 4; ++i)
@@ -1061,9 +1055,9 @@ DECLARE_OOXMLEXPORT_TEST(testTdf148360, "tdf148360.docx")
     const auto& pLayout = parseLayoutDump();
 
     // Ensure first element is a tab
-    assertXPath(pLayout, "/root/page[1]/body/txt[1]/Text[1]", "nType", "PortionType::TabLeft");
+    assertXPath(pLayout, "/root/page[1]/body/txt[1]/SwParaPortion/SwLineLayout/child::*[1]", "type", "PortionType::TabLeft");
     // and only then goes content
-    assertXPath(pLayout, "/root/page[1]/body/txt[1]/Text[2]", "nType", "PortionType::Text");
+    assertXPath(pLayout, "/root/page[1]/body/txt[1]/SwParaPortion/SwLineLayout/child::*[2]", "type", "PortionType::Text");
 }
 
 DECLARE_OOXMLEXPORT_TEST(testTdf135923, "tdf135923-min.docx")

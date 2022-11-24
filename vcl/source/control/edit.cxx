@@ -639,6 +639,8 @@ void Edit::ImplRepaint(vcl::RenderContext& rRenderContext, const tools::Rectangl
                         vcl::Font aFont = rRenderContext.GetFont();
                         if (nAttr & ExtTextInputAttr::Underline)
                             aFont.SetUnderline(LINESTYLE_SINGLE);
+                        else if (nAttr & ExtTextInputAttr::DoubleUnderline)
+                            aFont.SetUnderline(LINESTYLE_DOUBLE);
                         else if (nAttr & ExtTextInputAttr::BoldUnderline)
                             aFont.SetUnderline( LINESTYLE_BOLD);
                         else if (nAttr & ExtTextInputAttr::DottedUnderline)
@@ -1876,11 +1878,8 @@ void Edit::GetFocus()
 
         ImplShowCursor();
 
-        // FIXME: this is currently only on macOS
-        // check for other platforms that need similar handling
-        if( ImplGetSVData()->maNWFData.mbNoFocusRects &&
-            IsNativeWidgetEnabled() &&
-            IsNativeControlSupported( ControlType::Editbox, ControlPart::Entire ) )
+        if (IsNativeWidgetEnabled() &&
+            IsNativeControlSupported( ControlType::Editbox, ControlPart::Entire ))
         {
             ImplInvalidateOutermostBorder( mbIsSubEdit ? GetParent() : this );
         }
@@ -1903,11 +1902,8 @@ void Edit::LoseFocus()
 {
     if ( !mpSubEdit )
     {
-        // FIXME: this is currently only on macOS
-        // check for other platforms that need similar handling
-        if( ImplGetSVData()->maNWFData.mbNoFocusRects &&
-            IsNativeWidgetEnabled() &&
-            IsNativeControlSupported( ControlType::Editbox, ControlPart::Entire ) )
+        if (IsNativeWidgetEnabled() &&
+            IsNativeControlSupported(ControlType::Editbox, ControlPart::Entire))
         {
             ImplInvalidateOutermostBorder( mbIsSubEdit ? GetParent() : this );
         }
@@ -1917,6 +1913,28 @@ void Edit::LoseFocus()
     }
 
     Control::LoseFocus();
+}
+
+bool Edit::PreNotify(NotifyEvent& rNEvt)
+{
+    if (rNEvt.GetType() == NotifyEventType::MOUSEMOVE)
+    {
+        const MouseEvent* pMouseEvt = rNEvt.GetMouseEvent();
+        if (pMouseEvt && !pMouseEvt->GetButtons() && !pMouseEvt->IsSynthetic() && !pMouseEvt->IsModifierChanged())
+        {
+            // trigger redraw if mouse over state has changed
+            if (pMouseEvt->IsLeaveWindow() || pMouseEvt->IsEnterWindow())
+            {
+                if (IsNativeWidgetEnabled() &&
+                    IsNativeControlSupported(ControlType::Editbox, ControlPart::Entire))
+                {
+                    ImplInvalidateOutermostBorder(this);
+                }
+            }
+        }
+    }
+
+    return Control::PreNotify(rNEvt);
 }
 
 void Edit::Command( const CommandEvent& rCEvt )
@@ -2923,6 +2941,9 @@ void Edit::DumpAsPropertyTree(tools::JsonWriter& rJsonWriter)
 
     if (!maPlaceholderText.isEmpty())
         rJsonWriter.put("placeholder", maPlaceholderText);
+
+    if (IsPassword())
+        rJsonWriter.put("password", true);
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -7,12 +7,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "../sdmodeltestbase.hxx"
+#include <test/unoapixml_test.hxx>
 
 #include <app.hrc>
 #include <test/bootstrapfixture.hxx>
 #include <test/helper/transferable.hxx>
-#include <test/xmltesttools.hxx>
 #include <boost/property_tree/json_parser.hpp>
 #include <LibreOfficeKit/LibreOfficeKitEnums.h>
 #include <sal/log.hxx>
@@ -64,18 +63,13 @@
 
 using namespace css;
 
-namespace
-{
-    constexpr OUStringLiteral DATA_DIRECTORY = u"/sd/qa/unit/tiledrendering/data/";
-}
-
 static std::ostream& operator<<(std::ostream& os, ViewShellId id)
 {
     os << static_cast<sal_Int32>(id);
     return os;
 }
 
-class SdTiledRenderingTest : public SdModelTestBase, public XmlTestTools
+class SdTiledRenderingTest : public UnoApiXmlTest
 {
 public:
     SdTiledRenderingTest();
@@ -207,7 +201,6 @@ private:
     void callbackImpl(int nType, const char* pPayload);
     xmlDocUniquePtr parseXmlDump();
 
-    uno::Reference<lang::XComponent> mxComponent;
     ::tools::Rectangle m_aInvalidation;
     std::vector<::tools::Rectangle> m_aSelection;
     bool m_bFound;
@@ -224,7 +217,8 @@ private:
 };
 
 SdTiledRenderingTest::SdTiledRenderingTest()
-    : m_bFound(true),
+    : UnoApiXmlTest("/sd/qa/unit/tiledrendering/data/"),
+      m_bFound(true),
       m_nPart(0),
       m_nSelectionBeforeSearchResult(0),
       m_nSelectionAfterSearchResult(0),
@@ -235,19 +229,20 @@ SdTiledRenderingTest::SdTiledRenderingTest()
 
 void SdTiledRenderingTest::setUp()
 {
-    test::BootstrapFixture::setUp();
+    UnoApiXmlTest::setUp();
 
     // prevent showing warning message box
     setenv("OOX_NO_SMARTART_WARNING", "1", 1);
     comphelper::LibreOfficeKit::setActive(true);
-
-    mxDesktop.set(css::frame::Desktop::create(comphelper::getComponentContext(getMultiServiceFactory())));
 }
 
 void SdTiledRenderingTest::tearDown()
 {
     if (mxComponent.is())
+    {
         mxComponent->dispose();
+        mxComponent.clear();
+    }
 
     if (m_pXmlBuffer)
         xmlBufferFree(m_pXmlBuffer);
@@ -255,14 +250,12 @@ void SdTiledRenderingTest::tearDown()
     m_callbackWrapper.clear();
     comphelper::LibreOfficeKit::setActive(false);
 
-    test::BootstrapFixture::tearDown();
+    UnoApiXmlTest::tearDown();
 }
 
 SdXImpressDocument* SdTiledRenderingTest::createDoc(const char* pName, const uno::Sequence<beans::PropertyValue>& rArguments)
 {
-    if (mxComponent.is())
-        mxComponent->dispose();
-    mxComponent = loadFromDesktop(m_directories.getURLFromSrc(DATA_DIRECTORY) + OUString::createFromAscii(pName), "com.sun.star.presentation.PresentationDocument");
+    loadFromURL(OUString::createFromAscii(pName));
     SdXImpressDocument* pImpressDocument = dynamic_cast<SdXImpressDocument*>(mxComponent.get());
     CPPUNIT_ASSERT(pImpressDocument);
     pImpressDocument->initializeForTiledRendering(rArguments);
@@ -1391,9 +1384,6 @@ void SdTiledRenderingTest::testUndoLimiting()
         pViewShell1->ExecuteSlot(aReq1);
         CPPUNIT_ASSERT(aReq1.IsDone());
     }
-
-    mxComponent->dispose();
-    mxComponent.clear();
 }
 
 void SdTiledRenderingTest::testCreateViewGraphicSelection()
@@ -1499,8 +1489,8 @@ void SdTiledRenderingTest::testTdf102223()
     EditView& rEditView = pView->GetTextEditOutlinerView()->GetEditView();
     rEditView.SetSelection(ESelection(0, 0, 0, 3)); // start para, start char, end para, end char.
     CPPUNIT_ASSERT_EQUAL(OUString("Red"), rEditView.GetSelected());
-    const SvxFontHeightItem& rItem = rEditView.GetAttribs().Get(EE_CHAR_FONTHEIGHT);
-    CPPUNIT_ASSERT_EQUAL(int(1411), static_cast<int>(rItem.GetHeight()));
+    CPPUNIT_ASSERT_EQUAL(
+        int(1411), static_cast<int>(rEditView.GetAttribs().Get(EE_CHAR_FONTHEIGHT).GetHeight()));
 
     // cut contents of cell
     uno::Sequence<beans::PropertyValue> aArgs;
@@ -1511,8 +1501,8 @@ void SdTiledRenderingTest::testTdf102223()
     CPPUNIT_ASSERT(pView->GetTextEditObject());
     EditView& rEditView2 = pView->GetTextEditOutlinerView()->GetEditView();
     rEditView2.SetSelection(ESelection(0, 0, 0, 1)); // start para, start char, end para, end char.
-    const SvxFontHeightItem& rItem2 = rEditView2.GetAttribs().Get(EE_CHAR_FONTHEIGHT);
-    CPPUNIT_ASSERT_EQUAL(int(1411), static_cast<int>(rItem2.GetHeight()));
+    CPPUNIT_ASSERT_EQUAL(
+        int(1411), static_cast<int>(rEditView2.GetAttribs().Get(EE_CHAR_FONTHEIGHT).GetHeight()));
 }
 
 void SdTiledRenderingTest::testTdf118354()
@@ -1727,18 +1717,13 @@ void SdTiledRenderingTest::testTdf81754()
     Scheduler::ProcessEventsToIdle();
 
     // now save, reload, and assert that we did not lose the edit
-    ::sd::DrawDocShellRef xDocShRef = saveAndReload(pXImpressDocument->GetDocShell(), PPTX);
+    saveAndReload("Impress Office Open XML");
 
-    const SdrPage* pPage = GetPage(1, xDocShRef);
-    SdrTextObj* pTextObject = dynamic_cast<SdrTextObj*>(pPage->GetObj(1));
-    CPPUNIT_ASSERT(pTextObject);
-
-    OutlinerParaObject* pOutlinerParagraphObject = pTextObject->GetOutlinerParaObject();
-    const EditTextObject& aEdit = pOutlinerParagraphObject->GetTextObject();
-
-    CPPUNIT_ASSERT_EQUAL(OUString("Somethingxx"), aEdit.GetText(0));
-
-    xDocShRef->DoClose();
+    uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
+    uno::Reference<drawing::XDrawPage> xPage(xDrawPagesSupplier->getDrawPages()->getByIndex(0),
+                                             uno::UNO_QUERY);
+    uno::Reference<text::XTextRange> xShape(xPage->getByIndex(1), uno::UNO_QUERY);
+    CPPUNIT_ASSERT_EQUAL(OUString(u"Somethingxx"), xShape->getString());
 }
 
 void SdTiledRenderingTest::testTdf105502()
@@ -2276,9 +2261,8 @@ void SdTiledRenderingTest::testLanguageAllText()
     uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(mxComponent, uno::UNO_QUERY);
     uno::Reference<drawing::XDrawPage> xPage(xDrawPagesSupplier->getDrawPages()->getByIndex(0),
                                              uno::UNO_QUERY);
-    uno::Reference<beans::XPropertySet> xShape(xPage->getByIndex(0), uno::UNO_QUERY);
-    uno::Reference<beans::XPropertySet> xRun(
-        getRunFromParagraph(0, getParagraphFromShape(0, xShape)), uno::UNO_QUERY);
+    uno::Reference<text::XTextRange> xShape(xPage->getByIndex(0), uno::UNO_QUERY);
+    uno::Reference<beans::XPropertySet> xRun(xShape, uno::UNO_QUERY_THROW);
     lang::Locale aLocale;
     xRun->getPropertyValue("CharLocale") >>= aLocale;
     // Without the accompanying fix in place, this test would have failed with 'Expected: en;
@@ -2460,7 +2444,7 @@ void SdTiledRenderingTest::testPasteTextOnSlide()
     CPPUNIT_ASSERT_EQUAL(static_cast<size_t>(3), pActualPage->GetObjCount());
     SdrObject* pObject = pActualPage->GetObj(2);
     CPPUNIT_ASSERT(pObject);
-    SdrTextObj* pTextObj = dynamic_cast<SdrTextObj*>(pObject);
+    SdrTextObj* pTextObj = DynCastSdrTextObj(pObject);
     CPPUNIT_ASSERT(pTextObj);
     CPPUNIT_ASSERT_EQUAL(SdrObjKind::Text, pTextObj->GetObjIdentifier());
     const Point aPos = pTextObj->GetLastBoundRect().TopLeft();

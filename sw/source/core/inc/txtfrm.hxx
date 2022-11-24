@@ -276,7 +276,7 @@ class SW_DLLPUBLIC SwTextFrame final : public SwContentFrame
     virtual void MakePos() override;
 
     // Corrects the position from which we need to format
-    static TextFrameIndex FindBrk(const OUString &rText, TextFrameIndex nStart,
+    static TextFrameIndex FindBrk(std::u16string_view aText, TextFrameIndex nStart,
                                   TextFrameIndex nEnd);
 
     // inline branch
@@ -344,7 +344,7 @@ public:
      */
     void Init();
 
-    /// Is called by DoIdleJob_() and ExecSpellPopup()
+    /// Is called by DoIdleJob_(), ExecSpellPopup() and UpDown()
     SwRect AutoSpell_(SwTextNode &, sal_Int32);
 
     /// Is called by DoIdleJob_()
@@ -485,7 +485,7 @@ public:
      * bSplit indicates, that the paragraph has to be split
      * bTst indicates, that we are currently doing a test formatting
      */
-    virtual bool WouldFit( SwTwips &nMaxHeight, bool &bSplit, bool bTst ) override;
+    virtual bool WouldFit(SwTwips &nMaxHeight, bool &bSplit, bool bTst, bool bMoveBwd) override;
 
     /**
      * The WouldFit equivalent for temporarily rewired TextFrames

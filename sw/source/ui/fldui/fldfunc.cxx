@@ -35,8 +35,8 @@ using namespace ::com::sun::star;
 
 SwFieldFuncPage::SwFieldFuncPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet *const pCoreSet)
     : SwFieldPage(pPage, pController, "modules/swriter/ui/fldfuncpage.ui", "FieldFuncPage", pCoreSet)
-    , nOldFormat(0)
-    , bDropDownLBChanged(false)
+    , m_nOldFormat(0)
+    , m_bDropDownLBChanged(false)
     , m_xTypeLB(m_xBuilder->weld_tree_view("type"))
     , m_xSelectionLB(m_xBuilder->weld_tree_view("select"))
     , m_xFormat(m_xBuilder->weld_widget("formatframe"))
@@ -52,15 +52,12 @@ SwFieldFuncPage::SwFieldFuncPage(weld::Container* pPage, weld::DialogController*
     , m_xCond2ED(new ConditionEdit(m_xBuilder->weld_entry("cond2")))
     , m_xMacroBT(m_xBuilder->weld_button("macro"))
     , m_xListGroup(m_xBuilder->weld_widget("listgroup"))
-    , m_xListItemFT(m_xBuilder->weld_label("itemft"))
     , m_xListItemED(m_xBuilder->weld_entry("item"))
     , m_xListAddPB(m_xBuilder->weld_button("add"))
-    , m_xListItemsFT(m_xBuilder->weld_label("listitemft"))
     , m_xListItemsLB(m_xBuilder->weld_tree_view("listitems"))
     , m_xListRemovePB(m_xBuilder->weld_button("remove"))
     , m_xListUpPB(m_xBuilder->weld_button("up"))
     , m_xListDownPB(m_xBuilder->weld_button("down"))
-    , m_xListNameFT(m_xBuilder->weld_label("listnameft"))
     , m_xListNameED(m_xBuilder->weld_entry("listname"))
 {
     FillFieldSelect(*m_xSelectionLB);
@@ -177,7 +174,7 @@ void SwFieldFuncPage::Reset(const SfxItemSet* )
         m_xValueED->save_value();
         m_xCond1ED->save_value();
         m_xCond2ED->save_value();
-        nOldFormat = GetCurField()->GetFormat();
+        m_nOldFormat = GetCurField()->GetFormat();
     }
 }
 
@@ -264,7 +261,7 @@ IMPL_LINK_NOARG(SwFieldFuncPage, TypeHdl, weld::TreeView&, void)
             m_xListItemsLB->select_text(pDrop->GetSelectedItem());
             m_xListNameED->set_text(pDrop->GetPar2());
             m_xListNameED->save_value();
-            bDropDownLBChanged = false;
+            m_bDropDownLBChanged = false;
         }
         else
         {
@@ -449,7 +446,7 @@ void SwFieldFuncPage::ListModifyHdl(const weld::Widget* pControl)
             }
         }
     }
-    bDropDownLBChanged = true;
+    m_bDropDownLBChanged = true;
     ListEnableHdl(*m_xListItemED);
 }
 
@@ -566,8 +563,8 @@ bool SwFieldFuncPage::FillItemSet(SfxItemSet* )
         m_xCond1ED->get_value_changed_from_saved() ||
         m_xCond2ED->get_value_changed_from_saved() ||
         m_xListNameED->get_value_changed_from_saved() ||
-        bDropDownLBChanged ||
-        nOldFormat != nFormat)
+        m_bDropDownLBChanged ||
+        m_nOldFormat != nFormat)
     {
         InsertField( nTypeId, nSubType, aName, aVal, nFormat );
     }

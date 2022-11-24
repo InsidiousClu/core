@@ -17,6 +17,7 @@
  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
  */
 
+#include <config_features.h>
 #include <core_resource.hxx>
 #include "dsnItem.hxx"
 #include "generalpage.hxx"
@@ -155,9 +156,11 @@ namespace dbaui
                 if (m_xEmbeddedDBType->find_text(sDisplayName) == -1 &&
                     dbaccess::ODsnTypeCollection::isEmbeddedDatabase(sURLPrefix))
                 {
+#if !HAVE_FEATURE_MACOSX_SANDBOX
                     if( !officecfg::Office::Common::Misc::ExperimentalMode::get()
                         && sURLPrefix.startsWith("sdbc:embedded:firebird") )
                         continue;
+#endif
                     aDisplayedTypes.emplace_back( sURLPrefix, sDisplayName );
                     m_bIsDisplayedTypesEmpty = false;
                 }
@@ -451,7 +454,6 @@ namespace dbaui
         , m_xFT_EmbeddedDBLabel(m_xBuilder->weld_label("embeddeddbLabel"))
         , m_xEmbeddedDBType(m_xBuilder->weld_combo_box("embeddeddbList"))
         , m_xFT_DocListLabel(m_xBuilder->weld_label("docListLabel"))
-        , m_xFT_HelpText(m_xBuilder->weld_label("helpText"))
         , m_xLB_DocumentList(new OpenDocumentListBox(m_xBuilder->weld_combo_box("documentList"), "com.sun.star.sdb.OfficeDatabaseDocument"))
         , m_xPB_OpenDatabase(new OpenDocumentButton(m_xBuilder->weld_button("openDatabase"), "com.sun.star.sdb.OfficeDatabaseDocument"))
         , m_xFT_NoEmbeddedDBLabel(m_xBuilder->weld_label("noembeddeddbLabel"))

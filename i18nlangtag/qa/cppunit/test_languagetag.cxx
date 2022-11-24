@@ -753,6 +753,11 @@ bool checkMapping( std::u16string_view rStr1, std::u16string_view rStr2 )
     if (rStr1 == u"kw-UK"       ) return rStr2 == u"kw-GB";
     if (rStr1 == u"oc-FR"       ) return rStr2 == u"oc-FR-lengadoc";
     if (rStr1 == u"oc-ES"       ) return rStr2 == u"oc-ES-aranes";
+    if (rStr1 == u"zh-Hans-CN"  ) return rStr2 == u"zh-CN";
+    if (rStr1 == u"zh-Hant-TW"  ) return rStr2 == u"zh-TW";
+    if (rStr1 == u"zh-Hans-SG"  ) return rStr2 == u"zh-SG";
+    if (rStr1 == u"zh-Hant-HK"  ) return rStr2 == u"zh-HK";
+    if (rStr1 == u"zh-Hant-MO"  ) return rStr2 == u"zh-MO";
     return rStr1 == rStr2;
 }
 

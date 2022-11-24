@@ -89,6 +89,7 @@
 #include <uiborder.hxx>
 #include <mmresultdialogs.hxx>
 #include <formatlinebreak.hxx>
+#include <translatelangselect.hxx>
 
 using namespace ::com::sun::star;
 using namespace css::frame;
@@ -109,6 +110,16 @@ short SwAbstractSfxController_Impl::Execute()
     return m_xDlg->run();
 }
 
+short AbstractNumFormatDlg_Impl::Execute()
+{
+    return m_xDlg->run();
+}
+
+bool AbstractNumFormatDlg_Impl::StartExecuteAsync(AsyncContext &rCtx)
+{
+    return SfxSingleTabDialogController::runAsync(m_xDlg, rCtx.maEndDialogFn);
+}
+
 short AbstractSwAsciiFilterDlg_Impl::Execute()
 {
     return m_xDlg->run();
@@ -117,6 +128,11 @@ short AbstractSwAsciiFilterDlg_Impl::Execute()
 short AbstractSplitTableDialog_Impl::Execute()
 {
     return m_xDlg->run();
+}
+
+bool AbstractSplitTableDialog_Impl::StartExecuteAsync(AsyncContext &rCtx)
+{
+    return weld::GenericDialogController::runAsync(m_xDlg, rCtx.maEndDialogFn);
 }
 
 short AbstractSwTableWidthDlg_Impl::Execute()
@@ -350,7 +366,17 @@ const SfxItemSet* SwAbstractSfxController_Impl::GetOutputItemSet() const
     return m_xDlg->GetOutputItemSet();
 }
 
+const SfxItemSet* AbstractNumFormatDlg_Impl::GetOutputItemSet() const
+{
+    return m_xDlg->GetOutputItemSet();
+}
+
 void SwAbstractSfxController_Impl::SetText(const OUString& rStr)
+{
+    m_xDlg->set_title(rStr);
+}
+
+void AbstractNumFormatDlg_Impl::SetText(const OUString& rStr)
 {
     m_xDlg->set_title(rStr);
 }
@@ -796,6 +822,12 @@ sal_uInt16 AbstractMailMergeWizard_Impl::GetRestartPage() const
     return m_xDlg->GetRestartPage();
 }
 
+std::optional<SwLanguageListItem> AbstractSwTranslateLangSelectDlg_Impl::GetSelectedLanguage()
+{
+    SwTranslateLangSelectDlg* pDlg = dynamic_cast<SwTranslateLangSelectDlg*>(m_xDlg.get());
+    return pDlg->GetSelectedLanguage();
+}
+
 VclPtr<AbstractSwInsertAbstractDlg> SwAbstractDialogFactory_Impl::CreateSwInsertAbstractDlg(weld::Window* pParent)
 {
     return VclPtr<AbstractSwInsertAbstractDlg_Impl>::Create(std::make_unique<SwInsertAbstractDlg>(pParent));
@@ -821,7 +853,7 @@ VclPtr<SfxAbstractDialog> SwAbstractDialogFactory_Impl::CreateSwBackgroundDialog
 
 VclPtr<SfxAbstractDialog> SwAbstractDialogFactory_Impl::CreateNumFormatDialog(weld::Widget* pParent, const SfxItemSet& rSet)
 {
-    return VclPtr<SwAbstractSfxController_Impl>::Create(std::make_unique<SwNumFormatDlg>(pParent, rSet));
+    return VclPtr<AbstractNumFormatDlg_Impl>::Create(std::make_shared<SwNumFormatDlg>(pParent, rSet));
 }
 
 VclPtr<AbstractSwAsciiFilterDlg> SwAbstractDialogFactory_Impl::CreateSwAsciiFilterDlg(weld::Window* pParent,
@@ -853,6 +885,11 @@ SwAbstractDialogFactory_Impl::CreateSwContentControlListItemDlg(weld::Window* pP
 std::shared_ptr<AbstractSwBreakDlg> SwAbstractDialogFactory_Impl::CreateSwBreakDlg(weld::Window* pParent, SwWrtShell &rSh)
 {
     return std::make_shared<AbstractSwBreakDlg_Impl>(std::make_unique<SwBreakDlg>(pParent, rSh));
+}
+
+std::shared_ptr<AbstractSwTranslateLangSelectDlg> SwAbstractDialogFactory_Impl::CreateSwTranslateLangSelectDlg(weld::Window* pParent, SwWrtShell &rSh)
+{
+    return std::make_shared<AbstractSwTranslateLangSelectDlg_Impl>(std::make_unique<SwTranslateLangSelectDlg>(pParent, rSh));
 }
 
 VclPtr<VclAbstractDialog> SwAbstractDialogFactory_Impl::CreateSwChangeDBDlg(SwView& rVw)
@@ -966,7 +1003,7 @@ VclPtr<VclAbstractDialog> SwAbstractDialogFactory_Impl::CreateSwSortingDialog(we
 
 VclPtr<AbstractSplitTableDialog> SwAbstractDialogFactory_Impl::CreateSplitTableDialog(weld::Window *pParent, SwWrtShell &rSh)
 {
-    return VclPtr<AbstractSplitTableDialog_Impl>::Create(std::make_unique<SwSplitTableDlg>(pParent, rSh));
+    return VclPtr<AbstractSplitTableDialog_Impl>::Create(std::make_shared<SwSplitTableDlg>(pParent, rSh));
 }
 
 VclPtr<AbstractSwSelGlossaryDlg> SwAbstractDialogFactory_Impl::CreateSwSelGlossaryDlg(weld::Window *pParent, const OUString &rShortName)

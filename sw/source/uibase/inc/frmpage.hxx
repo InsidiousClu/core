@@ -173,14 +173,14 @@ class SwFramePage final : public SfxTabPage
 
     SwWrtShell *getFrameDlgParentShell();
 
-    static const WhichRangesContainer aPageRg;
+    static const WhichRangesContainer s_aPageRg;
 
 public:
     SwFramePage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet &rSet);
     virtual ~SwFramePage() override;
 
     static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet *rSet);
-    static WhichRangesContainer GetRanges() { return aPageRg; }
+    static WhichRangesContainer GetRanges() { return s_aPageRg; }
 
     virtual bool FillItemSet(SfxItemSet *rSet) override;
     virtual void Reset(const SfxItemSet *rSet) override;
@@ -194,8 +194,8 @@ public:
 
 class SwGrfExtPage final : public SfxTabPage
 {
-    OUString        aFilterName;
-    OUString        aGrfName, aNewGrfName;
+    OUString        m_aFilterName;
+    OUString        m_aGrfName, m_aNewGrfName;
 
     std::unique_ptr<::sfx2::FileDialogHelper> m_xGrfDlg;
 
@@ -278,12 +278,9 @@ class SwFrameAddPage final : public SfxTabPage
     std::unique_ptr<weld::Entry> m_xNameED;
     std::unique_ptr<weld::Label> m_xAltNameFT;
     std::unique_ptr<weld::Entry> m_xAltNameED;
-    std::unique_ptr<weld::Label> m_xDescriptionFT;
     std::unique_ptr<weld::TextView> m_xDescriptionED;
     std::unique_ptr<weld::Widget> m_xSequenceFrame;
-    std::unique_ptr<weld::Label> m_xPrevFT;
     std::unique_ptr<weld::ComboBox> m_xPrevLB;
-    std::unique_ptr<weld::Label> m_xNextFT;
     std::unique_ptr<weld::ComboBox> m_xNextLB;
 
     std::unique_ptr<weld::Widget> m_xProtectFrame;
@@ -303,14 +300,14 @@ class SwFrameAddPage final : public SfxTabPage
     DECL_LINK(EditModifyHdl, weld::Entry&, void);
     DECL_LINK(ChainModifyHdl, weld::ComboBox&, void);
 
-    static const WhichRangesContainer aAddPgRg;
+    static const WhichRangesContainer s_aAddPgRg;
 
 public:
     SwFrameAddPage(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet &rSet);
     virtual ~SwFrameAddPage() override;
 
     static std::unique_ptr<SfxTabPage> Create(weld::Container* pPage, weld::DialogController* pController, const SfxItemSet *rSet);
-    static WhichRangesContainer GetRanges() { return aAddPgRg; }
+    static WhichRangesContainer GetRanges() { return s_aAddPgRg; }
 
     virtual bool FillItemSet(SfxItemSet *rSet) override;
     virtual void Reset(const SfxItemSet *rSet) override;

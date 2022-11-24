@@ -22,7 +22,7 @@
 #include <com/sun/star/xml/sax/XFastSAXSerializable.hpp>
 
 #include <oox/shape/ShapeContextHandler.hxx>
-#include "ShapeDrawingFragmentHandler.hxx"
+#include <oox/shape/ShapeDrawingFragmentHandler.hxx>
 #include "LockedCanvasContext.hxx"
 #include "WpsContext.hxx"
 #include "WpgContext.hxx"
@@ -215,6 +215,7 @@ ShapeContextHandler::getDiagramShapeContext()
     {
         auto pFragmentHandler = std::make_shared<ShapeFragmentHandler>(*mxShapeFilterBase, msRelationFragmentPath);
         mpShape = std::make_shared<Shape>();
+        mpShape->setSize(maSize);
         mxDiagramShapeContext.set(new DiagramGraphicDataContext(*pFragmentHandler, mpShape));
     }
 
@@ -428,6 +429,9 @@ ShapeContextHandler::getShape()
                     pShapePtr->setDiagramDoms(mpShape->getDiagramDoms());
                     pShapePtr->keepDiagramDrawing(*mxShapeFilterBase, aFragmentPath);
 
+                    if (mpShape->getFontRefColorForNodes().isUsed())
+                        applyFontRefColor(pShapePtr, mpShape->getFontRefColorForNodes());
+
                     // migrate IDiagramHelper to new oox::Shape (from mpShape which was loaded
                     // to pShapePtr where the geometry is now constructed)
                     mpShape->migrateDiagramHelperToNewShape(pShapePtr);
@@ -564,6 +568,11 @@ void ShapeContextHandler::setPosition(const awt::Point& rPosition)
     maPosition = rPosition;
 }
 
+void ShapeContextHandler::setSize(const awt::Size& rSize)
+{
+    maSize = rSize;
+}
+
 void ShapeContextHandler::setDocumentProperties(const uno::Reference<document::XDocumentProperties>& xDocProps)
 {
     mxDocumentProperties = xDocProps;
@@ -580,6 +589,16 @@ void ShapeContextHandler::setGraphicMapper(css::uno::Reference<css::graphic::XGr
     mxShapeFilterBase->setGraphicMapper(rxGraphicMapper);
 }
 
+void ShapeContextHandler::applyFontRefColor(const oox::drawingml::ShapePtr& pShape,
+                                            const oox::drawingml::Color& rFontRefColor)
+{
+    pShape->getShapeStyleRefs()[XML_fontRef].maPhClr = rFontRefColor;
+    std::vector<oox::drawingml::ShapePtr>& vChildren = pShape->getChildren();
+    for (auto const& child : vChildren)
+    {
+        applyFontRefColor(child, rFontRefColor);
+    }
+}
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

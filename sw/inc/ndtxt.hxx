@@ -63,7 +63,6 @@ class SwInterHyphInfo;
 class SwWrongList;
 class SwGrammarMarkUp;
 struct SwDocStat;
-struct SwParaIdleData_Impl;
 enum class ExpandMode;
 enum class SwFieldIds : sal_uInt16;
 class SwField;
@@ -80,6 +79,29 @@ namespace com::sun::star {
 }
 
 typedef o3tl::sorted_vector< sal_Int32 > SwSoftPageBreakList;
+
+namespace sw
+{
+
+enum class WrongState { TODO, PENDING, DONE };
+
+struct ParagraphIdleData
+{
+    std::unique_ptr<SwWrongList> pWrong;                // for spell checking
+    std::unique_ptr<SwGrammarMarkUp> pGrammarCheck;     // for grammar checking /  proof reading
+    std::unique_ptr<SwWrongList> pSmartTags;
+    sal_uLong nNumberOfWords  = 0;
+    sal_uLong nNumberOfAsianWords  = 0;
+    sal_uLong nNumberOfChars  = 0;
+    sal_uLong nNumberOfCharsExcludingSpaces = 0;
+    bool bWordCountDirty = true;
+    WrongState eWrongDirty = WrongState::TODO; ///< online spell checking needed/done?
+    bool bGrammarCheckDirty = true;
+    bool bSmartTagDirty = true;
+    bool bAutoComplDirty = true;               ///< auto complete list dirty
+};
+
+} // end namespace sw
 
 /// SwTextNode is a paragraph in the document model.
 class SW_DLLPUBLIC SwTextNode final
@@ -105,7 +127,7 @@ class SW_DLLPUBLIC SwTextNode final
 
     OUString m_Text;
 
-    SwParaIdleData_Impl* m_pParaIdleData_Impl;
+    mutable sw::ParagraphIdleData m_aParagraphIdleData;
 
     /** Some of the chars this para are hidden. Paragraph has to be reformatted
        on changing the view to print preview. */
@@ -141,7 +163,7 @@ class SW_DLLPUBLIC SwTextNode final
     /// Copies the attributes at nStart to pDest.
     SAL_DLLPRIVATE void CopyAttr( SwTextNode *pDest, const sal_Int32 nStart, const sal_Int32 nOldPos);
 
-    SAL_DLLPRIVATE SwTextNode* MakeNewTextNode( const SwNodeIndex&, bool bNext = true,
+    SAL_DLLPRIVATE SwTextNode* MakeNewTextNode( SwNode&, bool bNext = true,
                                 bool bChgFollow = true );
 
     SAL_DLLPRIVATE void CutImpl(
@@ -172,10 +194,6 @@ class SW_DLLPUBLIC SwTextNode final
             LanguageType nLang, sal_uInt16 nLangWhichId,
             const vcl::Font *pFont,  sal_uInt16 nFontWhichId );
 
-    /// Start: Data collected during idle time
-
-    SAL_DLLPRIVATE void InitSwParaStatistics( bool bNew );
-
     inline void TryDeleteSwpHints();
 
     SAL_DLLPRIVATE void impl_FormatToTextAttr(const SfxItemSet& i_rAttrSet);
@@ -186,16 +204,14 @@ class SW_DLLPUBLIC SwTextNode final
     void HandleNonLegacyHint(const SfxHint&);
 
 public:
-    enum class WrongState { TODO, PENDING, DONE };
-
     bool IsWordCountDirty() const;
-    WrongState GetWrongDirty() const;
+    sw::WrongState GetWrongDirty() const;
     bool IsWrongDirty() const;
     bool IsGrammarCheckDirty() const;
     bool IsSmartTagDirty() const;
     bool IsAutoCompleteWordDirty() const;
     void SetWordCountDirty( bool bNew ) const;
-    void SetWrongDirty(WrongState eNew) const;
+    void SetWrongDirty(sw::WrongState eNew) const;
     void SetGrammarCheckDirty( bool bNew ) const;
     void SetSmartTagDirty( bool bNew ) const;
     void SetAutoCompleteWordDirty( bool bNew ) const;
@@ -217,7 +233,6 @@ public:
     SwWrongList const* GetSmartTags() const;
 
     /// End: Data collected during idle time
-
 
 public:
     using SwContentNode::GetAttr;
@@ -274,7 +289,7 @@ public:
     /** delete all attributes.
         If neither pSet nor nWhich is given, delete all attributes (except
         refmarks, toxmarks, meta) in range.
-        @param rIdx     start position
+        @param nContentStart start position
         @param nLen     range in which attributes will be deleted
         @param pSet     if not 0, delete only attributes contained in pSet
         @param nWhich   if not 0, delete only attributes with matching which
@@ -286,7 +301,7 @@ public:
         which are simply included in the range.
      */
     void RstTextAttr(
-        const SwContentIndex &rIdx,
+        const sal_Int32 nContentStart,
         const sal_Int32 nLen,
         const sal_uInt16 nWhich = 0,
         const SfxItemSet* pSet = nullptr,
@@ -351,6 +366,11 @@ public:
                const SwContentIndex &rStart,
                sal_Int32 nLen,
                const bool bForceCopyOfAllAttrs = false );
+    void CopyText( SwTextNode * const pDest,
+               const SwContentIndex &rDestStart,
+               const SwPosition &rStart,
+               sal_Int32 nLen,
+               const bool bForceCopyOfAllAttrs = false );
 
     void        CutText(SwTextNode * const pDest,
                     const SwContentIndex & rStart, const sal_Int32 nLen);
@@ -365,7 +385,7 @@ public:
     void ReplaceText( SwPosition& rStart, const sal_Int32 nDelLen,
             const OUString & rText );
     void ReplaceTextOnly( sal_Int32 nPos, sal_Int32 nLen,
-            const OUString& rText,
+            std::u16string_view aText,
             const css::uno::Sequence<sal_Int32>& rOffsets );
 
     /// Virtual methods from ContentNode.

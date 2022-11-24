@@ -299,6 +299,7 @@ class GlyphEmit
     std::vector<ColorLayer>         m_aColorLayers;
     font::RawFontData               m_aColorBitmap;
     tools::Rectangle                m_aRect;
+    basegfx::B2DPolyPolygon         m_aOutline;
 
 public:
     GlyphEmit() : m_nSubsetGlyphID(0), m_nGlyphWidth(0)
@@ -324,6 +325,9 @@ public:
         rRect = m_aRect;
         return m_aColorBitmap;
     }
+
+    void setOutline(basegfx::B2DPolyPolygon aOutline) { m_aOutline = aOutline; }
+    const basegfx::B2DPolyPolygon& getOutline() const { return m_aOutline; }
 
     void addCode( sal_Ucs i_cCode )
     {
@@ -422,10 +426,12 @@ struct PDFLink : public PDFAnnotation
     sal_Int32                   m_nDest; // set to -1 for URL, to a dest else
     OUString               m_aURL;
     sal_Int32                   m_nStructParent; // struct parent entry
+    OUString m_AltText;
 
-    PDFLink()
+    PDFLink(OUString const& rAltText)
             : m_nDest( -1 ),
               m_nStructParent( -1 )
+            , m_AltText(rAltText)
     {}
 };
 
@@ -850,8 +856,8 @@ i12626
     void appendLiteralStringEncrypt( std::string_view rInString, const sal_Int32 nInObjectNumber, OStringBuffer& rOutBuffer );
 
     /* creates fonts and subsets that will be emitted later */
-    void registerGlyph(const sal_GlyphId, const vcl::font::PhysicalFontFace*, const std::vector<sal_Ucs>&, sal_Int32, sal_uInt8&, sal_Int32&);
-    void registerGlyph(const sal_GlyphId, const vcl::font::PhysicalFontFace*, const std::vector<sal_Ucs>&, sal_Int32, sal_uInt8&, sal_Int32&, bool);
+    void registerGlyph(const sal_GlyphId, const vcl::font::PhysicalFontFace*, const LogicalFontInstance* pFont, const std::vector<sal_Ucs>&, sal_Int32, sal_uInt8&, sal_Int32&);
+    void registerSimpleGlyph(const sal_GlyphId, const vcl::font::PhysicalFontFace*, const std::vector<sal_Ucs>&, sal_Int32, sal_uInt8&, sal_Int32&);
 
     /*  emits a text object according to the passed layout */
     /* TODO: remove rText as soon as SalLayout will change so that rText is not necessary anymore */
@@ -1273,7 +1279,7 @@ public:
     sal_Int32   emitDocumentMetadata();
 
     // links
-    sal_Int32 createLink( const tools::Rectangle& rRect, sal_Int32 nPageNr );
+    sal_Int32 createLink(const tools::Rectangle& rRect, sal_Int32 nPageNr, OUString const& rAltText);
     sal_Int32 createDest( const tools::Rectangle& rRect, sal_Int32 nPageNr, PDFWriter::DestAreaType eType );
     sal_Int32 registerDestReference( sal_Int32 nDestId, const tools::Rectangle& rRect, sal_Int32 nPageNr, PDFWriter::DestAreaType eType );
     void      setLinkDest( sal_Int32 nLinkId, sal_Int32 nDestId );

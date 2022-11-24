@@ -8,6 +8,7 @@
  */
 
 #include <vcl/filter/pdfdocument.hxx>
+#include <pdf/pdfcompat.hxx>
 
 #include <map>
 #include <memory>
@@ -347,7 +348,7 @@ sal_Int32 PDFDocument::WriteAnnotObject(PDFObjectElement const& rFirstPage, sal_
     m_aEditBuffer.WriteUInt32AsString(nSignatureId);
     m_aEditBuffer.WriteCharPtr(" 0 R\n");
     m_aEditBuffer.WriteCharPtr("/AP<<\n/N ");
-    m_aEditBuffer.WriteUInt32AsString(nAppearanceId);
+    m_aEditBuffer.WriteInt32AsString(nAppearanceId);
     m_aEditBuffer.WriteCharPtr(" 0 R\n>>\n");
     m_aEditBuffer.WriteCharPtr(">>\nendobj\n\n");
 
@@ -1347,6 +1348,18 @@ bool PDFDocument::Tokenize(SvStream& rStream, TokenizeMode eMode,
 void PDFDocument::SetIDObject(size_t nID, PDFObjectElement* pObject)
 {
     m_aIDObjects[nID] = pObject;
+}
+
+bool PDFDocument::ReadWithPossibleFixup(SvStream& rStream)
+{
+    if (Read(rStream))
+        return true;
+
+    // Read failed, try a roundtrip through pdfium and then retry.
+    rStream.Seek(0);
+    SvMemoryStream aStandardizedStream;
+    vcl::pdf::convertToHighestSupported(rStream, aStandardizedStream);
+    return Read(aStandardizedStream);
 }
 
 bool PDFDocument::Read(SvStream& rStream)
